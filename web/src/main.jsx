@@ -12,6 +12,7 @@ const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options });
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event('vp-auth-expired'));
     const detail = await response.json().catch(() => ({}));
     const error = new Error(detail.detail || `Request failed (${response.status})`);
     error.status = response.status;
@@ -233,6 +234,7 @@ function Desk({ onLogout }) {
 function App() {
   const [authorized, setAuthorized] = useState(null);
   useEffect(() => { api('/channels').then(() => setAuthorized(true)).catch(() => setAuthorized(false)); }, []);
+  useEffect(() => { const expired = () => setAuthorized(false); window.addEventListener('vp-auth-expired', expired); return () => window.removeEventListener('vp-auth-expired', expired); }, []);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(() => {
     const loadedVersion = document.querySelector('script[type="module"]')?.getAttribute('src');
