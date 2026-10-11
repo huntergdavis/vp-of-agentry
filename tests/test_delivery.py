@@ -24,7 +24,7 @@ class FakeTransport:
                 raise RuntimeError(f"no message with id {args['message_id']!r}")
             return record
         if command == "list_messages":
-            return {"queued": [], "recent": self.recent}
+            return {"queued": [record for record in self.records.values() if record["status"] == "queued"], "recent": self.recent}
         if command == "cancel_message":
             record = self.records[args["message_id"]]
             if record["status"] != "queued":
@@ -113,6 +113,15 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "queued for transport"):
             server.send_now(message_id, "owner")
         self.assertFalse(any(command == "cancel_message" for command, _ in self.transport.calls))
+
+    def test_send_now_allows_message_behind_a_draft_hold(self):
+        message_id = self.add_message("backlog")
+        self.transport.records["backlog"] = {"message_id": "backlog", "status": "queued",
+                                              "message": "queued for VP", "blocked_by": "input box contains a draft"}
+        item = server.send_now(message_id, "owner")
+        self.assertEqual("sent", item["delivery"])
+        self.assertLess([c for c, _ in self.transport.calls].index("cancel_message"),
+                        [c for c, _ in self.transport.calls].index("send_text"))
 
 
 if __name__ == "__main__":

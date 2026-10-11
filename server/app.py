@@ -337,6 +337,7 @@ def _reconcile(channel: str):
             return
         client = _flock()
         recent = client.call("list_messages")
+        queued_by_id = {item.get("message_id"): item for item in recent.get("queued", [])}
         for row in queued:
             record = None
             transport_id = row["transport_id"]
@@ -355,9 +356,14 @@ def _reconcile(channel: str):
             if record:
                 state = record.get("status")
                 if state in {"queued", "sent", "cancelled"}:
+                    detail = record.get("message", "")
+                    if state == "queued":
+                        blocker = queued_by_id.get(transport_id, {}).get("blocked_by")
+                        if blocker:
+                            detail = f"Waiting: {blocker}"
                     with _db() as conn:
                         conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=? WHERE id=?",
-                                     (state, record.get("message", ""), transport_id, row["id"]))
+                                     (state, detail, transport_id, row["id"]))
                     continue
             # A failed or vanished in-memory entry may actually have been
             # submitted before the daemon timed out. Keep its original ID and
@@ -519,7 +525,10 @@ def send_now(message_id: int, identity: Annotated[str, Depends(require_auth)]):
                 return _message(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone(), conn)
         if record.get("status") != "queued":
             raise HTTPException(409, "Message is no longer queued; refresh its status")
-        if "someone is typing" not in record.get("message", ""):
+        queued = client.call("list_messages").get("queued", [])
+        blocked = next((item.get("blocked_by") for item in queued
+                        if item.get("message_id") == row["transport_id"]), None)
+        if "someone is typing" not in record.get("message", "") and blocked != "input box contains a draft":
             raise HTTPException(409, "This message is queued for transport, not held behind a draft")
         try:
             client.call("cancel_message", message_id=row["transport_id"])
