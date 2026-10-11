@@ -92,13 +92,20 @@ class DeliveryTests(unittest.TestCase):
 
     def test_send_now_cancels_held_copy_before_direct_send(self):
         message_id = self.add_message("held")
-        self.transport.records["held"] = {"message_id": "held", "status": "queued", "message": "queued"}
+        self.transport.records["held"] = {"message_id": "held", "status": "queued", "message": "queued: someone is typing in VP"}
         item = server.send_now(message_id, "owner")
         self.assertEqual("sent", item["delivery"])
         commands = [command for command, _ in self.transport.calls]
         self.assertLess(commands.index("cancel_message"), commands.index("send_text"))
         direct = next(args for command, args in self.transport.calls if command == "send_text")
         self.assertFalse(direct["hold_while_typing"])
+
+    def test_send_now_refuses_general_transport_backlog(self):
+        message_id = self.add_message("backlog")
+        self.transport.records["backlog"] = {"message_id": "backlog", "status": "queued", "message": "queued for VP"}
+        with self.assertRaisesRegex(Exception, "queued for transport"):
+            server.send_now(message_id, "owner")
+        self.assertFalse(any(command == "cancel_message" for command, _ in self.transport.calls))
 
 
 if __name__ == "__main__":

@@ -518,6 +518,8 @@ def send_now(message_id: int, identity: Annotated[str, Depends(require_auth)]):
                 return _message(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone(), conn)
         if record.get("status") != "queued":
             raise HTTPException(409, "Message is no longer queued; refresh its status")
+        if "someone is typing" not in record.get("message", ""):
+            raise HTTPException(409, "This message is queued for transport, not held behind a draft")
         try:
             client.call("cancel_message", message_id=row["transport_id"])
         except Exception:
