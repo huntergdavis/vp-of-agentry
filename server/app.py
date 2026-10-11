@@ -15,6 +15,7 @@ import re
 import secrets
 import sqlite3
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -104,6 +105,43 @@ def _auth_record():
     return json.loads(AUTH.read_text())
 
 
+def _password_matches(password: str, record: dict):
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(record["salt"]), 400_000)
+    return hmac.compare_digest(digest, bytes.fromhex(record["digest"]))
+
+
+def _private_write(path: Path, content: str):
+    """Replace a credential file atomically without exposing its contents in Git."""
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _sync_edited_credentials():
+    """Honor a local owner's edited Password line on the next login."""
+    if not CREDENTIALS.exists() or CREDENTIALS.stat().st_mtime_ns <= AUTH.stat().st_mtime_ns:
+        return
+    match = re.search(r"^Password: (.+)$", CREDENTIALS.read_text(), re.MULTILINE)
+    if not match:
+        return
+    password = match.group(1)
+    record = _auth_record()
+    if _password_matches(password, record):
+        return
+    salt = secrets.token_bytes(16)
+    record["salt"] = salt.hex()
+    record["digest"] = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 400_000).hex()
+    _private_write(AUTH, json.dumps(record))
+
+
 def _same_origin(request: Request):
     origin = request.headers.get("origin")
     if origin and origin != f"{request.url.scheme}://{request.headers.get('host')}":
@@ -128,14 +166,14 @@ class Login(BaseModel):
 @app.post("/api/login")
 def login(body: Login, request: Request, response: Response):
     _same_origin(request)
+    _sync_edited_credentials()
     addr = request.client.host if request.client else "unknown"
     now = time.time()
     attempts = [t for t in LOGIN_ATTEMPTS.get(addr, []) if now - t < 300]
     if len(attempts) >= 8:
         raise HTTPException(429, "Too many attempts; retry in five minutes")
     record = _auth_record()
-    digest = hashlib.pbkdf2_hmac("sha256", body.password.encode(), bytes.fromhex(record["salt"]), 400_000)
-    if not hmac.compare_digest(digest, bytes.fromhex(record["digest"])):
+    if not _password_matches(body.password, record):
         LOGIN_ATTEMPTS[addr] = attempts + [now]
         raise HTTPException(401, "Incorrect password")
     LOGIN_ATTEMPTS.pop(addr, None)
@@ -149,6 +187,32 @@ def login(body: Login, request: Request, response: Response):
 def logout(request: Request, response: Response, _: Annotated[str, Depends(require_auth)]):
     SESSIONS.pop(request.cookies.get("vp_session", ""), None)
     response.delete_cookie("vp_session")
+    return {"ok": True}
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=12, max_length=200)
+
+
+@app.post("/api/password")
+def change_password(body: PasswordChange, request: Request, identity: Annotated[str, Depends(require_auth)]):
+    if identity != "owner":
+        raise HTTPException(403, "Owner sign-in required")
+    record = _auth_record()
+    if not _password_matches(body.current_password, record):
+        raise HTTPException(403, "Current password is incorrect")
+    salt = secrets.token_bytes(16)
+    record["salt"] = salt.hex()
+    record["digest"] = hashlib.pbkdf2_hmac("sha256", body.new_password.encode(), salt, 400_000).hex()
+    _private_write(AUTH, json.dumps(record))
+    if CREDENTIALS.exists():
+        _private_write(CREDENTIALS, f"Password: {body.new_password}\nAPI token: {record['token']}\n")
+    current = request.cookies.get("vp_session", "")
+    current_expiry = SESSIONS.get(current)
+    SESSIONS.clear()
+    if current_expiry:
+        SESSIONS[current] = current_expiry
     return {"ok": True}
 
 
@@ -212,7 +276,7 @@ def _message(row, conn):
 def _reconcile(channel: str):
     """Keep the UI's delivery label aligned with Dunking Sheep's queue state."""
     with _db() as conn:
-        queued = conn.execute("SELECT id,transport_id FROM messages WHERE channel=? AND delivery='queued' ORDER BY id DESC LIMIT 50",
+        queued = conn.execute("SELECT id,transport_id FROM messages WHERE channel=? AND delivery='queued' ORDER BY id DESC",
                               (channel,)).fetchall()
     if not queued:
         return
@@ -260,6 +324,26 @@ def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int
         rows = rows[:limit]
         return {"items": [_message(r, conn) for r in reversed(rows)], "has_more": more,
                 "next_before": rows[-1]["id"] if rows else None}
+
+
+@app.get("/api/deliveries")
+def deliveries(channel: str, ids: str, _: Annotated[str, Depends(require_auth)]):
+    if channel not in CHANNEL_INDEX:
+        raise HTTPException(404, "Unknown channel")
+    try:
+        message_ids = [int(part) for part in ids.split(",") if part]
+    except ValueError:
+        raise HTTPException(422, "Invalid message IDs")
+    if len(message_ids) > 100 or any(item < 1 for item in message_ids):
+        raise HTTPException(422, "Too many or invalid message IDs")
+    _reconcile(channel)
+    if not message_ids:
+        return {"deliveries": {}}
+    placeholders = ",".join("?" for _ in message_ids)
+    with _db() as conn:
+        rows = conn.execute(f"SELECT id,delivery FROM messages WHERE channel=? AND id IN ({placeholders})",
+                            [channel, *message_ids]).fetchall()
+    return {"deliveries": {str(row["id"]): row["delivery"] for row in rows}}
 
 
 @app.get("/api/messages/{message_id}/context")
@@ -405,6 +489,15 @@ def activity(channel: str, _: Annotated[str, Depends(require_auth)]):
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/api/version")
+def version():
+    index = ROOT / "web" / "dist" / "index.html"
+    if not index.exists():
+        return {"version": "unbuilt"}
+    match = re.search(r'<script[^>]+src="([^"]+)"', index.read_text())
+    return {"version": match.group(1) if match else str(index.stat().st_mtime_ns)}
 
 
 DIST = ROOT / "web" / "dist"

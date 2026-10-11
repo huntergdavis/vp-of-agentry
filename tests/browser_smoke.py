@@ -15,9 +15,10 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = os.getenv("VP_BASE_URL", "http://127.0.0.1:8787")
+credential_path = Path(os.getenv("VP_TEST_CREDENTIALS_PATH", ROOT / "data" / "owner-credentials"))
 PASSWORD = dict(
     line.split(": ", 1)
-    for line in (ROOT / "data" / "owner-credentials").read_text().strip().splitlines()
+    for line in credential_path.read_text().strip().splitlines()
 )["Password"]
 
 

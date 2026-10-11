@@ -41,6 +41,27 @@ function Login({ onSuccess }) {
   </div></main>;
 }
 
+function PasswordSettings({ onClose }) {
+  const [current, setCurrent] = useState(''); const [next, setNext] = useState(''); const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [saved, setSaved] = useState(false);
+  async function submit(event) {
+    event.preventDefault(); setError('');
+    if (next !== confirm) { setError('New passwords do not match'); return; }
+    setBusy(true);
+    try { await api('/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current_password: current, new_password: next }) });
+      setCurrent(''); setNext(''); setConfirm(''); setSaved(true);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="settings-modal" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Change owner password">
+    <div className="settings-head"><div><div className="eyebrow">OWNER ACCESS</div><h2>Change password</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">×</button></div>
+    <form onSubmit={submit}><label>Current password<input type="password" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} required /></label>
+      <label>New password<input type="password" autoComplete="new-password" minLength={12} value={next} onChange={e => setNext(e.target.value)} required /></label>
+      <label>Confirm new password<input type="password" autoComplete="new-password" minLength={12} value={confirm} onChange={e => setConfirm(e.target.value)} required /></label>
+      {error && <div className="form-error" role="alert">{error}</div>}{saved && <div className="settings-success" role="status">Password changed. Other browser sessions were signed out.</div>}
+      <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button></form>
+  </div></div>;
+}
+
 function Composer({ channel, onSend, pending, setPending, disabled }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -132,16 +153,22 @@ function Desk({ onLogout }) {
   const [channels, setChannels] = useState([]); const [channel, setChannel] = useState('vp');
   const [channelUpdated, setChannelUpdated] = useState(null);
   const [items, setItems] = useState([]); const [older, setOlder] = useState(false); const [loadingOlder, setLoadingOlder] = useState(false);
-  const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
+  const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
   const [activityStatus, setActivityStatus] = useState('connecting'); const [activityUpdated, setActivityUpdated] = useState(null); const [activityConnected, setActivityConnected] = useState(false); const [showActivity, setShowActivity] = useState(false);
-  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0);
+  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0); const itemsRef = useRef([]);
   const selected = channels.find(c => c.id === channel);
+  useEffect(() => { itemsRef.current = items; }, [items]);
   async function refreshChannels() { try { const data = await api('/channels'); setChannels(data.channels); setChannelUpdated(new Date(data.checked_at)); } catch (e) { setError(e.message); } }
   async function refreshMessages(reset = false) {
     try {
       const data = await api(`/messages?channel=${channel}&limit=50`);
       if (reset) { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before; requestAnimationFrame(() => requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; })); }
-      else setItems(old => { const ids = new Set(old.map(x => x.id)); return [...old, ...data.items.filter(x => !ids.has(x.id))]; });
+      else setItems(old => { const byId = new Map(old.map(item => [item.id, item])); for (const item of data.items) byId.set(item.id, item); return [...byId.values()].sort((a, b) => a.id - b.id); });
+      const queued = itemsRef.current.filter(item => item.role === 'owner' && item.delivery === 'queued').slice(0, 100);
+      if (queued.length) {
+        const states = await api(`/deliveries?channel=${channel}&ids=${queued.map(item => item.id).join(',')}`);
+        setItems(old => old.map(item => states.deliveries[item.id] ? { ...item, delivery: states.deliveries[item.id] } : item));
+      }
     } catch (e) { setError(e.message); }
   }
   async function loadOlder() {
@@ -187,9 +214,9 @@ function Desk({ onLogout }) {
     <aside className="sidebar"><div className="identity"><div className="brand-mark small">VA</div><div><strong>VP OF AGENTRY</strong><span>Executive desk</span></div></div>
       <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.kind === 'active').map(c => <button key={c.id} className={`channel ${channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
-      <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
+      <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">COMMAND CHANNEL / {selected?.kind?.toUpperCase() || 'ACTIVE'}</div><h1>{selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right"><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button><button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">COMMAND CHANNEL / {selected?.kind?.toUpperCase() || 'ACTIVE'}</div><h1>{selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right"><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button><button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
       <div className="conversation" ref={listRef}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
@@ -199,14 +226,22 @@ function Desk({ onLogout }) {
     </main>
     <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>
     {searchOpen && <Search onClose={() => setSearchOpen(false)} onJump={jumpTo} />}
+    {settingsOpen && <PasswordSettings onClose={() => setSettingsOpen(false)} />}
   </div>;
 }
 
 function App() {
   const [authorized, setAuthorized] = useState(null);
   useEffect(() => { api('/channels').then(() => setAuthorized(true)).catch(() => setAuthorized(false)); }, []);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  useEffect(() => {
+    const loadedVersion = document.querySelector('script[type="module"]')?.getAttribute('src');
+    const check = () => api('/version').then(data => { if (loadedVersion && data.version !== loadedVersion) setUpdateAvailable(true); }).catch(() => {});
+    const timer = setInterval(check, 15000); window.addEventListener('focus', check);
+    return () => { clearInterval(timer); window.removeEventListener('focus', check); };
+  }, []);
   if (authorized === null) return <div className="splash">VP OF AGENTRY</div>;
-  return authorized ? <Desk onLogout={() => setAuthorized(false)} /> : <Login onSuccess={() => setAuthorized(true)} />;
+  return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{authorized ? <Desk onLogout={() => setAuthorized(false)} /> : <Login onSuccess={() => setAuthorized(true)} />}</>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

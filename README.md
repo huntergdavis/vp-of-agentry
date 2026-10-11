@@ -10,6 +10,8 @@ An owner-only LAN desk for existing Herdr agents. It sends to the running VP and
 
 Open `http://<this-host-on-your-LAN>:8787`. On first start, a random password and local API token are generated in `data/owner-credentials` (mode `0600`). The entire `data/` directory is ignored by Git. Sign in with the password, then remove that credentials file after storing the secrets in your password manager if desired. The API token remains in `data/auth.json` for local agents and `vpctl`.
 
+Use the gear icon in the signed-in desk to change the password. It requires the current password, writes the new hash and local credentials file with private permissions, preserves the API token, and signs out other browser sessions. If you edit the `Password:` line in `data/owner-credentials` directly, the next login recognizes the newer file and updates the stored password hash. Do not edit `auth.json` by hand. Tabs opened before an app upgrade need one manual browser refresh; updated tabs show a refresh notice whenever a newer build is deployed.
+
 Set `VP_BIND` and `VP_PORT` to change the listener. The default binds to all interfaces so your LAN devices can reach it. Limit access to your trusted LAN or a VPN; HTTP on a LAN does not encrypt traffic. The web UI requires authentication, sessions use HttpOnly SameSite cookies, login attempts are rate limited, and cross-origin browser requests are rejected.
 
 To keep it running after an agent or terminal closes, run `./install-service.sh`. Check it with `systemctl --user status vp-of-agentry.service` and `./vpctl status`. The service restarts on failure and starts with your user session.
