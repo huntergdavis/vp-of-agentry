@@ -3,6 +3,7 @@
 import importlib
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -89,6 +90,16 @@ class DeliveryTests(unittest.TestCase):
         self.transport.records["failed"] = {"message_id": "failed", "status": "failed", "message": "pane busy"}
         server._reconcile("vp")
         self.assertEqual(("queued", "test-1"), self.row(message_id))
+
+    def test_shared_timeout_pauses_retries(self):
+        message_id = self.add_message("failed")
+        with sqlite3.connect(server.DB) as db:
+            db.execute("UPDATE messages SET delivery='failed' WHERE id=?", (message_id,))
+        self.transport.records["failed"] = {"message_id": "failed", "status": "failed", "message": "herdr command timed out"}
+        self.transport.recent = [{"status": "failed", "message": "herdr command timed out", "finished_at": time.time()} for _ in range(3)]
+        server._reconcile("vp")
+        self.assertEqual(("failed", "failed"), self.row(message_id))
+        self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
 
     def test_send_now_cancels_held_copy_before_direct_send(self):
         message_id = self.add_message("held")

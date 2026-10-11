@@ -307,6 +307,18 @@ def _send_saved(row, client, pane, force=False):
     return result
 
 
+def _transport_degraded(records):
+    """Pause retries while the shared daemon is timing out across panes."""
+    now = time.time()
+    recent = records.get("recent", [])
+    timeouts = [item.get("finished_at", 0) for item in recent
+                if item.get("status") == "failed"
+                and "herdr command timed out" in item.get("message", "")
+                and now - (item.get("finished_at") or 0) < 600]
+    last_success = max((item.get("finished_at") or 0 for item in recent if item.get("status") == "sent"), default=0)
+    return len(timeouts) >= 3 and last_success < max(timeouts)
+
+
 def _reconcile(channel: str):
     """Watch the live queue, and restore messages lost by a daemon restart."""
     if not DELIVERY_LOCK.acquire(blocking=False):
@@ -318,7 +330,8 @@ def _reconcile(channel: str):
         if not queued:
             return
         client = _flock()
-        recent = None
+        recent = client.call("list_messages")
+        degraded = _transport_degraded(recent)
         panes = None
         for row in queued:
             record = None
@@ -330,8 +343,6 @@ def _reconcile(channel: str):
                     if "no message with id" not in str(exc):
                         continue
             if record is None:
-                if recent is None:
-                    recent = client.call("list_messages")
                 for item in recent.get("queued", []) + recent.get("recent", []):
                     if f"[VP web message #{row['id']};" in item.get("text", ""):
                         record = item
@@ -344,6 +355,12 @@ def _reconcile(channel: str):
                         conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=? WHERE id=?",
                                      (state, record.get("message", ""), transport_id, row["id"]))
                     continue
+            if degraded:
+                with _db() as conn:
+                    conn.execute("UPDATE messages SET delivery=?,delivery_detail=? WHERE id=?",
+                                 ("failed" if record and record.get("status") == "failed" else "queued",
+                                  "Shared Herdr transport is timing out; retry paused", row["id"]))
+                continue
             # An absent in-memory queue entry may have vanished on daemon
             # restart. Retry the durable row after a short backoff. The marker
             # check above avoids resending entries still known to the daemon.
