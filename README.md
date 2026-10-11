@@ -1,43 +1,23 @@
 # VP of Agentry
 
-An owner-only LAN desk for existing Herdr agents. It sends to the running VP and project PM panes through Dunking Sheep's guarded `send_text` command. It does not start a new model session.
+A private LAN desk for the owner's existing Herdr agents. Messages go through Dunking Sheep's guarded `send_text` queue; the website does not start a new model session.
 
-## Start
+## Run
 
 ```bash
-./run.sh
+./run.sh                    # first run installs dependencies and builds the UI
+./install-service.sh        # optional: keep it running with systemd
+./vpctl status              # health check
 ```
 
-Open `http://<this-host-on-your-LAN>:8787`. On first start, a random password and local API token are generated in `data/owner-credentials` (mode `0600`). The entire `data/` directory is ignored by Git. Sign in with the password, then remove that credentials file after storing the secrets in your password manager if desired. The API token remains in `data/auth.json` for local agents and `vpctl`.
+Open `http://<LAN-host>:8787`. The initial password and API token are in ignored `data/owner-credentials` (mode `0600`). Change the password with the gear icon, or edit that file's `Password:` line; the next sign-in applies a newer file. The API token is preserved. Set `VP_BIND`, `VP_PORT`, or `DUNKING_SHEEP_DIR` if needed. Access this HTTP app only on a trusted LAN or VPN.
 
-Use the gear icon in the signed-in desk to change the password. It requires the current password, writes the new hash and local credentials file with private permissions, preserves the API token, and signs out other browser sessions. If you edit the `Password:` line in `data/owner-credentials` directly, the next login recognizes the newer file and updates the stored password hash. Do not edit `auth.json` by hand. Tabs opened before an app upgrade need one manual browser refresh; updated tabs show a refresh notice whenever a newer build is deployed.
+## Delivery
 
-Set `VP_BIND` and `VP_PORT` to change the listener. The default binds to all interfaces so your LAN devices can reach it. Limit access to your trusted LAN or a VPN; HTTP on a LAN does not encrypt traffic. The web UI requires authentication, sessions use HttpOnly SameSite cookies, login attempts are rate limited, and cross-origin browser requests are rejected.
+Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB) are saved in ignored `data/`. The app watches queued delivery every five seconds and retries a durable message if Dunking Sheep loses its in-memory queue. A queued card explains a typing hold. **Send now** is an explicit override: it cancels the queued copy before bypassing the draft guard and may interfere with unfinished Herdr input. `sent` means the pane accepted the submission, not that the agent answered.
 
-To keep it running after an agent or terminal closes, run `./install-service.sh`. Check it with `systemctl --user status vp-of-agentry.service` and `./vpctl status`. The service restarts on failure and starts with your user session.
+Agents post durable Markdown replies with `echo 'Brief' | ./vpctl brief --channel vp`. The right panel shows recent, volatile `read_pane` output; search covers stored website messages and posted briefs. The owner Bearer token works with the same API. A browser tab opened before an upgrade needs one refresh; newer tabs show an update notice.
 
-Requires Python 3.10+, Node 20+, Herdr, and a running Dunking Sheep daemon or a sibling `dunkingsheep` checkout. Set `DUNKING_SHEEP_DIR` if it is elsewhere. On first run, `run.sh` installs Python and Node dependencies and builds the frontend. Runtime data and uploads remain under `data/`.
+The UI reuses MIT licensed [ChatScope](https://github.com/chatscope/chat-ui-kit-react), [Tiptap](https://github.com/ueberdosis/tiptap), [Turndown](https://github.com/mixmark-io/turndown), and [react-markdown](https://github.com/remarkjs/react-markdown). Open WebUI and LibreChat were evaluated, but their model-provider paths need an adapter to target a running Herdr pane and local guarded queue.
 
-## How it works
-
-- **Chat:** messages are sent to the current Herdr pane for each channel using Dunking Sheep's guarded queue. The UI reconciles `queued`, `sent`, or `failed` against the transport message ID; a sent state means submitted to the pane, not that the agent has answered. Enter sends; Shift+Enter inserts a new line. IME composition does not submit.
-- **Briefs:** an agent publishes a concise Markdown response with `echo 'Done' | ./vpctl brief --channel vp`. Agent briefs and owner messages are stored in SQLite, with paginated back-scrolling and paged search that opens the exact matching message.
-- **Files:** images and other files up to 25 MB are stored locally under ignored `data/uploads/` and their absolute paths are included in the guarded message to the agent. The browser can download them only after signing in.
-- **Live view:** the right panel polls recent terminal output from `read_pane` every five seconds, shows the last refresh time, and scrolls independently. It follows new output only when you are near the bottom. On narrow screens, open it with **Live signal**. This is a volatile view and is not complete history. Durable agent responses require `vpctl brief` or the authenticated `/api/brief` endpoint.
-- **API:** the owner can use the same API with the generated Bearer token, and `vpctl` is the command-line wrapper. The browser never accesses the Herdr or Dunking Sheep Unix sockets.
-
-The channel selectors match current Herdr tab labels (VP of Agentry, Poolrad PM, website, Slamdemonium, Dunkies, and MonkeyDLuffy). Update `CHANNELS` in `server/app.py` if tab labels change. The remote MonkeyDLuffy tab is monitoring only unless an agent is present there.
-
-Presence labels describe only the current agent process. Herdr's transient `blocked` state is shown as **waiting** and never used as a project blocker indicator. You can still message a waiting agent. Actual blockers and decisions belong in posted briefs.
-
-## Reused software
-
-The chat surface uses [ChatScope Chat UI Kit React](https://github.com/chatscope/chat-ui-kit-react) and [ChatScope styles](https://github.com/chatscope/chat-ui-kit-styles), both MIT licensed. Rich text uses [Tiptap](https://github.com/ueberdosis/tiptap) (MIT); Markdown conversion and display use [Turndown](https://github.com/mixmark-io/turndown) and [react-markdown](https://github.com/remarkjs/react-markdown), both MIT. This keeps the custom frontend limited to the project dashboard and bridge.
-
-[Open WebUI](https://github.com/open-webui/open-webui) and [LibreChat](https://github.com/LibreChat-AI/LibreChat) were evaluated. Both offer mature self-hosted chat, uploads, and history. Their provider integrations expect model conversations and do not directly provide a durable, structured reply stream from an already-running Herdr pane. Integrating raw local file custody and the guarded send queue would require an adapter; this small bridge keeps those semantics explicit.
-
-## Limits
-
-Herdr `read_pane` exposes recent terminal text, not a structured full conversation. The desk persists what is sent through it and briefs posted back through the API, but cannot retroactively import every prior agent turn. Search covers this stored history. This is a single-owner LAN app; deploy behind HTTPS or a VPN for access over untrusted networks.
-
-The optional authenticated browser regression is `VP_TEST_STATUS=1 .venv/bin/python tests/browser_smoke.py` after installing Playwright in `.venv`. Set `VP_TEST_SEND=1` to exercise real guarded submissions to the VP pane from desktop and mobile layouts.
+Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).

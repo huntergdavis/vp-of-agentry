@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Message, MessageList } from '@chatscope/chat-ui-kit-react';
 import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
@@ -117,15 +117,26 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
   </section>;
 }
 
-function MessageCard({ item, highlight }) {
+function MessageCard({ item, highlight, onSendNow }) {
   const owner = item.role === 'owner';
+  const waitingMinutes = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 60000));
+  const heldForDraft = item.delivery_detail?.includes('someone is typing');
   return <div className={`message-wrap ${owner ? 'owner' : 'agent'} ${highlight ? 'highlight' : ''}`} id={`message-${item.id}`}>
     <div className="message-meta"><strong>{owner ? 'YOU' : 'AGENT'}</strong><span>{new Date(item.created_at).toLocaleString()}</span>{owner && <span className={`delivery ${item.delivery}`}>{item.delivery}</span>}</div>
     <Message model={{ message: '', direction: owner ? 'outgoing' : 'incoming', position: 'single', sender: owner ? 'You' : 'Agent' }}>
       <Message.CustomContent><div className="markdown"><ReactMarkdown>{item.body}</ReactMarkdown></div>
         {item.attachments?.length > 0 && <div className="attachments">{item.attachments.map(a => <div key={a.id} className="attachment-card">{['image/png','image/jpeg','image/gif','image/webp'].includes(a.mime) && <a href={`/api/uploads/${a.id}`} target="_blank" rel="noreferrer"><img src={`/api/uploads/${a.id}?preview=true`} loading="lazy" alt={a.filename} /></a>}<a href={`/api/uploads/${a.id}`} target="_blank" rel="noreferrer">📎 {a.filename}</a></div>)}</div>}</Message.CustomContent>
     </Message>
+    {owner && item.delivery === 'queued' && <div className="queue-help"><span>{heldForDraft ? 'Waiting for the Herdr draft to clear' : (item.delivery_detail || 'Waiting for guarded delivery')} · {waitingMinutes < 1 ? 'under 1 min' : `${waitingMinutes} min`}</span><button onClick={() => onSendNow(item)}>Send now</button></div>}
   </div>;
+}
+
+function ForceSendDialog({ item, busy, onClose, onConfirm }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="settings-modal" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Send queued message now">
+    <div className="settings-head"><div><div className="eyebrow">DELIVERY OVERRIDE</div><h2>Send this message now?</h2></div><button className="icon-button" onClick={onClose} aria-label="Close">×</button></div>
+    <p className="override-copy">The VP pane appears to contain an unfinished draft. Sending now may combine your message with that draft. The queued copy will be cancelled first to prevent a duplicate.</p>
+    <div className="override-actions"><button onClick={onClose} disabled={busy}>Keep waiting</button><button className="primary" onClick={() => onConfirm(item)} disabled={busy}>{busy ? 'Sending…' : 'Send now'}</button></div>
+  </div></div>;
 }
 
 function Search({ onClose, onJump }) {
@@ -155,10 +166,23 @@ function Desk({ onLogout }) {
   const [channelUpdated, setChannelUpdated] = useState(null);
   const [items, setItems] = useState([]); const [older, setOlder] = useState(false); const [loadingOlder, setLoadingOlder] = useState(false);
   const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
+  const [forceTarget, setForceTarget] = useState(null); const [forceBusy, setForceBusy] = useState(false);
   const [activityStatus, setActivityStatus] = useState('connecting'); const [activityUpdated, setActivityUpdated] = useState(null); const [activityConnected, setActivityConnected] = useState(false); const [showActivity, setShowActivity] = useState(false);
-  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0); const itemsRef = useRef([]);
+  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0); const itemsRef = useRef([]); const scrollToSentRef = useRef(null);
   const selected = channels.find(c => c.id === channel);
   useEffect(() => { itemsRef.current = items; }, [items]);
+  useLayoutEffect(() => {
+    const wanted = scrollToSentRef.current;
+    if (!wanted || !items.some(item => item.id === wanted) || !listRef.current) return;
+    const pane = listRef.current;
+    const follow = () => { pane.scrollTop = pane.scrollHeight; };
+    follow();
+    const frame = requestAnimationFrame(() => requestAnimationFrame(follow));
+    const observer = new ResizeObserver(follow);
+    observer.observe(pane.querySelector('.conversation-inner'));
+    const finish = setTimeout(() => { observer.disconnect(); scrollToSentRef.current = null; }, 1800);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); clearTimeout(finish); };
+  }, [items]);
   async function refreshChannels() { try { const data = await api('/channels'); setChannels(data.channels); setChannelUpdated(new Date(data.checked_at)); } catch (e) { setError(e.message); } }
   async function refreshMessages(reset = false) {
     try {
@@ -168,7 +192,7 @@ function Desk({ onLogout }) {
       const queued = itemsRef.current.filter(item => item.role === 'owner' && item.delivery === 'queued').slice(0, 100);
       if (queued.length) {
         const states = await api(`/deliveries?channel=${channel}&ids=${queued.map(item => item.id).join(',')}`);
-        setItems(old => old.map(item => states.deliveries[item.id] ? { ...item, delivery: states.deliveries[item.id] } : item));
+        setItems(old => old.map(item => states.deliveries[item.id] ? { ...item, ...states.deliveries[item.id] } : item));
       }
     } catch (e) { setError(e.message); }
   }
@@ -208,7 +232,8 @@ function Desk({ onLogout }) {
   }, [channel, jumpId]);
   useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel]);
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
-  async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); if (jumpId != null) setJumpId(null); else { setItems(old => [...old, item]); requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }); } }
+  async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); scrollToSentRef.current = item.id; if (jumpId != null) setJumpId(null); else setItems(old => [...old, item]); }
+  async function confirmSendNow(item) { setForceBusy(true); setError(''); try { const updated = await api(`/messages/${item.id}/send-now`, { method: 'POST' }); setItems(old => old.map(current => current.id === updated.id ? updated : current)); setForceTarget(null); } catch (e) { setError(e.message); setForceTarget(null); } finally { setForceBusy(false); } }
   function selectChannel(id) { setChannel(id); setJumpId(null); }
   function jumpTo(item) { setChannel(item.channel); setJumpId(item.id); }
   return <div className="shell">
@@ -221,13 +246,14 @@ function Desk({ onLogout }) {
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
       <div className="conversation" ref={listRef}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
-        <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} />)}</MessageList>
+        <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} />)}</MessageList>
       </div></div>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </main>
     <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>
     {searchOpen && <Search onClose={() => setSearchOpen(false)} onJump={jumpTo} />}
     {settingsOpen && <PasswordSettings onClose={() => setSettingsOpen(false)} />}
+    {forceTarget && <ForceSendDialog item={forceTarget} busy={forceBusy} onClose={() => setForceTarget(null)} onConfirm={confirmSendNow} />}
   </div>;
 }
 

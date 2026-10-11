@@ -16,6 +16,7 @@ import secrets
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -49,6 +50,8 @@ CHANNEL_INDEX = {item["id"]: item for item in CHANNELS}
 MAX_UPLOAD = 25 * 1024 * 1024
 SESSIONS: dict[str, float] = {}
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+DELIVERY_LOCK = threading.Lock()
+DELIVERY_STOP = threading.Event()
 
 
 def _db():
@@ -68,7 +71,10 @@ def _initialize():
                 role TEXT NOT NULL,
                 body TEXT NOT NULL,
                 delivery TEXT NOT NULL DEFAULT 'posted',
+                delivery_detail TEXT NOT NULL DEFAULT '',
                 transport_id TEXT,
+                transport_attempts INTEGER NOT NULL DEFAULT 0,
+                transport_attempt_at REAL NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
             CREATE INDEX IF NOT EXISTS messages_channel_id ON messages(channel,id);
@@ -86,6 +92,12 @@ def _initialize():
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
         if "transport_id" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN transport_id TEXT")
+        if "delivery_detail" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN delivery_detail TEXT NOT NULL DEFAULT ''")
+        if "transport_attempts" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN transport_attempts INTEGER NOT NULL DEFAULT 0")
+        if "transport_attempt_at" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN transport_attempt_at REAL NOT NULL DEFAULT 0")
     if not AUTH.exists():
         password = os.getenv("VP_PASSWORD") or secrets.token_urlsafe(18)
         token = secrets.token_urlsafe(32)
@@ -273,42 +285,114 @@ def _message(row, conn):
     return item
 
 
-def _reconcile(channel: str):
-    """Keep the UI's delivery label aligned with Dunking Sheep's queue state."""
+def _prompt_for(row, conn):
+    attachments = conn.execute("SELECT filename,path FROM attachments WHERE message_id=? ORDER BY created_at", (row["id"],)).fetchall()
+    references = "\n".join(f"- {item['filename']}: {item['path']}" for item in attachments)
+    prompt = row["body"].strip()
+    if references:
+        prompt += f"\n\nAttached files on this host (read these paths directly):\n{references}"
+    return prompt + f"\n\n[VP web message #{row['id']}; reply through vpctl brief --channel {row['channel']} when a concise response is ready.]"
+
+
+def _send_saved(row, client, pane, force=False):
     with _db() as conn:
-        queued = conn.execute("SELECT id,transport_id FROM messages WHERE channel=? AND delivery='queued' ORDER BY id DESC",
-                              (channel,)).fetchall()
-    if not queued:
+        prompt = _prompt_for(row, conn)
+    result = client.call("send_text", target=pane["pane_id"], text=prompt,
+                         hold_while_typing=not force, wait_s=0)
+    delivery = "queued" if result.get("queued") else "sent" if result.get("ok") else "failed"
+    with _db() as conn:
+        conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=?,"
+                     "transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
+                     (delivery, result.get("message", ""), result.get("message_id"), time.time(), row["id"]))
+    return result
+
+
+def _reconcile(channel: str):
+    """Watch the live queue, and restore messages lost by a daemon restart."""
+    if not DELIVERY_LOCK.acquire(blocking=False):
         return
     try:
+        with _db() as conn:
+            queued = conn.execute("SELECT * FROM messages WHERE channel=? AND delivery IN ('pending','queued','failed') ORDER BY id",
+                                  (channel,)).fetchall()
+        if not queued:
+            return
         client = _flock()
-        legacy = {}
-        if any(not row["transport_id"] for row in queued):
-            records = client.call("list_messages")
-            for item in records.get("queued", []) + records.get("recent", []):
-                marker = re.search(r"\[VP web message #(\d+);", item.get("text", ""))
-                if marker:
-                    legacy[int(marker.group(1))] = item
-        updates = []
+        recent = None
+        panes = None
         for row in queued:
             record = None
             transport_id = row["transport_id"]
             if transport_id:
                 try:
                     record = client.call("get_message", message_id=transport_id)
-                except Exception:
+                except Exception as exc:
+                    if "no message with id" not in str(exc):
+                        continue
+            if record is None:
+                if recent is None:
+                    recent = client.call("list_messages")
+                for item in recent.get("queued", []) + recent.get("recent", []):
+                    if f"[VP web message #{row['id']};" in item.get("text", ""):
+                        record = item
+                        transport_id = item.get("message_id")
+                        break
+            if record:
+                state = record.get("status")
+                if state in {"queued", "sent", "cancelled"}:
+                    with _db() as conn:
+                        conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=? WHERE id=?",
+                                     (state, record.get("message", ""), transport_id, row["id"]))
                     continue
-            else:
-                record = legacy.get(row["id"])
-                transport_id = record.get("message_id") if record else None
-            if record and record.get("status") in {"queued", "sent", "failed", "cancelled"}:
-                updates.append((record["status"], transport_id, row["id"]))
-        if updates:
-            with _db() as conn:
-                conn.executemany("UPDATE messages SET delivery=?,transport_id=? WHERE id=?", updates)
+            # An absent in-memory queue entry may have vanished on daemon
+            # restart. Retry the durable row after a short backoff. The marker
+            # check above avoids resending entries still known to the daemon.
+            attempts = row["transport_attempts"]
+            backoff = min(60, max(10, 5 * 2 ** min(attempts, 4)))
+            if time.time() - row["transport_attempt_at"] < backoff:
+                continue
+            if panes is None:
+                panes = _panes()
+            pane = _target(channel, panes)
+            if not pane or not pane.get("agent"):
+                with _db() as conn:
+                    conn.execute("UPDATE messages SET delivery='queued',delivery_detail='Agent pane unavailable; retrying' WHERE id=?", (row["id"],))
+                continue
+            try:
+                _send_saved(row, client, pane)
+            except Exception as exc:
+                with _db() as conn:
+                    conn.execute("UPDATE messages SET delivery='queued',delivery_detail=?,transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
+                                 (f"Transport unavailable; retrying: {str(exc)[:120]}", time.time(), row["id"]))
     except Exception:
-        # Keep the last known state if the local daemon is temporarily unavailable.
+        # A daemon outage never discards the durable owner message.
         return
+    finally:
+        DELIVERY_LOCK.release()
+
+
+def _delivery_watch():
+    while not DELIVERY_STOP.wait(5):
+        try:
+            with _db() as conn:
+                channels = [row[0] for row in conn.execute("SELECT DISTINCT channel FROM messages WHERE delivery IN ('pending','queued','failed')")]
+            for channel in channels:
+                _reconcile(channel)
+        except Exception:
+            pass
+
+
+@app.on_event("startup")
+def start_delivery_watch():
+    DELIVERY_STOP.clear()
+    app.state.delivery_thread = threading.Thread(target=_delivery_watch, name="vp-delivery-watch", daemon=True)
+    app.state.delivery_thread.start()
+
+
+@app.on_event("shutdown")
+def stop_delivery_watch():
+    DELIVERY_STOP.set()
+    app.state.delivery_thread.join(timeout=6)
 
 
 @app.get("/api/messages")
@@ -341,9 +425,9 @@ def deliveries(channel: str, ids: str, _: Annotated[str, Depends(require_auth)])
         return {"deliveries": {}}
     placeholders = ",".join("?" for _ in message_ids)
     with _db() as conn:
-        rows = conn.execute(f"SELECT id,delivery FROM messages WHERE channel=? AND id IN ({placeholders})",
+        rows = conn.execute(f"SELECT id,delivery,delivery_detail FROM messages WHERE channel=? AND id IN ({placeholders})",
                             [channel, *message_ids]).fetchall()
-    return {"deliveries": {str(row["id"]): row["delivery"] for row in rows}}
+    return {"deliveries": {str(row["id"]): {"delivery": row["delivery"], "delivery_detail": row["delivery_detail"]} for row in rows}}
 
 
 @app.get("/api/messages/{message_id}/context")
@@ -389,30 +473,75 @@ def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)
             if not row:
                 raise HTTPException(422, f"Attachment {attachment_id} is unavailable")
             attachment_rows.append(row)
-        cursor = conn.execute("INSERT INTO messages(channel,role,body,delivery) VALUES(?,?,?,?)",
-                              (data.channel, "owner", data.body.strip(), "pending"))
+        cursor = conn.execute("INSERT INTO messages(channel,role,body,delivery,transport_attempt_at) VALUES(?,?,?,?,?)",
+                              (data.channel, "owner", data.body.strip(), "pending", time.time()))
         message_id = cursor.lastrowid
         for row in attachment_rows:
             conn.execute("UPDATE attachments SET message_id=? WHERE id=?", (message_id, row["id"]))
-    references = "\n".join(f"- {row['filename']}: {row['path']}" for row in attachment_rows)
-    prompt = data.body.strip()
-    if references:
-        prompt += f"\n\nAttached files on this host (read these paths directly):\n{references}"
-    prompt += f"\n\n[VP web message #{message_id}; reply through vpctl brief --channel {data.channel} when a concise response is ready.]"
+        row = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
     try:
-        result = _flock().call("send_text", target=pane["pane_id"], text=prompt,
-                               hold_while_typing=True, wait_s=0)
-        delivery = "queued" if result.get("queued") else "sent"
+        result = _send_saved(row, _flock(), pane)
     except Exception as exc:
-        delivery = "failed"
         result = {"error": str(exc)}
+        with _db() as conn:
+            conn.execute("UPDATE messages SET delivery='queued',delivery_detail=?,transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
+                         ("Transport temporarily unavailable; retrying", time.time(), message_id))
     with _db() as conn:
-        conn.execute("UPDATE messages SET delivery=?,transport_id=? WHERE id=?",
-                     (delivery, result.get("message_id"), message_id))
         row = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
         item = _message(row, conn)
     item["transport"] = result
     return item
+
+
+@app.post("/api/messages/{message_id}/send-now")
+def send_now(message_id: int, identity: Annotated[str, Depends(require_auth)]):
+    if identity != "owner":
+        raise HTTPException(403, "Owner sign-in required")
+    with DELIVERY_LOCK:
+        with _db() as conn:
+            row = conn.execute("SELECT * FROM messages WHERE id=? AND role='owner'", (message_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Message not found")
+        if row["delivery"] == "sent":
+            with _db() as conn:
+                return _message(row, conn)
+        if row["delivery"] not in {"queued", "pending"} or not row["transport_id"]:
+            raise HTTPException(409, "Message is being recovered; try again shortly")
+        client = _flock()
+        try:
+            record = client.call("get_message", message_id=row["transport_id"])
+        except Exception:
+            raise HTTPException(409, "Transport state unavailable; try again shortly")
+        if record.get("status") == "sent":
+            with _db() as conn:
+                conn.execute("UPDATE messages SET delivery='sent',delivery_detail='sent' WHERE id=?", (message_id,))
+                return _message(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone(), conn)
+        if record.get("status") != "queued":
+            raise HTTPException(409, "Message is no longer queued; refresh its status")
+        try:
+            client.call("cancel_message", message_id=row["transport_id"])
+        except Exception:
+            # The worker may have sent it between inspection and cancellation.
+            latest = client.call("get_message", message_id=row["transport_id"])
+            if latest.get("status") == "sent":
+                with _db() as conn:
+                    conn.execute("UPDATE messages SET delivery='sent',delivery_detail='sent' WHERE id=?", (message_id,))
+                    return _message(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone(), conn)
+            raise HTTPException(409, "Message changed while sending; refresh its status")
+        pane = _target(row["channel"], _panes())
+        if not pane or not pane.get("agent"):
+            with _db() as conn:
+                conn.execute("UPDATE messages SET delivery='queued',transport_id=NULL,delivery_detail='Agent pane unavailable; retrying' WHERE id=?", (message_id,))
+            raise HTTPException(409, "Agent pane unavailable; message remains saved for retry")
+        try:
+            _send_saved(row, client, pane, force=True)
+        except Exception:
+            with _db() as conn:
+                conn.execute("UPDATE messages SET delivery='queued',transport_id=NULL,delivery_detail='Urgent send failed; retrying',"
+                             "transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?", (time.time(), message_id))
+            raise HTTPException(503, "Urgent send failed; message remains saved for retry")
+        with _db() as conn:
+            return _message(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone(), conn)
 
 
 class BriefIn(BaseModel):
