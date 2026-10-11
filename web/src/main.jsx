@@ -171,20 +171,42 @@ function Desk({ onLogout }) {
   const [forceTarget, setForceTarget] = useState(null); const [forceBusy, setForceBusy] = useState(false);
   const [activityStatus, setActivityStatus] = useState('connecting'); const [activityUpdated, setActivityUpdated] = useState(null); const [activityConnected, setActivityConnected] = useState(false); const [showActivity, setShowActivity] = useState(false);
   const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0); const itemsRef = useRef([]); const scrollToSentRef = useRef(null);
+  const [showLatest, setShowLatest] = useState(false); const nearBottomRef = useRef(true); const lastMessageIdRef = useRef(null);
   const selected = channels.find(c => c.id === channel);
   useEffect(() => { itemsRef.current = items; }, [items]);
   useLayoutEffect(() => {
+    const latestId = items.at(-1)?.id ?? null;
+    const previousId = lastMessageIdRef.current;
+    lastMessageIdRef.current = latestId;
     const wanted = scrollToSentRef.current;
-    if (!wanted || !items.some(item => item.id === wanted) || !listRef.current) return;
+    const ownSend = wanted && items.some(item => item.id === wanted);
+    const incoming = jumpId == null && previousId != null && latestId != null && latestId > previousId;
+    if (!listRef.current || (!ownSend && !incoming)) return;
+    if (incoming && !ownSend && !nearBottomRef.current) { setShowLatest(true); return; }
     const pane = listRef.current;
-    const follow = () => { pane.scrollTop = pane.scrollHeight; };
+    const follow = () => { if (ownSend || nearBottomRef.current) pane.scrollTop = pane.scrollHeight; };
+    nearBottomRef.current = true;
+    setShowLatest(false);
     follow();
     const frame = requestAnimationFrame(() => requestAnimationFrame(follow));
     const observer = new ResizeObserver(follow);
     observer.observe(pane.querySelector('.conversation-inner'));
-    const finish = setTimeout(() => { observer.disconnect(); scrollToSentRef.current = null; }, 1800);
+    const finish = setTimeout(() => { observer.disconnect(); if (ownSend) scrollToSentRef.current = null; }, 1800);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); clearTimeout(finish); };
-  }, [items]);
+  }, [items, jumpId]);
+  function onConversationScroll() {
+    const pane = listRef.current;
+    if (!pane) return;
+    nearBottomRef.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80;
+    if (nearBottomRef.current) setShowLatest(false);
+  }
+  function jumpToLatest() {
+    if (jumpId != null) { setJumpId(null); return; }
+    const pane = listRef.current;
+    if (pane) pane.scrollTop = pane.scrollHeight;
+    nearBottomRef.current = true;
+    setShowLatest(false);
+  }
   async function refreshChannels() { try { const data = await api('/channels'); setChannels(data.channels); setChannelUpdated(new Date(data.checked_at)); } catch (e) { setError(e.message); } }
   async function refreshMessages(reset = false) {
     try {
@@ -222,7 +244,7 @@ function Desk({ onLogout }) {
     }
   }
   useEffect(() => { refreshChannels(); const timer = setInterval(refreshChannels, 12000); return () => clearInterval(timer); }, []);
-  useEffect(() => { setItems([]); setPending([]); setActivity(''); setActivityUpdated(null); setActivityStatus('connecting'); setActivityConnected(false);
+  useEffect(() => { lastMessageIdRef.current = null; nearBottomRef.current = true; setShowLatest(false); setItems([]); setPending([]); setActivity(''); setActivityUpdated(null); setActivityStatus('connecting'); setActivityConnected(false);
     if (jumpId != null) {
       api(`/messages/${jumpId}/context`).then(data => { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before;
         requestAnimationFrame(() => document.getElementById(`message-${jumpId}`)?.scrollIntoView({ block: 'center' }));
@@ -246,10 +268,10 @@ function Desk({ onLogout }) {
     </aside>
     <main className="center"><header className="topbar"><div><div className="eyebrow">COMMAND CHANNEL / {selected?.kind?.toUpperCase() || 'ACTIVE'}</div><h1>{selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right"><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button><button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      <div className="conversation" ref={listRef}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
+      <div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
         <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
-      </div></div>
+      </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </main>
     <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>
