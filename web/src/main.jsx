@@ -45,7 +45,19 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
-  const editor = useEditor({ extensions: [StarterKit], content: '', editorProps: { attributes: { class: 'editor', 'aria-label': 'Message text' } } });
+  const sendingRef = useRef(false);
+  const sendRef = useRef(null);
+  const editor = useEditor({ extensions: [StarterKit], content: '', editorProps: {
+    attributes: { class: 'editor', 'aria-label': 'Message text' },
+    handleKeyDown: (_view, event) => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+        event.preventDefault();
+        if (!event.repeat) sendRef.current?.();
+        return true;
+      }
+      return false;
+    },
+  } });
   const command = (name) => { editor?.chain().focus()[name]().run(); };
   async function attach(files) {
     setError('');
@@ -56,15 +68,16 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
     }
   }
   async function send() {
-    if (disabled || busy) return;
+    if (disabled || sendingRef.current) return;
     const body = td.turndown(editor?.getHTML() || '').trim();
     if (!body && !pending.length) return;
-    setBusy(true); setError('');
+    sendingRef.current = true; setBusy(true); setError('');
     try {
       await onSend({ channel, body, attachment_ids: pending.map(a => a.id) });
       editor?.commands.clearContent(); setPending([]);
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
+    } catch (e) { setError(e.message); } finally { sendingRef.current = false; setBusy(false); }
   }
+  sendRef.current = send;
   return <section className="composer" aria-label="Write message">
     {pending.length > 0 && <div className="pending-files">{pending.map(file => <span key={file.id} className="file-pill">📎 {file.filename}<button aria-label={`Remove ${file.filename}`} onClick={() => setPending(items => items.filter(x => x.id !== file.id))}>×</button></span>)}</div>}
     <div className="toolbar" aria-label="Formatting">
@@ -76,7 +89,7 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
       <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
     </div>
     <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}><EditorContent editor={editor} /></div>
-    <div className="composer-footer"><span>{disabled ? 'Agent unavailable in Herdr' : 'Markdown formatting · files stay on this host'}</span>
+    <div className="composer-footer"><span>{disabled ? 'Agent unavailable in Herdr' : 'Enter to send · Shift+Enter for a new line · files stay on this host'}</span>
       {error && <span className="form-error" role="alert">{error}</span>}
       <button className="primary send" disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send message ↗'}</button></div>
   </section>;
@@ -117,15 +130,17 @@ function Search({ onClose, onJump }) {
 
 function Desk({ onLogout }) {
   const [channels, setChannels] = useState([]); const [channel, setChannel] = useState('vp');
+  const [channelUpdated, setChannelUpdated] = useState(null);
   const [items, setItems] = useState([]); const [older, setOlder] = useState(false); const [loadingOlder, setLoadingOlder] = useState(false);
   const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
-  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null);
+  const [activityStatus, setActivityStatus] = useState('connecting'); const [activityUpdated, setActivityUpdated] = useState(null); const [activityConnected, setActivityConnected] = useState(false); const [showActivity, setShowActivity] = useState(false);
+  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0);
   const selected = channels.find(c => c.id === channel);
-  async function refreshChannels() { try { setChannels((await api('/channels')).channels); } catch (e) { setError(e.message); } }
+  async function refreshChannels() { try { const data = await api('/channels'); setChannels(data.channels); setChannelUpdated(new Date(data.checked_at)); } catch (e) { setError(e.message); } }
   async function refreshMessages(reset = false) {
     try {
       const data = await api(`/messages?channel=${channel}&limit=50`);
-      if (reset) { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before; requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }); }
+      if (reset) { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before; requestAnimationFrame(() => requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; })); }
       else setItems(old => { const ids = new Set(old.map(x => x.id)); return [...old, ...data.items.filter(x => !ids.has(x.id))]; });
     } catch (e) { setError(e.message); }
   }
@@ -139,11 +154,21 @@ function Desk({ onLogout }) {
     } catch (e) { setError(e.message); } finally { setLoadingOlder(false); }
   }
   async function refreshActivity() {
-    try { const data = await api(`/activity?channel=${channel}`); setActivity(data.text || 'No recent output.'); }
-    catch { setActivity('Live pane unavailable.'); }
+    const ticket = ++activityRequest.current;
+    try {
+      const data = await api(`/activity?channel=${channel}`);
+      if (ticket !== activityRequest.current) return;
+      const pane = activityRef.current;
+      const follow = !pane || pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80;
+      setActivity(data.text || 'No recent output.');
+      setActivityStatus(data.status || 'unknown'); setActivityUpdated(new Date()); setActivityConnected(true);
+      if (follow) requestAnimationFrame(() => { if (activityRef.current) activityRef.current.scrollTop = activityRef.current.scrollHeight; });
+    } catch {
+      if (ticket === activityRequest.current) { setActivityConnected(false); setActivityStatus('disconnected'); }
+    }
   }
   useEffect(() => { refreshChannels(); const timer = setInterval(refreshChannels, 12000); return () => clearInterval(timer); }, []);
-  useEffect(() => { setItems([]); setPending([]); setActivity('');
+  useEffect(() => { setItems([]); setPending([]); setActivity(''); setActivityUpdated(null); setActivityStatus('connecting'); setActivityConnected(false);
     if (jumpId != null) {
       api(`/messages/${jumpId}/context`).then(data => { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before;
         requestAnimationFrame(() => document.getElementById(`message-${jumpId}`)?.scrollIntoView({ block: 'center' }));
@@ -151,7 +176,7 @@ function Desk({ onLogout }) {
     } else refreshMessages(true);
     refreshActivity();
     const timer = setInterval(() => { if (jumpId == null) refreshMessages(); refreshActivity(); }, 5000);
-    return () => clearInterval(timer);
+    return () => { clearInterval(timer); activityRequest.current++; };
   }, [channel, jumpId]);
   useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel]);
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
@@ -164,7 +189,7 @@ function Desk({ onLogout }) {
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">COMMAND CHANNEL / {selected?.kind?.toUpperCase() || 'ACTIVE'}</div><h1>{selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">COMMAND CHANNEL / {selected?.kind?.toUpperCase() || 'ACTIVE'}</div><h1>{selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right"><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button><button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
       <div className="conversation" ref={listRef}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
@@ -172,7 +197,7 @@ function Desk({ onLogout }) {
       </div></div>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </main>
-    <aside className="activity"><div className="activity-head"><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p></div><div className="activity-body"><pre>{activity || 'Connecting to Herdr…'}</pre></div><div className="activity-foot">Terminal output is a recent view. Posted briefs and your messages are saved in the conversation.</div></aside>
+    <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>
     {searchOpen && <Search onClose={() => setSearchOpen(false)} onJump={jumpTo} />}
   </div>;
 }

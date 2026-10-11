@@ -18,13 +18,15 @@ Requires Python 3.10+, Node 20+, Herdr, and a running Dunking Sheep daemon or a 
 
 ## How it works
 
-- **Chat:** messages are sent to the current Herdr pane for each channel using Dunking Sheep's guarded queue. The UI shows `queued`, `sent`, or `failed`; a sent state means submitted to the pane, not that the agent has answered.
+- **Chat:** messages are sent to the current Herdr pane for each channel using Dunking Sheep's guarded queue. The UI reconciles `queued`, `sent`, or `failed` against the transport message ID; a sent state means submitted to the pane, not that the agent has answered. Enter sends; Shift+Enter inserts a new line. IME composition does not submit.
 - **Briefs:** an agent publishes a concise Markdown response with `echo 'Done' | ./vpctl brief --channel vp`. Agent briefs and owner messages are stored in SQLite, with paginated back-scrolling and paged search that opens the exact matching message.
 - **Files:** images and other files up to 25 MB are stored locally under ignored `data/uploads/` and their absolute paths are included in the guarded message to the agent. The browser can download them only after signing in.
-- **Live view:** the right panel shows recent terminal output from `read_pane`; it is a volatile view and is not presented as complete history. Durable agent responses require `vpctl brief` or the authenticated `/api/brief` endpoint.
+- **Live view:** the right panel polls recent terminal output from `read_pane` every five seconds, shows the last refresh time, and scrolls independently. It follows new output only when you are near the bottom. On narrow screens, open it with **Live signal**. This is a volatile view and is not complete history. Durable agent responses require `vpctl brief` or the authenticated `/api/brief` endpoint.
 - **API:** the owner can use the same API with the generated Bearer token, and `vpctl` is the command-line wrapper. The browser never accesses the Herdr or Dunking Sheep Unix sockets.
 
 The channel selectors match current Herdr tab labels (VP of Agentry, Poolrad PM, website, Slamdemonium, Dunkies, and MonkeyDLuffy). Update `CHANNELS` in `server/app.py` if tab labels change. The remote MonkeyDLuffy tab is monitoring only unless an agent is present there.
+
+Presence labels describe only the current agent process. Herdr's transient `blocked` state is shown as **waiting** and never used as a project blocker indicator. You can still message a waiting agent. Actual blockers and decisions belong in posted briefs.
 
 ## Reused software
 
@@ -35,3 +37,5 @@ The chat surface uses [ChatScope Chat UI Kit React](https://github.com/chatscope
 ## Limits
 
 Herdr `read_pane` exposes recent terminal text, not a structured full conversation. The desk persists what is sent through it and briefs posted back through the API, but cannot retroactively import every prior agent turn. Search covers this stored history. This is a single-owner LAN app; deploy behind HTTPS or a VPN for access over untrusted networks.
+
+The optional authenticated browser regression is `VP_TEST_STATUS=1 .venv/bin/python tests/browser_smoke.py` after installing Playwright in `.venv`. Set `VP_TEST_SEND=1` to exercise real guarded submissions to the VP pane from desktop and mobile layouts.

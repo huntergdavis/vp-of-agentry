@@ -67,6 +67,7 @@ def _initialize():
                 role TEXT NOT NULL,
                 body TEXT NOT NULL,
                 delivery TEXT NOT NULL DEFAULT 'posted',
+                transport_id TEXT,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
             CREATE INDEX IF NOT EXISTS messages_channel_id ON messages(channel,id);
@@ -81,6 +82,9 @@ def _initialize():
             );
             CREATE INDEX IF NOT EXISTS attachments_message_id ON attachments(message_id);
         """)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+        if "transport_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN transport_id TEXT")
     if not AUTH.exists():
         password = os.getenv("VP_PASSWORD") or secrets.token_urlsafe(18)
         token = secrets.token_urlsafe(32)
@@ -174,6 +178,12 @@ def _target(channel: str, panes: list[dict]):
     return None
 
 
+def _presence(raw_status: str | None):
+    # Herdr's "blocked" can mean a transient tool wait. It is not evidence of
+    # a project blocker or a decision needed from the owner.
+    return {"working": "working", "idle": "idle", "blocked": "waiting"}.get(raw_status, "unknown")
+
+
 @app.get("/api/channels")
 def channels(_: Annotated[str, Depends(require_auth)]):
     try:
@@ -185,10 +195,11 @@ def channels(_: Annotated[str, Depends(require_auth)]):
     for cfg in CHANNELS:
         pane = _target(cfg["id"], panes)
         rows.append({"id": cfg["id"], "name": cfg["name"], "kind": cfg["kind"],
-                     "online": pane is not None, "status": pane.get("agent_status", "unknown") if pane else "offline",
+                     "online": pane is not None, "status": _presence(pane.get("agent_status")) if pane else "offline",
                      "pane_id": pane.get("pane_id") if pane else None,
                      "can_message": bool(pane and pane.get("agent"))})
-    return {"channels": rows, "daemon": daemon}
+    return {"channels": rows, "daemon": daemon,
+            "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
 def _message(row, conn):
@@ -198,10 +209,49 @@ def _message(row, conn):
     return item
 
 
+def _reconcile(channel: str):
+    """Keep the UI's delivery label aligned with Dunking Sheep's queue state."""
+    with _db() as conn:
+        queued = conn.execute("SELECT id,transport_id FROM messages WHERE channel=? AND delivery='queued' ORDER BY id DESC LIMIT 50",
+                              (channel,)).fetchall()
+    if not queued:
+        return
+    try:
+        client = _flock()
+        legacy = {}
+        if any(not row["transport_id"] for row in queued):
+            records = client.call("list_messages")
+            for item in records.get("queued", []) + records.get("recent", []):
+                marker = re.search(r"\[VP web message #(\d+);", item.get("text", ""))
+                if marker:
+                    legacy[int(marker.group(1))] = item
+        updates = []
+        for row in queued:
+            record = None
+            transport_id = row["transport_id"]
+            if transport_id:
+                try:
+                    record = client.call("get_message", message_id=transport_id)
+                except Exception:
+                    continue
+            else:
+                record = legacy.get(row["id"])
+                transport_id = record.get("message_id") if record else None
+            if record and record.get("status") in {"queued", "sent", "failed", "cancelled"}:
+                updates.append((record["status"], transport_id, row["id"]))
+        if updates:
+            with _db() as conn:
+                conn.executemany("UPDATE messages SET delivery=?,transport_id=? WHERE id=?", updates)
+    except Exception:
+        # Keep the last known state if the local daemon is temporarily unavailable.
+        return
+
+
 @app.get("/api/messages")
 def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int | None = None, limit: int = 50):
     if channel not in CHANNEL_INDEX:
         raise HTTPException(404, "Unknown channel")
+    _reconcile(channel)
     limit = max(1, min(limit, 100))
     with _db() as conn:
         rows = conn.execute("SELECT * FROM messages WHERE channel=? AND id<? ORDER BY id DESC LIMIT ?",
@@ -219,6 +269,9 @@ def message_context(message_id: int, _: Annotated[str, Depends(require_auth)]):
         if not anchor:
             raise HTTPException(404, "Message not found")
         channel = anchor["channel"]
+    _reconcile(channel)
+    with _db() as conn:
+        anchor = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
         earlier = conn.execute("SELECT * FROM messages WHERE channel=? AND id<? ORDER BY id DESC LIMIT 25",
                                (channel, message_id)).fetchall()
         later = conn.execute("SELECT * FROM messages WHERE channel=? AND id>? ORDER BY id ASC LIMIT 25",
@@ -270,7 +323,8 @@ def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)
         delivery = "failed"
         result = {"error": str(exc)}
     with _db() as conn:
-        conn.execute("UPDATE messages SET delivery=? WHERE id=?", (delivery, message_id))
+        conn.execute("UPDATE messages SET delivery=?,transport_id=? WHERE id=?",
+                     (delivery, result.get("message_id"), message_id))
         row = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
         item = _message(row, conn)
     item["transport"] = result
@@ -345,7 +399,7 @@ def activity(channel: str, _: Annotated[str, Depends(require_auth)]):
         raise HTTPException(404, "Pane unavailable")
     result = _flock().call("read_pane", target=pane["pane_id"], lines=80)
     return {"channel": channel, "pane_id": pane["pane_id"],
-            "status": result.get("agent_status"), "text": result.get("text", "")}
+            "status": _presence(result.get("agent_status")), "text": result.get("text", "")}
 
 
 @app.get("/api/health")
