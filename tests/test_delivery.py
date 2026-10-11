@@ -15,6 +15,7 @@ class FakeTransport:
         self.records = {}
         self.recent = []
         self.calls = []
+        self.mailbox_keys = {}
 
     def call(self, command, **args):
         self.calls.append((command, args))
@@ -43,6 +44,8 @@ class FakeTransport:
             record = {"message_id": ident, "state": "queued", "pane_id": args["to"]}
             self.records[ident] = record
             return record
+        if command == "inbox_count":
+            return {"mailbox": self.mailbox_keys.get(args["mailbox"], "VP of Agentry"), "unread": 0}
         if command == "inbox_status":
             return self.records[args["message_id"]]
         raise AssertionError(command)
@@ -105,6 +108,15 @@ class DeliveryTests(unittest.TestCase):
         sent = next(args for command, args in self.transport.calls if command == "inbox_send")
         self.assertEqual([str(path)], sent["attach"])
         self.assertIn("picture.png", sent["body"])
+
+    def test_generic_shared_mailbox_uses_exact_pane_send(self):
+        self.transport.mailbox_keys["test:p1"] = "codex"
+        item = server.post_message(server.MessageIn(channel="vp", body="review this"), "owner")
+        self.assertEqual("queued", item["delivery"])
+        self.assertFalse(any(command == "inbox_send" for command, _ in self.transport.calls))
+        sent = next(args for command, args in self.transport.calls if command == "send_text")
+        self.assertEqual("test:p1", sent["target"])
+        self.assertTrue(sent["hold_while_typing"])
 
     def test_marker_prevents_duplicate_when_old_id_is_missing(self):
         message_id = self.add_message("lost")

@@ -318,10 +318,13 @@ def _send_saved(row, client, pane, force=False):
         prompt = _prompt_for(row, conn)
         attachments = [item["path"] for item in conn.execute(
             "SELECT path FROM attachments WHERE message_id=? ORDER BY created_at", (row["id"],))]
-    if force:
-        # Only the old terminal queue's explicit owner override uses this path.
+    # A generic model-name mailbox can be shared by unrelated panes. Until
+    # Dunking Sheep gives such panes stable unique keys, address them by pane.
+    mailbox = "" if force else str(client.call("inbox_count", mailbox=pane["pane_id"]).get("mailbox") or "")
+    use_inbox = bool(mailbox) and mailbox.casefold() not in {"codex", "claude", "opencode"}
+    if not use_inbox:
         result = client.call("send_text", target=pane["pane_id"], text=prompt,
-                             hold_while_typing=False, wait_s=0)
+                             hold_while_typing=not force, wait_s=0)
         delivery = "queued" if result.get("queued") else "sent" if result.get("ok") else "uncertain"
         detail = result.get("message", "")
     else:
