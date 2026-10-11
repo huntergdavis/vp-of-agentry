@@ -123,6 +123,15 @@ class DeliveryTests(unittest.TestCase):
         self.assertLess([c for c, _ in self.transport.calls].index("cancel_message"),
                         [c for c, _ in self.transport.calls].index("send_text"))
 
+    def test_trailing_queue_reports_draft_blocker_to_web_chat(self):
+        message_id = self.add_message("backlog")
+        self.transport.records["backlog"] = {"message_id": "backlog", "status": "queued",
+                                              "message": "queued for VP", "blocked_by": "input box contains a draft"}
+        server._reconcile("vp")
+        with sqlite3.connect(server.DB) as db:
+            detail = db.execute("SELECT delivery_detail FROM messages WHERE id=?", (message_id,)).fetchone()[0]
+        self.assertEqual("Waiting: input box contains a draft", detail)
+
 
 if __name__ == "__main__":
     unittest.main()
