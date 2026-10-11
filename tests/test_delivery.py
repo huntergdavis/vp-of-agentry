@@ -1,9 +1,8 @@
-"""A durable web row survives a lost in-memory queue entry."""
+"""Ambiguous transport outcomes never trigger an automatic duplicate send."""
 
 import importlib
 import sqlite3
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -65,15 +64,12 @@ class DeliveryTests(unittest.TestCase):
         with sqlite3.connect(server.DB) as db:
             return db.execute("SELECT delivery,transport_id FROM messages WHERE id=?", (message_id,)).fetchone()
 
-    def test_lost_queue_entry_is_requeued_then_marked_sent(self):
+    def test_lost_queue_entry_is_uncertain_without_replay(self):
         message_id = self.add_message("lost")
         server._reconcile("vp")
-        self.assertEqual(("queued", "test-1"), self.row(message_id))
+        self.assertEqual(("uncertain", "lost"), self.row(message_id))
         server._reconcile("vp")
-        self.assertEqual(1, len([c for c, _ in self.transport.calls if c == "send_text"]))
-        self.transport.records["test-1"]["status"] = "sent"
-        server._reconcile("vp")
-        self.assertEqual(("sent", "test-1"), self.row(message_id))
+        self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
 
     def test_marker_prevents_duplicate_when_old_id_is_missing(self):
         message_id = self.add_message("lost")
@@ -83,22 +79,22 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(("sent", "found"), self.row(message_id))
         self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
 
-    def test_failed_transport_is_retried(self):
+    def test_failed_transport_is_uncertain_without_replay(self):
         message_id = self.add_message("failed")
         with sqlite3.connect(server.DB) as db:
             db.execute("UPDATE messages SET delivery='failed' WHERE id=?", (message_id,))
         self.transport.records["failed"] = {"message_id": "failed", "status": "failed", "message": "pane busy"}
         server._reconcile("vp")
-        self.assertEqual(("queued", "test-1"), self.row(message_id))
+        self.assertEqual(("uncertain", "failed"), self.row(message_id))
+        self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
 
-    def test_shared_timeout_pauses_retries(self):
+    def test_shared_timeout_never_replays(self):
         message_id = self.add_message("failed")
         with sqlite3.connect(server.DB) as db:
             db.execute("UPDATE messages SET delivery='failed' WHERE id=?", (message_id,))
         self.transport.records["failed"] = {"message_id": "failed", "status": "failed", "message": "herdr command timed out"}
-        self.transport.recent = [{"status": "failed", "message": "herdr command timed out", "finished_at": time.time()} for _ in range(3)]
         server._reconcile("vp")
-        self.assertEqual(("failed", "failed"), self.row(message_id))
+        self.assertEqual(("uncertain", "failed"), self.row(message_id))
         self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
 
     def test_send_now_cancels_held_copy_before_direct_send(self):

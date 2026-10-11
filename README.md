@@ -14,7 +14,7 @@ Open `http://<LAN-host>:8787`. The initial password and API token are in ignored
 
 ## Delivery
 
-Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB) are saved in ignored `data/`. The app watches queued delivery every five seconds and retries a durable message if Dunking Sheep loses its in-memory queue. A queued card explains a typing hold. **Send now** is an explicit override: it cancels the queued copy before bypassing the draft guard and may interfere with unfinished Herdr input. `sent` means the pane accepted the submission, not that the agent answered.
+Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB) are saved in ignored `data/`. The app watches queued delivery every five seconds. A timeout or lost queue entry is marked **delivery uncertain** and is never resent automatically: check the live pane before sending again. A queued card explains a typing hold. **Send now** appears only for a confirmed draft hold; it cancels the queued copy before bypassing the guard and may interfere with unfinished Herdr input. `sent` means the pane accepted the submission, not that the agent answered.
 
 Agents post durable Markdown replies with `echo 'Brief' | ./vpctl brief --channel vp`. The right panel shows recent, volatile `read_pane` output; search covers stored website messages and posted briefs. The owner Bearer token works with the same API. A browser tab opened before an upgrade needs one refresh; newer tabs show an update notice.
 

@@ -117,7 +117,7 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
   </section>;
 }
 
-function MessageCard({ item, highlight, onSendNow }) {
+function MessageCard({ item, highlight, onSendNow, onInspect }) {
   const owner = item.role === 'owner';
   const waitingMinutes = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 60000));
   const heldForDraft = item.delivery_detail?.includes('someone is typing');
@@ -129,6 +129,7 @@ function MessageCard({ item, highlight, onSendNow }) {
     </Message>
     {owner && item.delivery === 'queued' && <div className="queue-help"><span>{heldForDraft ? 'Waiting for the Herdr draft to clear' : (item.delivery_detail || 'Waiting for guarded delivery')} · {waitingMinutes < 1 ? 'under 1 min' : `${waitingMinutes} min`}</span>{heldForDraft && <button onClick={() => onSendNow(item)}>Send now</button>}</div>}
     {owner && item.delivery === 'failed' && <div className="queue-help"><span>{item.delivery_detail || 'Delivery failed; retrying when transport recovers'}</span></div>}
+    {owner && item.delivery === 'uncertain' && <div className="queue-help"><span>Delivery uncertain. Check agent activity before resending.</span><button onClick={onInspect}>Live signal</button></div>}
   </div>;
 }
 
@@ -247,7 +248,7 @@ function Desk({ onLogout }) {
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
       <div className="conversation" ref={listRef}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
-        <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} />)}</MessageList>
+        <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
       </div></div>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </main>

@@ -299,7 +299,7 @@ def _send_saved(row, client, pane, force=False):
         prompt = _prompt_for(row, conn)
     result = client.call("send_text", target=pane["pane_id"], text=prompt,
                          hold_while_typing=not force, wait_s=0)
-    delivery = "queued" if result.get("queued") else "sent" if result.get("ok") else "failed"
+    delivery = "queued" if result.get("queued") else "sent" if result.get("ok") else "uncertain"
     with _db() as conn:
         conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=?,"
                      "transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
@@ -307,32 +307,18 @@ def _send_saved(row, client, pane, force=False):
     return result
 
 
-def _transport_degraded(records):
-    """Pause retries while the shared daemon is timing out across panes."""
-    now = time.time()
-    recent = records.get("recent", [])
-    timeouts = [item.get("finished_at", 0) for item in recent
-                if item.get("status") == "failed"
-                and "herdr command timed out" in item.get("message", "")
-                and now - (item.get("finished_at") or 0) < 600]
-    last_success = max((item.get("finished_at") or 0 for item in recent if item.get("status") == "sent"), default=0)
-    return len(timeouts) >= 3 and last_success < max(timeouts)
-
-
 def _reconcile(channel: str):
-    """Watch the live queue, and restore messages lost by a daemon restart."""
+    """Read transport state; never replay an ambiguous attempt automatically."""
     if not DELIVERY_LOCK.acquire(blocking=False):
         return
     try:
         with _db() as conn:
-            queued = conn.execute("SELECT * FROM messages WHERE channel=? AND delivery IN ('pending','queued','failed') ORDER BY id",
+            queued = conn.execute("SELECT * FROM messages WHERE channel=? AND delivery IN ('pending','queued','failed','uncertain') ORDER BY id",
                                   (channel,)).fetchall()
         if not queued:
             return
         client = _flock()
         recent = client.call("list_messages")
-        degraded = _transport_degraded(recent)
-        panes = None
         for row in queued:
             record = None
             transport_id = row["transport_id"]
@@ -343,11 +329,11 @@ def _reconcile(channel: str):
                     if "no message with id" not in str(exc):
                         continue
             if record is None:
-                for item in recent.get("queued", []) + recent.get("recent", []):
-                    if f"[VP web message #{row['id']};" in item.get("text", ""):
-                        record = item
-                        transport_id = item.get("message_id")
-                        break
+                matches = [item for item in recent.get("queued", []) + recent.get("recent", [])
+                           if f"[VP web message #{row['id']};" in item.get("text", "")]
+                if matches:
+                    record = next((item for item in matches if item.get("status") == "sent"), matches[0])
+                    transport_id = record.get("message_id")
             if record:
                 state = record.get("status")
                 if state in {"queued", "sent", "cancelled"}:
@@ -355,32 +341,12 @@ def _reconcile(channel: str):
                         conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=? WHERE id=?",
                                      (state, record.get("message", ""), transport_id, row["id"]))
                     continue
-            if degraded:
-                with _db() as conn:
-                    conn.execute("UPDATE messages SET delivery=?,delivery_detail=? WHERE id=?",
-                                 ("failed" if record and record.get("status") == "failed" else "queued",
-                                  "Shared Herdr transport is timing out; retry paused", row["id"]))
-                continue
-            # An absent in-memory queue entry may have vanished on daemon
-            # restart. Retry the durable row after a short backoff. The marker
-            # check above avoids resending entries still known to the daemon.
-            attempts = row["transport_attempts"]
-            backoff = min(60, max(10, 5 * 2 ** min(attempts, 4)))
-            if time.time() - row["transport_attempt_at"] < backoff:
-                continue
-            if panes is None:
-                panes = _panes()
-            pane = _target(channel, panes)
-            if not pane or not pane.get("agent"):
-                with _db() as conn:
-                    conn.execute("UPDATE messages SET delivery='queued',delivery_detail='Agent pane unavailable; retrying' WHERE id=?", (row["id"],))
-                continue
-            try:
-                _send_saved(row, client, pane)
-            except Exception as exc:
-                with _db() as conn:
-                    conn.execute("UPDATE messages SET delivery='queued',delivery_detail=?,transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
-                                 (f"Transport unavailable; retrying: {str(exc)[:120]}", time.time(), row["id"]))
+            # A failed or vanished in-memory entry may actually have been
+            # submitted before the daemon timed out. Keep its original ID and
+            # let the owner inspect the pane; automatic replay caused duplicates.
+            with _db() as conn:
+                conn.execute("UPDATE messages SET delivery='uncertain',delivery_detail=? WHERE id=?",
+                             ("Delivery unconfirmed. Check agent activity before sending again.", row["id"]))
     except Exception:
         # A daemon outage never discards the durable owner message.
         return
@@ -392,7 +358,7 @@ def _delivery_watch():
     while not DELIVERY_STOP.wait(5):
         try:
             with _db() as conn:
-                channels = [row[0] for row in conn.execute("SELECT DISTINCT channel FROM messages WHERE delivery IN ('pending','queued','failed')")]
+                channels = [row[0] for row in conn.execute("SELECT DISTINCT channel FROM messages WHERE delivery IN ('pending','queued','failed','uncertain')")]
             for channel in channels:
                 _reconcile(channel)
         except Exception:
@@ -501,8 +467,8 @@ def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)
     except Exception as exc:
         result = {"error": str(exc)}
         with _db() as conn:
-            conn.execute("UPDATE messages SET delivery='queued',delivery_detail=?,transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
-                         ("Transport temporarily unavailable; retrying", time.time(), message_id))
+            conn.execute("UPDATE messages SET delivery='uncertain',delivery_detail=?,transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
+                         ("Delivery unconfirmed. Check agent activity before sending again.", time.time(), message_id))
     with _db() as conn:
         row = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
         item = _message(row, conn)
@@ -550,15 +516,15 @@ def send_now(message_id: int, identity: Annotated[str, Depends(require_auth)]):
         pane = _target(row["channel"], _panes())
         if not pane or not pane.get("agent"):
             with _db() as conn:
-                conn.execute("UPDATE messages SET delivery='queued',transport_id=NULL,delivery_detail='Agent pane unavailable; retrying' WHERE id=?", (message_id,))
-            raise HTTPException(409, "Agent pane unavailable; message remains saved for retry")
+                conn.execute("UPDATE messages SET delivery='uncertain',transport_id=NULL,delivery_detail='Agent pane unavailable after cancellation' WHERE id=?", (message_id,))
+            raise HTTPException(409, "Agent pane unavailable; delivery is unconfirmed")
         try:
             _send_saved(row, client, pane, force=True)
         except Exception:
             with _db() as conn:
-                conn.execute("UPDATE messages SET delivery='queued',transport_id=NULL,delivery_detail='Urgent send failed; retrying',"
+                conn.execute("UPDATE messages SET delivery='uncertain',transport_id=NULL,delivery_detail='Urgent send unconfirmed',"
                              "transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?", (time.time(), message_id))
-            raise HTTPException(503, "Urgent send failed; message remains saved for retry")
+            raise HTTPException(503, "Urgent send unconfirmed; check agent activity before resending")
         with _db() as conn:
             return _message(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone(), conn)
 
