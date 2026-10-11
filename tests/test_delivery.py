@@ -38,6 +38,13 @@ class FakeTransport:
                       "ok": True if status == "sent" else None, "message": status, "text": args["text"]}
             self.records[ident] = record
             return record
+        if command == "inbox_send":
+            ident = f"i{len([c for c, _ in self.calls if c == 'inbox_send'])}"
+            record = {"message_id": ident, "state": "queued", "pane_id": args["to"]}
+            self.records[ident] = record
+            return record
+        if command == "inbox_status":
+            return self.records[args["message_id"]]
         raise AssertionError(command)
 
 
@@ -70,6 +77,34 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(("uncertain", "lost"), self.row(message_id))
         server._reconcile("vp")
         self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
+
+    def test_web_send_is_stored_in_inbox_and_tracks_read_ack(self):
+        item = server.post_message(server.MessageIn(channel="vp", body="hello"), "owner")
+        self.assertEqual("inbox", item["delivery"])
+        self.assertEqual("i1", item["transport_id"])
+        self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
+        sent = next(args for command, args in self.transport.calls if command == "inbox_send")
+        self.assertEqual("test:p1", sent["to"])
+        self.assertIn(f"[VP web message #{item['id']};", sent["body"])
+        self.transport.records["i1"]["state"] = "read"
+        server._reconcile("vp")
+        self.assertEqual(("read", "i1"), self.row(item["id"]))
+        self.transport.records["i1"]["state"] = "acked"
+        server._reconcile("vp")
+        self.assertEqual(("acked", "i1"), self.row(item["id"]))
+
+    def test_web_upload_is_copied_into_agent_inbox(self):
+        path = Path(self.temporary.name) / "picture.png"
+        path.write_bytes(b"test image bytes")
+        with sqlite3.connect(server.DB) as db:
+            db.execute("INSERT INTO attachments(id,filename,mime,size,path) VALUES(?,?,?,?,?)",
+                       ("picture", "picture.png", "image/png", path.stat().st_size, str(path)))
+        item = server.post_message(server.MessageIn(
+            channel="vp", body="see the image", attachment_ids=["picture"]), "owner")
+        self.assertEqual("inbox", item["delivery"])
+        sent = next(args for command, args in self.transport.calls if command == "inbox_send")
+        self.assertEqual([str(path)], sent["attach"])
+        self.assertIn("picture.png", sent["body"])
 
     def test_marker_prevents_duplicate_when_old_id_is_missing(self):
         message_id = self.add_message("lost")

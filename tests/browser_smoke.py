@@ -104,7 +104,7 @@ with sync_playwright() as playwright:
             owner_message.wait_for(timeout=15000)
             assert owner_message.count() == 1, "Enter submitted a duplicate message"
             assert "second line" in owner_message.inner_text()
-            assert owner_message.locator(".delivery").inner_text() in {"sent", "queued"}
+            assert owner_message.locator(".delivery").inner_text() in {"in inbox", "read", "handled"}
             page.wait_for_function("() => { const e = document.querySelector('.conversation'); return e && e.scrollHeight - e.scrollTop - e.clientHeight < 3; }", timeout=5000)
             print(f"{width}x{height}: Shift+Enter newline, IME guard, and single Enter submission: OK")
         if width == 390:

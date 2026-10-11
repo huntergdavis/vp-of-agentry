@@ -1,8 +1,8 @@
 """Owner-only LAN dashboard for existing Herdr agents.
 
-The web process never writes to a terminal directly: messages go through
-Dunking Sheep's guarded send_text command. Herdr pane output is a live view,
-not a durable or structured transcript; authored briefs are stored in SQLite.
+The web process stores owner messages through Dunking Sheep's durable inbox.
+Herdr pane output is a live view, not a structured transcript; authored briefs
+are stored in SQLite.
 """
 
 from __future__ import annotations
@@ -51,6 +51,7 @@ MAX_UPLOAD = 25 * 1024 * 1024
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 DELIVERY_LOCK = threading.Lock()
 DELIVERY_STOP = threading.Event()
+READ_STATUS_WINDOW_S = 8 * 24 * 3600  # Inbox retains read messages for seven days.
 
 
 def _db():
@@ -315,13 +316,25 @@ def _prompt_for(row, conn):
 def _send_saved(row, client, pane, force=False):
     with _db() as conn:
         prompt = _prompt_for(row, conn)
-    result = client.call("send_text", target=pane["pane_id"], text=prompt,
-                         hold_while_typing=not force, wait_s=0)
-    delivery = "queued" if result.get("queued") else "sent" if result.get("ok") else "uncertain"
+        attachments = [item["path"] for item in conn.execute(
+            "SELECT path FROM attachments WHERE message_id=? ORDER BY created_at", (row["id"],))]
+    if force:
+        # Only the old terminal queue's explicit owner override uses this path.
+        result = client.call("send_text", target=pane["pane_id"], text=prompt,
+                             hold_while_typing=False, wait_s=0)
+        delivery = "queued" if result.get("queued") else "sent" if result.get("ok") else "uncertain"
+        detail = result.get("message", "")
+    else:
+        result = client.call("inbox_send", to=pane["pane_id"], body=prompt,
+                             subject=f"VP web message #{row['id']}", attach=attachments, notify=True)
+        if not result.get("message_id", "").startswith("i"):
+            raise RuntimeError("Inbox send returned no message ID")
+        delivery = {"queued": "inbox", "read": "read", "acked": "acked"}.get(result.get("state"), "uncertain")
+        detail = {"inbox": "Stored in agent inbox", "read": "Read by agent", "acked": "Handled by agent"}.get(delivery, "Inbox state unconfirmed")
     with _db() as conn:
         conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=?,"
                      "transport_attempts=transport_attempts+1,transport_attempt_at=? WHERE id=?",
-                     (delivery, result.get("message", ""), result.get("message_id"), time.time(), row["id"]))
+                     (delivery, detail, result.get("message_id"), time.time(), row["id"]))
     return result
 
 
@@ -330,17 +343,34 @@ def _reconcile(channel: str):
     if not DELIVERY_LOCK.acquire(blocking=False):
         return
     try:
+        read_cutoff = time.time() - READ_STATUS_WINDOW_S
         with _db() as conn:
-            queued = conn.execute("SELECT * FROM messages WHERE channel=? AND delivery IN ('pending','queued','failed','uncertain') ORDER BY id",
-                                  (channel,)).fetchall()
+            queued = conn.execute("SELECT * FROM messages WHERE channel=? AND "
+                                  "(delivery IN ('pending','queued','failed','uncertain','inbox') "
+                                  "OR (delivery='read' AND transport_attempt_at>?)) ORDER BY id",
+                                  (channel, read_cutoff)).fetchall()
         if not queued:
             return
         client = _flock()
-        recent = client.call("list_messages")
+        legacy = [row for row in queued if not (row["transport_id"] or "").startswith("i")]
+        recent = client.call("list_messages") if legacy else {"queued": [], "recent": []}
         queued_by_id = {item.get("message_id"): item for item in recent.get("queued", [])}
         for row in queued:
             record = None
             transport_id = row["transport_id"]
+            if transport_id and transport_id.startswith("i"):
+                try:
+                    state = client.call("inbox_status", message_id=transport_id).get("state")
+                except Exception:
+                    continue  # Retain the last known state through a daemon outage.
+                delivery = {"queued": "inbox", "read": "read", "acked": "acked", "cancelled": "cancelled"}.get(state)
+                if delivery:
+                    detail = {"inbox": "Stored in agent inbox", "read": "Read by agent",
+                              "acked": "Handled by agent", "cancelled": "Cancelled"}[delivery]
+                    with _db() as conn:
+                        conn.execute("UPDATE messages SET delivery=?,delivery_detail=? WHERE id=?",
+                                     (delivery, detail, row["id"]))
+                continue
             if transport_id:
                 try:
                     record = client.call("get_message", message_id=transport_id)
@@ -382,7 +412,11 @@ def _delivery_watch():
     while not DELIVERY_STOP.wait(5):
         try:
             with _db() as conn:
-                channels = [row[0] for row in conn.execute("SELECT DISTINCT channel FROM messages WHERE delivery IN ('pending','queued','failed','uncertain')")]
+                channels = [row[0] for row in conn.execute(
+                    "SELECT DISTINCT channel FROM messages WHERE delivery IN "
+                    "('pending','queued','failed','uncertain','inbox') "
+                    "OR (delivery='read' AND transport_attempt_at>?)",
+                    (time.time() - READ_STATUS_WINDOW_S,))]
             for channel in channels:
                 _reconcile(channel)
         except Exception:

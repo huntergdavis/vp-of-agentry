@@ -1,6 +1,6 @@
 # VP of Agentry
 
-A private LAN desk for the owner's existing Herdr agents. Messages go through Dunking Sheep's guarded `send_text` queue; the website does not start a new model session.
+A private LAN desk for the owner's existing Herdr agents. Messages go through Dunking Sheep's durable inbox; the website does not start a new model session.
 
 ## Run
 
@@ -14,7 +14,7 @@ Open `http://<LAN-host>:8787`. The initial password and API token are in ignored
 
 ## Delivery
 
-Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB) are saved in ignored `data/`. The app watches queued delivery every five seconds. A timeout or lost queue entry is marked **delivery uncertain** and is never resent automatically: check the live pane before sending again. A queued card explains a typing hold. **Send now** appears only for a confirmed draft hold; it cancels the queued copy before bypassing the guard and may interfere with unfinished Herdr input. `sent` means the pane accepted the submission, not that the agent answered.
+Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB each) are saved in ignored `data/` and copied into the agent inbox. The chat shows **in inbox**, **read**, and **handled** as the agent processes them; state is checked every five seconds. Old messages sent through the terminal retain their previous delivery status. A timeout is marked **delivery uncertain** and never resent automatically.
 
 Agents post durable Markdown replies with `echo 'Brief' | ./vpctl brief --channel vp`. The right panel shows recent, volatile `read_pane` output; search covers stored website messages and posted briefs. The owner Bearer token works with the same API. A browser tab opened before an upgrade needs one refresh; newer tabs show an update notice.
 
