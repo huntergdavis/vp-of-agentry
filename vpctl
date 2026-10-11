@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Local agent CLI for publishing durable briefs to the VP desk.
+
+Usage: echo 'Status...' | ./vpctl brief --channel vp
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+parser = argparse.ArgumentParser(description="VP of Agentry local API client")
+sub = parser.add_subparsers(dest="command", required=True)
+brief = sub.add_parser("brief", help="Publish a Markdown brief from stdin")
+brief.add_argument("--channel", default="vp")
+status = sub.add_parser("status", help="Read channel status")
+args = parser.parse_args()
+auth = json.loads((ROOT / "data" / "auth.json").read_text())
+base = os.getenv("VP_BASE_URL", "http://127.0.0.1:8787")
+if args.command == "brief":
+    body = sys.stdin.read().strip()
+    if not body:
+        parser.error("brief text must be provided on stdin")
+    path, payload = "/api/brief", {"channel": args.channel, "body": body}
+else:
+    path, payload = "/api/channels", None
+request = urllib.request.Request(
+    base + path,
+    data=json.dumps(payload).encode() if payload is not None else None,
+    headers={"Authorization": "Bearer " + auth["token"], "Content-Type": "application/json"},
+    method="POST" if payload is not None else "GET",
+)
+try:
+    with urllib.request.urlopen(request, timeout=10) as response:
+        print(response.read().decode())
+except urllib.error.HTTPError as exc:
+    print(exc.read().decode(), file=sys.stderr)
+    sys.exit(1)
