@@ -48,7 +48,6 @@ CHANNELS = [
 ]
 CHANNEL_INDEX = {item["id"]: item for item in CHANNELS}
 MAX_UPLOAD = 25 * 1024 * 1024
-SESSIONS: dict[str, float] = {}
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 DELIVERY_LOCK = threading.Lock()
 DELIVERY_STOP = threading.Event()
@@ -88,6 +87,11 @@ def _initialize():
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
             CREATE INDEX IF NOT EXISTS attachments_message_id ON attachments(message_id);
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
         """)
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
         if "transport_id" not in columns:
@@ -152,6 +156,12 @@ def _sync_edited_credentials():
     record["salt"] = salt.hex()
     record["digest"] = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 400_000).hex()
     _private_write(AUTH, json.dumps(record))
+    with _db() as conn:
+        conn.execute("DELETE FROM sessions")
+
+
+def _session_key(cookie: str) -> str:
+    return hashlib.sha256(cookie.encode()).hexdigest()
 
 
 def _same_origin(request: Request):
@@ -166,8 +176,13 @@ def require_auth(request: Request):
     if bearer.startswith("Bearer ") and hmac.compare_digest(bearer[7:], _auth_record()["token"]):
         return "api"
     cookie = request.cookies.get("vp_session", "")
-    if cookie and SESSIONS.get(cookie, 0) > time.time():
-        return "owner"
+    if cookie:
+        with _db() as conn:
+            row = conn.execute("SELECT expires_at FROM sessions WHERE token_hash=?", (_session_key(cookie),)).fetchone()
+            if row and row["expires_at"] > time.time():
+                return "owner"
+            if row:
+                conn.execute("DELETE FROM sessions WHERE token_hash=?", (_session_key(cookie),))
     raise HTTPException(401, "Sign in required")
 
 
@@ -190,14 +205,19 @@ def login(body: Login, request: Request, response: Response):
         raise HTTPException(401, "Incorrect password")
     LOGIN_ATTEMPTS.pop(addr, None)
     session = secrets.token_urlsafe(32)
-    SESSIONS[session] = now + 7 * 24 * 3600
+    with _db() as conn:
+        conn.execute("DELETE FROM sessions WHERE expires_at<=?", (now,))
+        conn.execute("INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)", (_session_key(session), now + 7 * 24 * 3600))
     response.set_cookie("vp_session", session, httponly=True, samesite="strict", max_age=7 * 24 * 3600)
     return {"ok": True}
 
 
 @app.post("/api/logout")
 def logout(request: Request, response: Response, _: Annotated[str, Depends(require_auth)]):
-    SESSIONS.pop(request.cookies.get("vp_session", ""), None)
+    cookie = request.cookies.get("vp_session", "")
+    if cookie:
+        with _db() as conn:
+            conn.execute("DELETE FROM sessions WHERE token_hash=?", (_session_key(cookie),))
     response.delete_cookie("vp_session")
     return {"ok": True}
 
@@ -221,10 +241,8 @@ def change_password(body: PasswordChange, request: Request, identity: Annotated[
     if CREDENTIALS.exists():
         _private_write(CREDENTIALS, f"Password: {body.new_password}\nAPI token: {record['token']}\n")
     current = request.cookies.get("vp_session", "")
-    current_expiry = SESSIONS.get(current)
-    SESSIONS.clear()
-    if current_expiry:
-        SESSIONS[current] = current_expiry
+    with _db() as conn:
+        conn.execute("DELETE FROM sessions WHERE token_hash<>?", (_session_key(current),))
     return {"ok": True}
 
 
