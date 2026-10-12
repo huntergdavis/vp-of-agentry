@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -54,12 +55,17 @@ DELIVERY_STOP = threading.Event()
 READ_STATUS_WINDOW_S = 8 * 24 * 3600  # Inbox retains read messages for seven days.
 
 
+@contextmanager
 def _db():
     conn = sqlite3.connect(DB, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _initialize():
@@ -363,13 +369,22 @@ def _reconcile(channel: str):
             transport_id = row["transport_id"]
             if transport_id and transport_id.startswith("i"):
                 try:
-                    state = client.call("inbox_status", message_id=transport_id).get("state")
+                    inbox_record = client.call("inbox_status", message_id=transport_id)
+                    state = inbox_record.get("state")
                 except Exception:
                     continue  # Retain the last known state through a daemon outage.
                 delivery = {"queued": "inbox", "read": "read", "acked": "acked", "cancelled": "cancelled"}.get(state)
                 if delivery:
                     detail = {"inbox": "Stored in agent inbox", "read": "Read by agent",
                               "acked": "Handled by agent", "cancelled": "Cancelled"}[delivery]
+                    if delivery == "inbox":
+                        notify_state = (inbox_record.get("notify") or {}).get("state")
+                        if notify_state == "queued":
+                            detail += "; wakeup waiting for agent input to clear"
+                        elif notify_state == "failed":
+                            detail += "; wakeup failed"
+                        elif notify_state == "sent":
+                            detail += "; agent notified"
                     with _db() as conn:
                         conn.execute("UPDATE messages SET delivery=?,delivery_detail=? WHERE id=?",
                                      (delivery, detail, row["id"]))

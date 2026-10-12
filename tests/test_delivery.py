@@ -89,6 +89,11 @@ class DeliveryTests(unittest.TestCase):
         sent = next(args for command, args in self.transport.calls if command == "inbox_send")
         self.assertEqual("test:p1", sent["to"])
         self.assertIn(f"[VP web message #{item['id']};", sent["body"])
+        self.transport.records["i1"]["notify"] = {"state": "queued", "reason": "input box contains a draft"}
+        server._reconcile("vp")
+        with sqlite3.connect(server.DB) as db:
+            detail = db.execute("SELECT delivery_detail FROM messages WHERE id=?", (item["id"],)).fetchone()[0]
+        self.assertIn("wakeup waiting", detail)
         self.transport.records["i1"]["state"] = "read"
         server._reconcile("vp")
         self.assertEqual(("read", "i1"), self.row(item["id"]))

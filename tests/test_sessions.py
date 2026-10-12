@@ -45,6 +45,12 @@ class SessionTests(unittest.TestCase):
         self.assertTrue(cookies["vp_session"]["httponly"])
         return cookies["vp_session"].value
 
+    def test_database_context_closes_connection(self):
+        with server._db() as conn:
+            self.assertEqual(1, conn.execute("SELECT 1").fetchone()[0])
+        with self.assertRaises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
     def assert_denied(self, cookie):
         with self.assertRaises(HTTPException) as error:
             server.require_auth(request(cookie))

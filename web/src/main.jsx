@@ -119,8 +119,9 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
 
 function MessageCard({ item, highlight, onSendNow, onInspect }) {
   const owner = item.role === 'owner';
-  const deliveryLabel = { inbox: 'in inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
-  const waitingMinutes = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 60000));
+  const deliveryLabel = { inbox: 'delivered to inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
+  const waitingSeconds = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 1000));
+  const waitingMinutes = Math.floor(waitingSeconds / 60);
   const heldForDraft = item.delivery_detail?.includes('someone is typing') || item.delivery_detail?.includes('input box contains a draft');
   return <div className={`message-wrap ${owner ? 'owner' : 'agent'} ${highlight ? 'highlight' : ''}`} id={`message-${item.id}`}>
     <div className="message-meta"><strong>{owner ? 'YOU' : 'AGENT'}</strong><span>{new Date(item.created_at).toLocaleString()}</span>{owner && <span className={`delivery ${item.delivery}`} title={item.delivery_detail}>{deliveryLabel}</span>}</div>
@@ -129,6 +130,7 @@ function MessageCard({ item, highlight, onSendNow, onInspect }) {
         {item.attachments?.length > 0 && <div className="attachments">{item.attachments.map(a => <div key={a.id} className="attachment-card">{['image/png','image/jpeg','image/gif','image/webp'].includes(a.mime) && <a href={`/api/uploads/${a.id}`} target="_blank" rel="noreferrer"><img src={`/api/uploads/${a.id}?preview=true`} loading="lazy" alt={a.filename} /></a>}<a href={`/api/uploads/${a.id}`} target="_blank" rel="noreferrer">📎 {a.filename}</a></div>)}</div>}</Message.CustomContent>
     </Message>
     {owner && item.delivery === 'queued' && <div className={`queue-help ${heldForDraft && waitingMinutes >= 2 ? 'long-wait' : ''}`} role={heldForDraft && waitingMinutes >= 2 ? 'alert' : undefined}><span>{heldForDraft && waitingMinutes >= 2 ? 'Action needed: VP input box has an unfinished draft' : heldForDraft ? 'Waiting for the VP input box to clear' : (item.delivery_detail || 'Waiting for guarded delivery')} · {waitingMinutes < 1 ? 'under 1 min' : `${waitingMinutes} min`}</span>{heldForDraft && <button onClick={() => onSendNow(item)}>Send now</button>}</div>}
+    {owner && item.delivery === 'inbox' && waitingSeconds >= 30 && <div className={`queue-help ${waitingMinutes >= 2 ? 'long-wait' : ''}`} role={waitingMinutes >= 2 ? 'alert' : undefined}><span>{item.delivery_detail || 'Stored in agent inbox'}; waiting for agent pickup · {waitingMinutes < 1 ? `${waitingSeconds} sec` : `${waitingMinutes} min`}</span></div>}
     {owner && item.delivery === 'failed' && <div className="queue-help"><span>{item.delivery_detail || 'Delivery failed; retrying when transport recovers'}</span></div>}
     {owner && item.delivery === 'uncertain' && <div className="queue-help"><span>Delivery uncertain. Check agent activity before resending.</span><button onClick={onInspect}>Live signal</button></div>}
   </div>;
