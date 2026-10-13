@@ -16,7 +16,7 @@ Open `http://<LAN-host>:8787`. The initial password and API token are in ignored
 
 Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB each) are saved in ignored `data/` and copied into a unique agent inbox when available. The chat shows **in inbox**, **read**, and **handled** as the agent processes them; state is checked every five seconds. Shared generic mailboxes use the guarded pane queue, and show **queued** or **sent**. A timeout is marked **delivery uncertain** and never resent automatically.
 
-Agents post durable Markdown replies with `echo 'Brief' | ./vpctl brief --channel vp`. The right panel shows recent, volatile `read_pane` output; search covers stored website messages and posted briefs. The owner Bearer token works with the same API. A browser tab opened before an upgrade needs one refresh; newer tabs show an update notice.
+Agents post durable Markdown replies with `echo 'Brief' | ./vpctl brief --channel vp`; add `--attach /path/to/image.png` to include a private image. The right panel shows recent, volatile `read_pane` output; search covers stored website messages and posted briefs. The owner Bearer token works with the same API. A browser tab opened before an upgrade needs one refresh; newer tabs show an update notice.
 
 The UI reuses MIT licensed [ChatScope](https://github.com/chatscope/chat-ui-kit-react), [Tiptap](https://github.com/ueberdosis/tiptap), [Turndown](https://github.com/mixmark-io/turndown), and [react-markdown](https://github.com/remarkjs/react-markdown). Open WebUI and LibreChat were evaluated, but their model-provider paths need an adapter to target a running Herdr pane and local guarded queue.
 

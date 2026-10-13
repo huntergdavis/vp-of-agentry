@@ -611,6 +611,7 @@ def send_now(message_id: int, identity: Annotated[str, Depends(require_auth)]):
 class BriefIn(BaseModel):
     channel: str
     body: str = Field(min_length=1, max_length=20000)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
 @app.post("/api/brief")
@@ -620,8 +621,16 @@ def post_brief(data: BriefIn, identity: Annotated[str, Depends(require_auth)]):
     if data.channel not in CHANNEL_INDEX:
         raise HTTPException(404, "Unknown channel")
     with _db() as conn:
+        for attachment_id in data.attachment_ids:
+            row = conn.execute("SELECT id FROM attachments WHERE id=? AND message_id IS NULL",
+                               (attachment_id,)).fetchone()
+            if not row:
+                raise HTTPException(422, f"Attachment {attachment_id} is unavailable")
         cursor = conn.execute("INSERT INTO messages(channel,role,body) VALUES(?,?,?)",
                               (data.channel, "agent", data.body.strip()))
+        for attachment_id in data.attachment_ids:
+            conn.execute("UPDATE attachments SET message_id=? WHERE id=?",
+                         (cursor.lastrowid, attachment_id))
         row = conn.execute("SELECT * FROM messages WHERE id=?", (cursor.lastrowid,)).fetchone()
         return _message(row, conn)
 
