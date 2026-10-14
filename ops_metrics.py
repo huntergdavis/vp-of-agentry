@@ -244,6 +244,8 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
             states["github"] = "unavailable"
             errors["github"] = type(exc).__name__
+    else:
+        states["github"] = "cached"
     if _source_due(conn, "dunk_metrics_state", now):
         try:
             metrics = _valid_dunk_metrics(command_json(["dunkingsheep", "--json", "metrics", "--window", "3600"]))
@@ -251,6 +253,8 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
             states["dunk_metrics"] = "unavailable"
             errors["dunk_metrics"] = type(exc).__name__
+    else:
+        states["dunk_metrics"] = "cached"
 
     with conn:
         run_id = conn.execute(
@@ -345,6 +349,15 @@ def record_goal(
 def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     now = now or utc_now()
     run = conn.execute("SELECT * FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
+    source_freshness = {}
+    for source in ("panes", "github", "vp_messages", "dunk_metrics"):
+        row = conn.execute(
+            f"SELECT observed_at FROM collection_runs WHERE {source}_state='ok' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        source_freshness[source] = {
+            "last_ok_at": row["observed_at"] if row else None,
+            "age_s": max(0, int((now - parse_time(row["observed_at"])).total_seconds())) if row else None,
+        }
     staff = {"pm": {}, "coder": {}, "reviewer": {}, "other": {}}
     if run and run["panes_state"] == "ok":
         for row in conn.execute(
@@ -400,6 +413,7 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "latest_sample_at": run["observed_at"] if run else None,
         "latest_sample_age_s": max(0, int((now - parse_time(run["observed_at"])).total_seconds())) if run else None,
         "sources": {name: run[f"{name}_state"] for name in ("panes", "github", "vp_messages", "dunk_metrics")} if run else {},
+        "source_freshness": source_freshness,
         "staff": staff,
         "quota": quota,
         "goals": goals,

@@ -30,10 +30,16 @@ class OpsMetricsTests(unittest.TestCase):
             result = ops_metrics.collect(
                 self.conn, now=datetime(2026, 10, 14, 21, 0, tzinfo=timezone.utc)
             )
+            later = ops_metrics.collect(
+                self.conn, now=datetime(2026, 10, 14, 21, 1, tzinfo=timezone.utc)
+            )
         self.assertEqual(result["sources"]["dunk_metrics"], "unavailable")
         self.assertIsNone(result["dunk_metrics"])
         self.assertEqual(result["staff"]["other"]["working"], 1)
         self.assertIsNone(result["quota"])
+        self.assertEqual(later["sources"]["github"], "cached")
+        self.assertEqual(later["source_freshness"]["github"]["age_s"], 60)
+        self.assertIsNone(later["source_freshness"]["dunk_metrics"]["last_ok_at"])
 
     def test_burn_requires_same_reset_and_elapsed_time(self):
         ops_metrics.record_quota(
