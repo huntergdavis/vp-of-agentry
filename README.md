@@ -20,6 +20,12 @@ Agents post durable Markdown replies with `echo 'Brief' | ./vpctl brief --channe
 
 The UI reuses MIT licensed [ChatScope](https://github.com/chatscope/chat-ui-kit-react), [Tiptap](https://github.com/ueberdosis/tiptap), [Turndown](https://github.com/mixmark-io/turndown), and [react-markdown](https://github.com/remarkjs/react-markdown). Open WebUI and LibreChat were evaluated, but their model-provider paths need an adapter to target a running Herdr pane and local guarded queue.
 
+## Poolrad dashboard
+
+Choose **Poolrad dashboard** in the desk sidebar to see the local evidence queue, last recorded compile and CTest result, and scoped DOS/C comparisons. **Refresh snapshot** regenerates the view from the local Poolrad main checkout; it does not rerun verification. The source commit and generation time appear inside the view, and a verification from a different commit is marked stale.
+
+The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the default sibling `poolrad-decomp/tools/dashboard` location. Only the generated page and two cited public report copies are served through authenticated routes. The embedded view runs in a sandboxed frame. The dashboard's function rankings are triage hints, not PM assignments or per-function strict C credit.
+
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
 ## Telegram

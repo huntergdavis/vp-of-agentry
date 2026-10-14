@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -37,6 +38,8 @@ DB = DATA / "messages.sqlite3"
 AUTH = DATA / "auth.json"
 CREDENTIALS = DATA / "owner-credentials"
 DUNKING_SHEEP = Path(os.getenv("DUNKING_SHEEP_DIR", ROOT.parent / "dunkingsheep"))
+DASHBOARD_DIR = Path(os.getenv("POOLRAD_DASHBOARD_DIR", ROOT.parent / "poolrad-decomp" / "tools" / "dashboard")).resolve()
+DASHBOARD_REPORTS = {"SLOT_A_FIRST_EGA_ROW64.md", "SLOT_A_ROW6_COL38_PRINTER_PAGE.md"}
 sys.path.insert(0, str(DUNKING_SHEEP))
 
 CHANNELS = [
@@ -702,6 +705,44 @@ def activity(channel: str, _: Annotated[str, Depends(require_auth)]):
     result = _flock().call("read_pane", target=pane["pane_id"], lines=80)
     return {"channel": channel, "pane_id": pane["pane_id"],
             "status": _presence(result.get("agent_status")), "text": result.get("text", "")}
+
+
+@app.post("/api/poolrad-dashboard/refresh")
+def refresh_poolrad_dashboard(_: Annotated[str, Depends(require_auth)]):
+    script = DASHBOARD_DIR / "dashboard.py"
+    if not script.is_file():
+        raise HTTPException(404, "Poolrad dashboard unavailable")
+    try:
+        result = subprocess.run([sys.executable, str(script), "render"], cwd=script.parent.parent.parent,
+                                capture_output=True, text=True, timeout=20, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise HTTPException(503, "Poolrad dashboard refresh failed") from None
+    if result.returncode or not (DASHBOARD_DIR / "dashboard.html").is_file():
+        raise HTTPException(503, "Poolrad dashboard refresh failed")
+    return {"refreshed": True}
+
+
+@app.get("/api/poolrad-dashboard/dashboard.html")
+def poolrad_dashboard_page(_: Annotated[str, Depends(require_auth)]):
+    page = DASHBOARD_DIR / "dashboard.html"
+    if not page.is_file():
+        raise HTTPException(404, "Poolrad dashboard unavailable")
+    return FileResponse(page, media_type="text/html", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'self'",
+    })
+
+
+@app.get("/api/poolrad-dashboard/state/reports/{filename}")
+def poolrad_dashboard_report(filename: str, _: Annotated[str, Depends(require_auth)]):
+    if filename not in DASHBOARD_REPORTS:
+        raise HTTPException(404, "Report unavailable")
+    report = DASHBOARD_DIR / "state" / "reports" / filename
+    if not report.is_file():
+        raise HTTPException(404, "Report unavailable")
+    return FileResponse(report, media_type="text/plain", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    })
 
 
 @app.get("/api/health")

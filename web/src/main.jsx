@@ -166,8 +166,29 @@ function Search({ onClose, onJump }) {
   </div></div>;
 }
 
+function PoolradDashboard() {
+  const [version, setVersion] = useState(0);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState('');
+  async function refresh() {
+    setBusy(true); setError('');
+    try {
+      await api('/poolrad-dashboard/refresh', { method: 'POST' });
+      setVersion(current => current + 1);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  useEffect(() => { refresh(); }, []);
+  return <section className="dashboard-view" aria-label="Poolrad evidence dashboard">
+    <div className="dashboard-tools"><span>Local evidence snapshot · refresh after Poolrad main changes</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
+    {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
+      : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
+        : <iframe key={version} title="Poolrad evidence queue and compile diff" src={`/api/poolrad-dashboard/dashboard.html?v=${version}`} sandbox="allow-scripts" />}
+  </section>;
+}
+
 function Desk({ onLogout }) {
   const [channels, setChannels] = useState([]); const [channel, setChannel] = useState('vp');
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const [channelUpdated, setChannelUpdated] = useState(null);
   const [items, setItems] = useState([]); const [older, setOlder] = useState(false); const [loadingOlder, setLoadingOlder] = useState(false);
   const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
@@ -178,6 +199,7 @@ function Desk({ onLogout }) {
   const selected = channels.find(c => c.id === channel);
   useEffect(() => { itemsRef.current = items; }, [items]);
   useLayoutEffect(() => {
+    if (dashboardOpen) return;
     const latestId = items.at(-1)?.id ?? null;
     const previousId = lastMessageIdRef.current;
     lastMessageIdRef.current = latestId;
@@ -196,7 +218,7 @@ function Desk({ onLogout }) {
     observer.observe(pane.querySelector('.conversation-inner'));
     const finish = setTimeout(() => { observer.disconnect(); if (ownSend) scrollToSentRef.current = null; }, 1800);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); clearTimeout(finish); };
-  }, [items, jumpId]);
+  }, [items, jumpId, dashboardOpen]);
   function onConversationScroll() {
     const pane = listRef.current;
     if (!pane) return;
@@ -257,27 +279,29 @@ function Desk({ onLogout }) {
     const timer = setInterval(() => { if (jumpId == null) refreshMessages(); refreshActivity(); }, 5000);
     return () => { clearInterval(timer); activityRequest.current++; };
   }, [channel, jumpId]);
-  useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel]);
+  useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel, dashboardOpen]);
+  useEffect(() => { if (!dashboardOpen && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [dashboardOpen]);
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
   async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); scrollToSentRef.current = item.id; if (jumpId != null) setJumpId(null); else setItems(old => [...old, item]); }
   async function confirmSendNow(item) { setForceBusy(true); setError(''); try { const updated = await api(`/messages/${item.id}/send-now`, { method: 'POST' }); setItems(old => old.map(current => current.id === updated.id ? updated : current)); setForceTarget(null); } catch (e) { setError(e.message); setForceTarget(null); } finally { setForceBusy(false); } }
-  function selectChannel(id) { setChannel(id); setJumpId(null); }
-  function jumpTo(item) { setChannel(item.channel); setJumpId(item.id); }
-  return <div className="shell">
+  function selectChannel(id) { setDashboardOpen(false); setChannel(id); setJumpId(null); }
+  function jumpTo(item) { setDashboardOpen(false); setChannel(item.channel); setJumpId(item.id); }
+  return <div className={`shell ${dashboardOpen ? 'dashboard-mode' : ''}`}>
     <aside className="sidebar"><div className="identity"><div className="brand-mark small">VA</div><div><strong>VP OF AGENTRY</strong><span>Executive desk</span></div></div>
-      <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.kind === 'active').map(c => <button key={c.id} className={`channel ${channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
-      <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
+      <div className="sidebar-section">PROJECT VIEW</div><button className={`channel dashboard-nav ${dashboardOpen ? 'selected' : ''}`} onClick={() => setDashboardOpen(true)}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
+      <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.kind === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
+      <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">COMMAND CHANNEL / {selected?.kind?.toUpperCase() || 'ACTIVE'}</div><h1>{selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right"><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button><button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardOpen ? 'PROJECT VIEW / POOLRAD' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardOpen ? 'Poolrad evidence dashboard' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => selectChannel('poolrad')}>Poolrad PM chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      <div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
+      {dashboardOpen ? <PoolradDashboard /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
         <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
       </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>
-      <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
+      <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} /></>}
     </main>
-    <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>
+    {!dashboardOpen && <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>}
     {searchOpen && <Search onClose={() => setSearchOpen(false)} onJump={jumpTo} />}
     {settingsOpen && <PasswordSettings onClose={() => setSettingsOpen(false)} />}
     {forceTarget && <ForceSendDialog item={forceTarget} busy={forceBusy} onClose={() => setForceTarget(null)} onConfirm={confirmSendNow} />}
