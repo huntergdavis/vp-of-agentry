@@ -42,14 +42,36 @@ DASHBOARD_DIR = Path(os.getenv("POOLRAD_DASHBOARD_DIR", ROOT.parent / "poolrad-d
 DASHBOARD_REPORTS = {"SLOT_A_FIRST_EGA_ROW64.md", "SLOT_A_ROW6_COL38_PRINTER_PAGE.md"}
 sys.path.insert(0, str(DUNKING_SHEEP))
 
-CHANNELS = [
-    {"id": "vp", "name": "VP of Agentry", "match": "vp of agentry", "kind": "active"},
-    {"id": "poolrad", "name": "Poolrad PM", "match": "PM for Poolrad-decomp", "kind": "active"},
-    {"id": "website", "name": "Website", "match": "Codex hunterdavis.com", "kind": "standby"},
-    {"id": "racing", "name": "Slamdemonium", "match": "PM Claude Slam", "kind": "standby"},
-    {"id": "tooling", "name": "Dunkies", "match": "dunky claude", "kind": "standby"},
-    {"id": "server", "name": "MonkeyDLuffy", "match": "monkeydluffy", "kind": "monitor"},
-]
+def _load_channels():
+    override = os.getenv("VP_CHANNELS_FILE")
+    path = Path(override).expanduser() if override else ROOT / "channels.json"
+    if not path.exists():
+        if override:
+            raise FileNotFoundError(f"VP_CHANNELS_FILE does not exist: {path}")
+        path = ROOT / "channels.example.json"
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, list) or not payload:
+        raise ValueError(f"{path}: expected a nonempty list of channels")
+    ids = set()
+    for item in payload:
+        if not isinstance(item, dict) or not all(
+            isinstance(item.get(key), str) and item[key].strip()
+            for key in ("id", "name", "match", "kind")
+        ):
+            raise ValueError(f"{path}: each channel needs nonempty id, name, match, and kind")
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", item["id"]):
+            raise ValueError(f"{path}: invalid channel id {item['id']!r}")
+        if item["kind"] not in {"active", "standby", "monitor"}:
+            raise ValueError(f"{path}: invalid kind for channel {item['id']!r}")
+        if item["id"] in ids:
+            raise ValueError(f"{path}: duplicate channel id {item['id']!r}")
+        if "dashboard" in item and not isinstance(item["dashboard"], bool):
+            raise ValueError(f"{path}: dashboard must be true or false")
+        ids.add(item["id"])
+    return payload
+
+
+CHANNELS = _load_channels()
 CHANNEL_INDEX = {item["id"]: item for item in CHANNELS}
 MAX_UPLOAD = 25 * 1024 * 1024
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
@@ -303,11 +325,26 @@ def channels(_: Annotated[str, Depends(require_auth)]):
     for cfg in CHANNELS:
         pane = _target(cfg["id"], panes)
         rows.append({"id": cfg["id"], "name": cfg["name"], "kind": cfg["kind"],
+                     "dashboard": cfg.get("dashboard", False),
                      "online": pane is not None, "status": _presence(pane.get("agent_status")) if pane else "offline",
                      "pane_id": pane.get("pane_id") if pane else None,
                      "can_message": bool(pane and pane.get("agent"))})
     return {"channels": rows, "daemon": daemon,
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+
+@app.get("/api/ops-metrics")
+def operations_metrics(_: Annotated[str, Depends(require_auth)]):
+    from ops_metrics import connect, summary
+
+    try:
+        conn = connect()
+        try:
+            return summary(conn)
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error) as exc:
+        raise HTTPException(503, f"Operations metrics unavailable: {type(exc).__name__}") from exc
 
 
 def _message(row, conn):

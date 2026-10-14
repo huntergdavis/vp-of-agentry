@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 desk = importlib.import_module("server.app")
+server = desk
 bridge_path = Path(__file__).resolve().parents[1] / "telegram_bridge.py"
 loader = importlib.machinery.SourceFileLoader("vp_telegram_bridge", str(bridge_path))
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -66,7 +67,7 @@ class TelegramBridgeTests(unittest.TestCase):
         desk._initialize()
         self.transport = FakeTransport()
         for name, replacement in (("_flock", lambda: self.transport),
-                                  ("_panes", lambda: [{"pane_id": "test:p1", "tab_label": "vp of agentry", "agent": "codex"}])):
+                                  ("_panes", lambda: [{"pane_id": "test:p1", "tab_label": server.CHANNEL_INDEX["vp"]["match"], "agent": "codex"}])):
             context = patch.object(desk, name, replacement)
             context.start()
             self.addCleanup(context.stop)

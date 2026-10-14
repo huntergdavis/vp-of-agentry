@@ -12,6 +12,10 @@ A private LAN desk for the owner's existing Herdr agents. Messages use Dunking S
 
 Open `http://<LAN-host>:8787`. The initial password and API token are in ignored `data/owner-credentials` (mode `0600`). Change the password with the gear icon, or edit that file's `Password:` line; the next sign-in applies a newer file. The API token is preserved. Set `VP_BIND`, `VP_PORT`, or `DUNKING_SHEEP_DIR` if needed. Access this HTTP app only on a trusted LAN or VPN.
 
+## Channels
+
+Copy `channels.example.json` to `channels.json` and edit the local file for your agents. `channels.json` is Git ignored; the checked-in example contains only generic labels. Each entry needs a unique `id`, display `name`, Herdr pane label `match`, and `kind` (`active`, `standby`, or `monitor`). Add `"dashboard": true` to the channel linked from the project dashboard. The server reads the local file at startup and uses the generic example if no local file exists. Set `VP_CHANNELS_FILE` to use a different private file; an explicit missing path is an error. Restart the service after edits.
+
 ## Delivery
 
 Enter sends; Shift+Enter adds a line. Messages and uploads (up to 25 MB each) are saved in ignored `data/` and copied into a unique agent inbox when available. The chat shows **in inbox**, **read**, and **handled** as the agent processes them; state is checked every five seconds. Shared generic mailboxes use the guarded pane queue, and show **queued** or **sent**. A timeout is marked **delivery uncertain** and never resent automatically.
@@ -27,6 +31,12 @@ Choose **Poolrad dashboard** in the desk sidebar to see the local evidence queue
 The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the default sibling `poolrad-decomp/tools/dashboard` location. Only the generated page and two cited public report copies are served through authenticated routes. The embedded view runs in a sandboxed frame. The dashboard's function rankings are triage hints, not PM assignments or per-function strict C credit.
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
+
+## Operations metrics
+
+The private collector stores timestamped observations in ignored `data/operations.sqlite3` (mode `0600`). Run `./install-ops-metrics-service.sh` to collect pane presence every minute; recent GitHub PR states and Dunking Sheep aggregate telemetry are polled at most every five minutes. Read `./opsctl summary` or authenticated `GET /api/ops-metrics`. The summary gives source ages and leaves unavailable sources unavailable. Pane presence is not verified coding output; recent PRs are not a whole-game denominator.
+
+Record direct quota readings with `./opsctl quota --pane PANE --left PERCENT --reset ISO_TIME --observed-at ISO_TIME --evidence SOURCE`. Record scoped checkpoints with `./opsctl goal --key KEY --scope local|overall --status STATUS --evidence SOURCE`, and private role assignments with `./opsctl lane --pane PANE --role pm|coder|reviewer|other --focus DESCRIPTION`. The collector cannot infer token or dollar cost from pane state; those values stay unknown until a billing source is available. Dunking Sheep telemetry is accepted only as aggregate schema-versioned data, with message content rejected.
 
 ## Telegram
 

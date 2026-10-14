@@ -3,12 +3,13 @@
 import unittest
 from unittest.mock import patch
 
+from server import app as server
 from server.app import _presence, channels
 
 
 class PresenceTests(unittest.TestCase):
     def test_blocked_process_is_waiting_and_still_messageable(self):
-        pane = {"pane_id": "test:p1", "tab_label": "vp of agentry", "agent": "codex", "agent_status": "blocked"}
+        pane = {"pane_id": "test:p1", "tab_label": server.CHANNEL_INDEX["vp"]["match"], "agent": "codex", "agent_status": "blocked"}
         with patch("server.app._panes", return_value=[pane]):
             vp = next(row for row in channels("owner")["channels"] if row["id"] == "vp")
         self.assertEqual(vp["status"], "waiting")

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "vp",
+    "name": "VP",
+    "match": "vp agent",
+    "kind": "active"
+  },
+  {
+    "id": "project",
+    "name": "Project",
+    "match": "project agent",
+    "kind": "standby",
+    "dashboard": true
+  }
+]

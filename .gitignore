@@ -4,6 +4,7 @@ web/dist/
 data/*
 !data/.gitkeep
 .env
+channels.json
 __pycache__/
 *.pyc
 .pytest_cache/

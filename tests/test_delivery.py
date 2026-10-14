@@ -61,7 +61,7 @@ class DeliveryTests(unittest.TestCase):
         server._initialize()
         self.transport = FakeTransport()
         self.client_patch = patch.object(server, "_flock", return_value=self.transport)
-        self.panes_patch = patch.object(server, "_panes", return_value=[{"pane_id": "test:p1", "tab_label": "vp of agentry", "agent": "codex"}])
+        self.panes_patch = patch.object(server, "_panes", return_value=[{"pane_id": "test:p1", "tab_label": server.CHANNEL_INDEX["vp"]["match"], "agent": "codex"}])
         self.client_patch.start(); self.panes_patch.start()
         self.addCleanup(self.client_patch.stop); self.addCleanup(self.panes_patch.stop)
 

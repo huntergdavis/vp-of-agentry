@@ -166,6 +166,34 @@ function Search({ onClose, onJump }) {
   </div></div>;
 }
 
+function OpsSummary() {
+  const [snapshot, setSnapshot] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    const load = () => api('/ops-metrics')
+      .then(data => { if (active) { setSnapshot(data); setError(''); } })
+      .catch(exc => { if (active) setError(exc.message); });
+    load();
+    const timer = setInterval(load, 60000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+  const coderStates = snapshot?.staff?.coder || {};
+  const coders = Object.values(coderStates).reduce((sum, count) => sum + count, 0);
+  const strict = snapshot?.goals?.find(goal => goal.goal_key === 'strict_fullc');
+  const playable = snapshot?.goals?.find(goal => goal.goal_key === 'playable_c_demo');
+  const quota = snapshot?.quota;
+  return <section className="ops-metrics" aria-label="Private operations metrics">
+    <div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : error || 'Loading…'}</small></div>
+    {snapshot && <div className="ops-grid">
+      <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
+      <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>Playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
+      <div><b>WEEKLY QUOTA</b><strong>{quota ? quota.weekly_percent_left + '% left' : 'No direct reading'}</strong><small>{quota ? 'Last reading ' + Math.round(quota.age_s / 60) + ' min old · burn ' + (quota.burn_percentage_points_per_hour ?? 'unknown') : 'Awaiting direct reading'}</small></div>
+      <div><b>SPEND AND TELEMETRY</b><strong>Cost unknown</strong><small>Dunking Sheep: {snapshot.sources?.dunk_metrics || 'unavailable'} · token cost needs billing data</small></div>
+    </div>}
+  </section>;
+}
+
 function PoolradDashboard() {
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(true);
@@ -179,6 +207,7 @@ function PoolradDashboard() {
   }
   useEffect(() => { refresh(); }, []);
   return <section className="dashboard-view" aria-label="Poolrad evidence dashboard">
+    <OpsSummary />
     <div className="dashboard-tools"><span>Local evidence snapshot · refresh after Poolrad main changes</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
     {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
       : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
@@ -197,6 +226,7 @@ function Desk({ onLogout }) {
   const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0); const itemsRef = useRef([]); const scrollToSentRef = useRef(null);
   const [showLatest, setShowLatest] = useState(false); const nearBottomRef = useRef(true); const lastMessageIdRef = useRef(null);
   const selected = channels.find(c => c.id === channel);
+  const dashboardChannel = channels.find(c => c.dashboard);
   useEffect(() => { itemsRef.current = items; }, [items]);
   useLayoutEffect(() => {
     if (dashboardOpen) return;
@@ -293,7 +323,7 @@ function Desk({ onLogout }) {
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardOpen ? 'PROJECT VIEW / POOLRAD' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardOpen ? 'Poolrad evidence dashboard' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => selectChannel('poolrad')}>Poolrad PM chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardOpen ? 'PROJECT VIEW / POOLRAD' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardOpen ? 'Poolrad evidence dashboard' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
       {dashboardOpen ? <PoolradDashboard /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
