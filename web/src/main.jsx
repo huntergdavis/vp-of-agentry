@@ -169,6 +169,13 @@ function Search({ onClose, onJump }) {
 function OpsSummary() {
   const [snapshot, setSnapshot] = useState(null);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function refresh() {
+    setBusy(true); setError('');
+    try { setSnapshot(await api('/ops-metrics/refresh', { method: 'POST' })); }
+    catch (exc) { setError(exc.message); }
+    finally { setBusy(false); }
+  }
   useEffect(() => {
     let active = true;
     const load = () => api('/ops-metrics')
@@ -181,16 +188,21 @@ function OpsSummary() {
   const coderStates = snapshot?.staff?.coder || {};
   const coders = Object.values(coderStates).reduce((sum, count) => sum + count, 0);
   const strict = snapshot?.goals?.find(goal => goal.goal_key === 'strict_fullc');
+  const verifiedIdentities = snapshot?.goals?.find(goal => goal.goal_key === 'verified_game_identities');
   const playable = snapshot?.goals?.find(goal => goal.goal_key === 'playable_c_demo');
   const quota = snapshot?.quota;
-  return <section className="ops-metrics" aria-label="Private operations metrics">
-    <div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : error || 'Loading…'}</small></div>
+  const subscriptions = snapshot?.subscriptions || [];
+  const fixedMonthly = snapshot?.monthly_fixed_usd;
+  return <section className="dashboard-view ops-view" aria-label="Private operations dashboard">
+    <div className="dashboard-tools"><span>Private sourced observations · scheduled sample every minute</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh data'}</button></div>
+    {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
+    <div className="ops-metrics"><div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : 'Loading…'}</small></div>
     {snapshot && <div className="ops-grid">
       <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
-      <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>Playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
-      <div><b>WEEKLY QUOTA</b><strong>{quota ? quota.weekly_percent_left + '% left' : 'No direct reading'}</strong><small>{quota ? 'Last reading ' + Math.round(quota.age_s / 60) + ' min old · burn ' + (quota.burn_percentage_points_per_hour ?? 'unknown') : 'Awaiting direct reading'}</small></div>
-      <div><b>SPEND AND TELEMETRY</b><strong>Cost unknown</strong><small>Dunking Sheep: {snapshot.sources?.dunk_metrics || 'unavailable'} · token cost needs billing data</small></div>
-    </div>}
+      <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>{verifiedIdentities?.value ?? 'Unknown'} verified identities · playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
+      <div><b>QUOTA SAMPLE</b><strong>{quota ? (quota.age_s > 3600 ? 'Reading stale' : quota.weekly_percent_left + '% sampled') : 'No direct reading'}</strong><small>{quota ? quota.weekly_percent_left + '% observed ' + Math.round(quota.age_s / 60) + ' min ago · other accounts unknown · burn ' + (quota.burn_percentage_points_per_hour ?? 'unknown') : 'Awaiting direct reading'}</small></div>
+      <div><b>SPEND AND TELEMETRY</b><strong>{fixedMonthly == null ? 'Fixed cost unknown' : '$' + fixedMonthly.toFixed(2) + '/mo fixed'}</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2)).join(' · ') || 'No owner cost record'} · usage and token cost unknown · Dunking Sheep: {snapshot.sources?.dunk_metrics || 'unavailable'}</small></div>
+    </div>}</div>
   </section>;
 }
 
@@ -207,7 +219,6 @@ function PoolradDashboard() {
   }
   useEffect(() => { refresh(); }, []);
   return <section className="dashboard-view" aria-label="Poolrad evidence dashboard">
-    <OpsSummary />
     <div className="dashboard-tools"><span>Local evidence snapshot · refresh after Poolrad main changes</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
     {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
       : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
@@ -217,7 +228,8 @@ function PoolradDashboard() {
 
 function Desk({ onLogout }) {
   const [channels, setChannels] = useState([]); const [channel, setChannel] = useState('vp');
-  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [dashboardView, setDashboardView] = useState(null);
+  const dashboardOpen = dashboardView !== null;
   const [channelUpdated, setChannelUpdated] = useState(null);
   const [items, setItems] = useState([]); const [older, setOlder] = useState(false); const [loadingOlder, setLoadingOlder] = useState(false);
   const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
@@ -314,18 +326,19 @@ function Desk({ onLogout }) {
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
   async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); scrollToSentRef.current = item.id; if (jumpId != null) setJumpId(null); else setItems(old => [...old, item]); }
   async function confirmSendNow(item) { setForceBusy(true); setError(''); try { const updated = await api(`/messages/${item.id}/send-now`, { method: 'POST' }); setItems(old => old.map(current => current.id === updated.id ? updated : current)); setForceTarget(null); } catch (e) { setError(e.message); setForceTarget(null); } finally { setForceBusy(false); } }
-  function selectChannel(id) { setDashboardOpen(false); setChannel(id); setJumpId(null); }
-  function jumpTo(item) { setDashboardOpen(false); setChannel(item.channel); setJumpId(item.id); }
+  function selectChannel(id) { setDashboardView(null); setChannel(id); setJumpId(null); }
+  function jumpTo(item) { setDashboardView(null); setChannel(item.channel); setJumpId(item.id); }
   return <div className={`shell ${dashboardOpen ? 'dashboard-mode' : ''}`}>
     <aside className="sidebar"><div className="identity"><div className="brand-mark small">VA</div><div><strong>VP OF AGENTRY</strong><span>Executive desk</span></div></div>
-      <div className="sidebar-section">PROJECT VIEW</div><button className={`channel dashboard-nav ${dashboardOpen ? 'selected' : ''}`} onClick={() => setDashboardOpen(true)}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
+      <div className="sidebar-section">PROJECT VIEW</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
+      <button className={`channel dashboard-nav ${dashboardView === 'ops' ? 'selected' : ''}`} onClick={() => setDashboardView('ops')}><span aria-hidden="true">▤</span><span>Operations dashboard</span><small>metrics</small></button>
       <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.kind === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardOpen ? 'PROJECT VIEW / POOLRAD' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardOpen ? 'Poolrad evidence dashboard' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad evidence dashboard' : dashboardView === 'ops' ? 'Operations dashboard' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      {dashboardOpen ? <PoolradDashboard /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
+      {dashboardView === 'poolrad' ? <PoolradDashboard /> : dashboardView === 'ops' ? <OpsSummary /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
         <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
       </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>

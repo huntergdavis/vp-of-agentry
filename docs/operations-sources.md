@@ -11,6 +11,7 @@ The VP operations database is data/operations.sqlite3, which Git ignores. The fi
 | Weekly quota | VP direct /status observation, manually entered with pane, time, reset, and evidence | Percentage of the observed account's weekly allowance left | Stale readings remain labelled stale; panes sharing an account must be grouped by reset cohort. Burn is shown only after two direct readings at least 30 minutes apart with the same reset. |
 | Local progress | PM-reviewed goal observations with evidence reference | Credited strict full-C functions and measured local queues | Provisional parity gates and queue starts do not add strict full-C credit. |
 | Overall progress | PM-reviewed goal observations with evidence reference | Playable C demo gate and verified whole-game denominator | The playable demo is blocked until a same-state DOS/C frame; no verified whole-game denominator exists. |
-| Money and tokens | No billing source connected | Unknown | Pane activity and quota percentage cannot be converted to token or dollar cost. |
+| Fixed subscriptions | Owner-reported amounts entered privately with ./opsctl subscription | Latest monthly amount by provider and their sum | Excludes unknown taxes, add-ons, and usage charges; no amount is hardcoded in tracked source. |
+| Usage money and tokens | No billing source connected | Unknown | Pane activity and quota percentage cannot be converted to token or marginal dollar cost. |
 
 The collector timer runs once per minute. GitHub and Dunking Sheep polling are throttled to five minutes. Roles are private local assignments entered with ./opsctl lane; the checked-in code contains no actual pane roster. If a source is down, the prior observations remain in the database with their original timestamps.

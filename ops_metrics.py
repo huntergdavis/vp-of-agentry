@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sqlite3
 import subprocess
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +96,16 @@ CREATE TABLE IF NOT EXISTS quota_observations (
     UNIQUE(project,provider,cohort,observed_at,evidence_ref)
 );
 CREATE INDEX IF NOT EXISTS quota_recent ON quota_observations(project,provider,cohort,observed_at);
+CREATE TABLE IF NOT EXISTS subscription_costs (
+    id INTEGER PRIMARY KEY,
+    project TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    monthly_usd_cents INTEGER NOT NULL CHECK(monthly_usd_cents >= 0),
+    observed_at TEXT NOT NULL,
+    evidence_ref TEXT NOT NULL,
+    UNIQUE(project,provider,observed_at,evidence_ref)
+);
+CREATE INDEX IF NOT EXISTS subscription_latest ON subscription_costs(project,provider,id);
 CREATE TABLE IF NOT EXISTS goal_observations (
     id INTEGER PRIMARY KEY,
     project TEXT NOT NULL,
@@ -179,6 +191,17 @@ def _vp_counts(path: Path = MESSAGE_DB) -> list[tuple[str, str, int]]:
         )]
 
 
+def _dunk_timestamp(item: Any, label: str) -> str:
+    if isinstance(item, str):
+        return iso(parse_time(item))
+    if isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(item):
+        try:
+            return iso(datetime.fromtimestamp(item, timezone.utc))
+        except (OverflowError, OSError, ValueError) as exc:
+            raise ValueError(f"Dunking Sheep {label} invalid") from exc
+    raise ValueError(f"Dunking Sheep {label} required")
+
+
 def _valid_dunk_metrics(value: Any) -> dict:
     if not isinstance(value, dict) or value.get("schema_version") != 1:
         raise ValueError("Dunking Sheep metrics schema_version 1 required")
@@ -186,12 +209,8 @@ def _valid_dunk_metrics(value: Any) -> dict:
     if not isinstance(interval, dict):
         raise ValueError("Dunking Sheep metrics interval required")
     for key in ("start", "end"):
-        if not isinstance(interval.get(key), str):
-            raise ValueError(f"Dunking Sheep interval.{key} required")
-        parse_time(interval[key])
-    if not isinstance(value.get("generated_at"), str):
-        raise ValueError("Dunking Sheep generated_at required")
-    parse_time(value["generated_at"])
+        _dunk_timestamp(interval.get(key), f"interval.{key}")
+    _dunk_timestamp(value.get("generated_at"), "generated_at")
     # The upstream contract is aggregate-only. Reject known content keys before persistence.
     forbidden = {"body", "text", "subject", "filename", "email", "token", "secret"}
     def check(item: Any) -> None:
@@ -207,7 +226,8 @@ def _valid_dunk_metrics(value: Any) -> dict:
     return value
 
 
-def collect(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
+def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
+            force_external: bool = False) -> dict:
     now = now or utc_now()
     observed_at = iso(now)
     states = {"panes": "skipped", "github": "skipped", "vp_messages": "skipped", "dunk_metrics": "skipped"}
@@ -231,7 +251,7 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     except (OSError, sqlite3.Error) as exc:
         states["vp_messages"] = "unavailable"
         errors["vp_messages"] = type(exc).__name__
-    if _source_due(conn, "github_state", now):
+    if force_external or _source_due(conn, "github_state", now):
         try:
             prs = command_json(
                 ["gh", "pr", "list", "--state", "all", "--limit", "100", "--json",
@@ -246,7 +266,7 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             errors["github"] = type(exc).__name__
     else:
         states["github"] = "cached"
-    if _source_due(conn, "dunk_metrics_state", now):
+    if force_external or _source_due(conn, "dunk_metrics_state", now):
         try:
             metrics = _valid_dunk_metrics(command_json(["dunkingsheep", "--json", "metrics", "--window", "3600"]))
             states["dunk_metrics"] = "ok"
@@ -304,8 +324,10 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
                 "INSERT OR IGNORE INTO dunk_metrics_snapshots"
                 "(observed_at,generated_at,interval_start,interval_end,schema_version,payload_json) "
                 "VALUES(?,?,?,?,?,?)",
-                (observed_at, metrics["generated_at"], metrics["interval"]["start"],
-                 metrics["interval"]["end"], 1, json.dumps(metrics, separators=(",", ":"), sort_keys=True)),
+                (observed_at, _dunk_timestamp(metrics["generated_at"], "generated_at"),
+                 _dunk_timestamp(metrics["interval"]["start"], "interval.start"),
+                 _dunk_timestamp(metrics["interval"]["end"], "interval.end"), 1,
+                 json.dumps(metrics, separators=(",", ":"), sort_keys=True)),
             )
     return summary(conn, now=now)
 
@@ -326,6 +348,25 @@ def record_quota(
             "VALUES(?,?,?,?,?,?,?,?,?)",
             (PROJECT, provider, cohort, pane, iso(parse_time(observed_at)), precision,
              percent_left, iso(parse_time(reset_at)), evidence),
+        )
+
+
+def record_subscription(
+    conn: sqlite3.Connection, *, provider: str, monthly_usd: str,
+    evidence: str, observed_at: str | None = None,
+) -> None:
+    try:
+        amount = Decimal(monthly_usd)
+    except InvalidOperation as exc:
+        raise ValueError("monthly USD must be a decimal number") from exc
+    if not amount.is_finite() or amount < 0 or amount * 100 != (amount * 100).to_integral_value():
+        raise ValueError("monthly USD must be nonnegative with at most two decimal places")
+    when = iso(parse_time(observed_at)) if observed_at else iso(utc_now())
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO subscription_costs"
+            "(project,provider,monthly_usd_cents,observed_at,evidence_ref) VALUES(?,?,?,?,?)",
+            (PROJECT, provider.strip().lower(), int(amount * 100), when, evidence),
         )
 
 
@@ -369,6 +410,15 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "SELECT * FROM quota_observations WHERE project=? ORDER BY observed_at DESC,id DESC LIMIT 2",
         (PROJECT,),
     ).fetchall()
+    subscriptions = [dict(row) for row in conn.execute(
+        "SELECT provider,monthly_usd_cents,observed_at,evidence_ref "
+        "FROM subscription_costs s WHERE project=? AND id=("
+        "SELECT MAX(id) FROM subscription_costs WHERE project=s.project AND provider=s.provider"
+        ") ORDER BY provider", (PROJECT,)
+    )]
+    for item in subscriptions:
+        item["monthly_usd"] = item.pop("monthly_usd_cents") / 100
+    monthly_fixed_usd = sum(item["monthly_usd"] for item in subscriptions) if subscriptions else None
     quota = None
     if quota_rows:
         latest = quota_rows[0]
@@ -416,6 +466,9 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "source_freshness": source_freshness,
         "staff": staff,
         "quota": quota,
+        "subscriptions": subscriptions,
+        "monthly_fixed_usd": monthly_fixed_usd,
+        "usage_cost_usd": None,
         "goals": goals,
         "tracked_recent_prs": prs,
         "vp_message_counts": vp_counts,
@@ -430,7 +483,8 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "Pane state is sampled presence, not verified productive work or token consumption.",
             "PR list tracks recent visible PRs, not a whole-game completion denominator.",
             "Quota burn is percentage points per hour only after two direct readings at least 30 minutes apart with one reset.",
-            "Money and token cost are unknown without a billing source.",
+            "Usage-based money and token cost are unknown without a billing source.",
+            "Fixed subscription totals are owner-reported and exclude unknown taxes, add-ons, and usage charges.",
         ],
     }
 
@@ -451,6 +505,11 @@ def main() -> None:
     quota.add_argument("--evidence", required=True)
     quota.add_argument("--provider", default="codex")
     quota.add_argument("--cohort", default="poolrad-codex")
+    subscription = sub.add_parser("subscription", help="record an owner-reported fixed monthly subscription")
+    subscription.add_argument("--provider", required=True)
+    subscription.add_argument("--monthly-usd", required=True)
+    subscription.add_argument("--evidence", required=True)
+    subscription.add_argument("--observed-at")
     goal = sub.add_parser("goal", help="record a sourced local or overall goal checkpoint")
     goal.add_argument("--key", required=True)
     goal.add_argument("--scope", choices=["local", "overall"], required=True)
@@ -478,6 +537,10 @@ def main() -> None:
             record_quota(conn, pane=args.pane, percent_left=args.left, reset_at=args.reset,
                          observed_at=args.observed_at, precision=args.precision,
                          evidence=args.evidence, provider=args.provider, cohort=args.cohort)
+            print(json.dumps({"recorded": True}))
+        elif args.command == "subscription":
+            record_subscription(conn, provider=args.provider, monthly_usd=args.monthly_usd,
+                                evidence=args.evidence, observed_at=args.observed_at)
             print(json.dumps({"recorded": True}))
         elif args.command == "goal":
             record_goal(conn, key=args.key, scope=args.scope, status=args.status,

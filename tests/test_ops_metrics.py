@@ -62,3 +62,57 @@ class OpsMetricsTests(unittest.TestCase):
                    "by_pane": [{"pane": "sample:p1", "body": "private message"}]}
         with self.assertRaisesRegex(ValueError, "content-bearing"):
             ops_metrics._valid_dunk_metrics(payload)
+
+    def test_unix_second_telemetry_timestamps_are_normalized(self):
+        payload = {"schema_version": 1, "generated_at": 1792011600,
+                   "interval": {"start": 1792008000.0, "end": 1792011600},
+                   "units": {"timestamp": "unix_epoch_seconds"}, "counts": {}}
+        result = ops_metrics._valid_dunk_metrics(payload)
+        self.assertEqual(result["generated_at"], 1792011600)
+        self.assertEqual(ops_metrics._dunk_timestamp(result["generated_at"], "generated_at"),
+                         "2026-10-14T21:00:00Z")
+        self.assertEqual(ops_metrics._dunk_timestamp(result["interval"]["start"], "interval.start"),
+                         "2026-10-14T20:00:00Z")
+
+    def test_manual_refresh_repolls_external_sources(self):
+        calls = []
+        def command(argv, **_):
+            calls.append(argv)
+            if argv[0] == "gh":
+                return []
+            if "panes" in argv:
+                return {"panes": []}
+            return {"schema_version": 1, "generated_at": 1792011600,
+                    "interval": {"start": 1792008000, "end": 1792011600},
+                    "counts": {"events": 0}}
+
+        with patch.object(ops_metrics, "command_json", side_effect=command), \
+             patch.object(ops_metrics, "_vp_counts", return_value=[]):
+            ops_metrics.collect(self.conn, now=datetime(2026, 10, 14, 21, 0, tzinfo=timezone.utc))
+            result = ops_metrics.collect(
+                self.conn, now=datetime(2026, 10, 14, 21, 1, tzinfo=timezone.utc),
+                force_external=True
+            )
+        self.assertEqual(result["sources"]["github"], "ok")
+        self.assertEqual(result["sources"]["dunk_metrics"], "ok")
+        self.assertEqual(sum(argv[0] == "gh" for argv in calls), 2)
+        self.assertEqual(sum("metrics" in argv for argv in calls), 2)
+
+    def test_owner_subscription_history_gives_fixed_total_only(self):
+        ops_metrics.record_subscription(
+            self.conn, provider="claude", monthly_usd="10.00", evidence="owner report A"
+        )
+        ops_metrics.record_subscription(
+            self.conn, provider="codex", monthly_usd="20", evidence="owner report B"
+        )
+        ops_metrics.record_subscription(
+            self.conn, provider="claude", monthly_usd="12.00", evidence="owner update"
+        )
+        result = ops_metrics.summary(self.conn)
+        self.assertEqual(result["monthly_fixed_usd"], 32)
+        self.assertIsNone(result["usage_cost_usd"])
+        self.assertEqual(len(result["subscriptions"]), 2)
+        with self.assertRaisesRegex(ValueError, "two decimal places"):
+            ops_metrics.record_subscription(
+                self.conn, provider="codex", monthly_usd="1.001", evidence="invalid"
+            )

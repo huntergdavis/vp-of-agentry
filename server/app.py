@@ -347,6 +347,20 @@ def operations_metrics(_: Annotated[str, Depends(require_auth)]):
         raise HTTPException(503, f"Operations metrics unavailable: {type(exc).__name__}") from exc
 
 
+@app.post("/api/ops-metrics/refresh")
+def refresh_operations_metrics(_: Annotated[str, Depends(require_auth)]):
+    from ops_metrics import collect, connect
+
+    try:
+        conn = connect()
+        try:
+            return collect(conn, force_external=True)
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error) as exc:
+        raise HTTPException(503, f"Operations metrics unavailable: {type(exc).__name__}") from exc
+
+
 def _message(row, conn):
     item = dict(row)
     item["attachments"] = [dict(r) for r in conn.execute(
