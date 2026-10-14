@@ -58,7 +58,7 @@ class TelegramBridgeTests(unittest.TestCase):
         uploads = root / "uploads"
         uploads.mkdir()
         for target, value in ((desk, {"DB": root / "messages.sqlite3", "UPLOADS": uploads}),
-                              (bridge, {"CONFIG": root / "telegram.json"})):
+                              (bridge, {"CONFIG": root / "telegram.json", "LOCK": root / "telegram.lock"})):
             for name, replacement in value.items():
                 context = patch.object(target, name, replacement)
                 context.start()
@@ -131,6 +131,24 @@ class TelegramBridgeTests(unittest.TestCase):
                               self.config, self.bot)
         self.assertFalse(any(method == "inbox_send" for method, _ in self.transport.calls))
         self.assertTrue(any("20 MB" in args.get("text", "") for method, args in self.bot.calls if method == "sendMessage"))
+
+    def test_run_reaches_polling_with_private_lock(self):
+        class StopPolling(Exception):
+            pass
+
+        class StartupBot:
+            def call(self, method, **payload):
+                if method == "getWebhookInfo":
+                    return {"url": ""}
+                if method == "getUpdates":
+                    raise StopPolling
+                raise AssertionError(method)
+
+        bridge.save_config(self.config)
+        with patch.object(bridge, "Telegram", return_value=StartupBot()):
+            with self.assertRaises(StopPolling):
+                bridge.run()
+        self.assertEqual(0o600, bridge.LOCK.stat().st_mode & 0o777)
 
 
 if __name__ == "__main__":

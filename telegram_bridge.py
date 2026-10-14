@@ -252,7 +252,7 @@ def setup():
 
 def run():
     with LOCK.open("a+") as lock:
-        lock.chmod(0o600)
+        LOCK.chmod(0o600)
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
