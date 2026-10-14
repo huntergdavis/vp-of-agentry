@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -x "$root/.venv/bin/python" ]]; then
+  echo 'Run ./run.sh once to install VP dependencies.' >&2
+  exit 1
+fi
+exec "$root/.venv/bin/python" "$root/telegram_bridge.py" "$@"

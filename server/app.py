@@ -81,6 +81,7 @@ def _initialize():
                 transport_id TEXT,
                 transport_attempts INTEGER NOT NULL DEFAULT 0,
                 transport_attempt_at REAL NOT NULL DEFAULT 0,
+                external_id TEXT,
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
             );
             CREATE INDEX IF NOT EXISTS messages_channel_id ON messages(channel,id);
@@ -109,6 +110,9 @@ def _initialize():
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempts INTEGER NOT NULL DEFAULT 0")
         if "transport_attempt_at" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempt_at REAL NOT NULL DEFAULT 0")
+        if "external_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS messages_external_id ON messages(channel,external_id) WHERE external_id IS NOT NULL")
     if not AUTH.exists():
         password = os.getenv("VP_PASSWORD") or secrets.token_urlsafe(18)
         token = secrets.token_urlsafe(32)
@@ -514,6 +518,7 @@ class MessageIn(BaseModel):
     channel: str
     body: str = Field(default="", max_length=12000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=10)
+    external_id: str | None = Field(default=None, max_length=100)
 
 
 @app.post("/api/messages")
@@ -522,18 +527,29 @@ def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)
         raise HTTPException(404, "Unknown channel")
     if not data.body.strip() and not data.attachment_ids:
         raise HTTPException(422, "Message is empty")
+    if data.external_id:
+        with _db() as conn:
+            existing = conn.execute("SELECT * FROM messages WHERE channel=? AND external_id=?",
+                                    (data.channel, data.external_id)).fetchone()
+            if existing:
+                return _message(existing, conn)
     pane = _target(data.channel, _panes())
     if not pane or not pane.get("agent"):
         raise HTTPException(409, "No active agent is available in this channel")
     with _db() as conn:
+        if data.external_id:
+            existing = conn.execute("SELECT * FROM messages WHERE channel=? AND external_id=?",
+                                    (data.channel, data.external_id)).fetchone()
+            if existing:
+                return _message(existing, conn)
         attachment_rows = []
         for attachment_id in data.attachment_ids:
             row = conn.execute("SELECT * FROM attachments WHERE id=? AND message_id IS NULL", (attachment_id,)).fetchone()
             if not row:
                 raise HTTPException(422, f"Attachment {attachment_id} is unavailable")
             attachment_rows.append(row)
-        cursor = conn.execute("INSERT INTO messages(channel,role,body,delivery,transport_attempt_at) VALUES(?,?,?,?,?)",
-                              (data.channel, "owner", data.body.strip(), "pending", time.time()))
+        cursor = conn.execute("INSERT INTO messages(channel,role,body,delivery,transport_attempt_at,external_id) VALUES(?,?,?,?,?,?)",
+                              (data.channel, "owner", data.body.strip(), "pending", time.time(), data.external_id))
         message_id = cursor.lastrowid
         for row in attachment_rows:
             conn.execute("UPDATE attachments SET message_id=? WHERE id=?", (message_id, row["id"]))
