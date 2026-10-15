@@ -15,3 +15,12 @@ The VP operations database is data/operations.sqlite3, which Git ignores. The fi
 | Usage money and tokens | No billing source connected | Unknown | Pane activity and quota percentage cannot be converted to token or marginal dollar cost. |
 
 The collector timer runs once per minute. GitHub and Dunking Sheep polling are throttled to five minutes. Roles are private local assignments entered with ./opsctl lane; the checked-in code contains no actual pane roster. If a source is down, the prior observations remain in the database with their original timestamps.
+
+The private Operations view plots a rolling 24-hour history from
+`GET /api/ops-metrics/history`: PM-reviewed strict full-C and verified-identity
+observations, actual merge timestamps for the recent visible PR sample, and
+working coder pane counts from successful collection runs. Missing samples are
+not interpolated. Merge throughput and pane presence are engineering flow
+signals, not deployments or verified productivity. Deployment frequency, change
+failure rate, and recovery time remain unavailable until deployment and incident
+records exist.

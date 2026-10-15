@@ -56,6 +56,36 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(result["quota"]["burn_percentage_points_per_hour"], 2)
         self.assertEqual(result["quota"]["weekly_percent_left"], 38)
 
+    def test_history_uses_recorded_events_without_filling_gaps(self):
+        with self.conn:
+            run = self.conn.execute(
+                "INSERT INTO collection_runs(observed_at,panes_state,github_state,vp_messages_state,dunk_metrics_state,errors_json) "
+                "VALUES(?,?,?,?,?,?)",
+                ("2026-10-14T21:00:00Z", "ok", "ok", "ok", "unavailable", "{}"),
+            ).lastrowid
+            self.conn.execute(
+                "INSERT INTO pane_samples(run_id,pane_id,project,agent_status,role) VALUES(?,?,?,?,?)",
+                (run, "sample:p1", "poolrad", "working", "coder"),
+            )
+            self.conn.execute(
+                "INSERT INTO pr_latest(project,number,state,head_oid,merged_at,first_seen_at,last_seen_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                ("poolrad", 123, "MERGED", "abc", "2026-10-14T21:15:00Z",
+                 "2026-10-14T20:00:00Z", "2026-10-14T21:30:00Z"),
+            )
+        ops_metrics.record_goal(
+            self.conn, key="strict_fullc", scope="local", status="verified", value=71,
+            target=None, unit="functions", evidence="PM reviewed checkpoint",
+            note="", observed_at="2026-10-14T21:30:00Z",
+        )
+        result = ops_metrics.history(
+            self.conn, now=datetime(2026, 10, 14, 22, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(len(result["coder_samples"]), 1)
+        self.assertEqual(result["coder_samples"][0]["working"], 1)
+        self.assertEqual(result["pr_merges"][0]["merged_at"], "2026-10-14T21:15:00Z")
+        self.assertEqual(result["goal_observations"][0]["value"], 71)
+
     def test_content_bearing_telemetry_is_rejected(self):
         payload = {"schema_version": 1, "generated_at": "2026-10-14T21:00:00Z",
                    "interval": {"start": "2026-10-14T20:00:00Z", "end": "2026-10-14T21:00:00Z"},

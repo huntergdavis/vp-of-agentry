@@ -12,7 +12,7 @@ import math
 import os
 import sqlite3
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -486,6 +486,41 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "Usage-based money and token cost are unknown without a billing source.",
             "Fixed subscription totals are owner-reported and exclude unknown taxes, add-ons, and usage charges.",
         ],
+    }
+
+
+def history(conn: sqlite3.Connection, *, now: datetime | None = None, hours: int = 24) -> dict:
+    """Return timestamped observations; never interpolate missing source samples."""
+    if not 1 <= hours <= 168:
+        raise ValueError("history window must be 1 to 168 hours")
+    now = now or utc_now()
+    start = iso(now - timedelta(hours=hours))
+    goals = [dict(row) for row in conn.execute(
+        "SELECT goal_key,observed_at,value,unit,evidence_ref FROM goal_observations "
+        "WHERE project=? AND goal_key IN ('strict_fullc','verified_game_identities') "
+        "AND status='verified' AND observed_at>=? ORDER BY observed_at,id",
+        (PROJECT, start),
+    )]
+    coders = [dict(row) for row in conn.execute(
+        "SELECT r.observed_at, COUNT(p.pane_id) AS tracked, "
+        "SUM(CASE WHEN p.agent_status='working' THEN 1 ELSE 0 END) AS working "
+        "FROM collection_runs r JOIN pane_samples p ON p.run_id=r.id "
+        "WHERE r.observed_at>=? AND r.panes_state='ok' AND p.project=? AND p.role='coder' "
+        "GROUP BY r.id ORDER BY r.observed_at",
+        (start, PROJECT),
+    )]
+    merges = [dict(row) for row in conn.execute(
+        "SELECT number,merged_at FROM pr_latest WHERE project=? AND merged_at>=? "
+        "ORDER BY merged_at,number", (PROJECT, start),
+    )]
+    return {
+        "generated_at": iso(now), "window_start": start, "window_hours": hours,
+        "goal_observations": goals, "coder_samples": coders, "pr_merges": merges,
+        "limits": {
+            "coder_samples": "Pane presence, not verified productive work; gaps mean no successful sample.",
+            "pr_merges": "Recent visible PRs only; merges are not deployments or strict C credit.",
+            "dora": "Deployment frequency, change failure rate and recovery time unavailable without deployment and incident records.",
+        },
     }
 
 

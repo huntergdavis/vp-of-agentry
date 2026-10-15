@@ -166,20 +166,59 @@ function Search({ onClose, onJump }) {
   </div></div>;
 }
 
+function LineTrend({ title, points, color, unit, note }) {
+  const rows = points.filter(point => Number.isFinite(point.value) && Number.isFinite(Date.parse(point.at)));
+  if (!rows.length) return <div className="ops-chart"><h3>{title}</h3><p className="muted">No observations in this window</p><small>{note}</small></div>;
+  const first = Date.parse(rows[0].at), last = Date.parse(rows.at(-1).at);
+  const high = Math.max(1, ...rows.map(row => row.value));
+  const low = Math.min(0, ...rows.map(row => row.value));
+  const x = row => 24 + (last === first ? 0.5 : (Date.parse(row.at) - first) / (last - first)) * 336;
+  const y = row => 112 - ((row.value - low) / (high - low || 1)) * 92;
+  const latest = rows.at(-1);
+  return <div className="ops-chart"><div className="ops-chart-head"><h3>{title}</h3><strong>{latest.value} {unit}</strong></div>
+    <svg viewBox="0 0 384 140" role="img" aria-label={`${title}: ${rows.length} timestamped observations, latest ${latest.value} ${unit}`}>
+      <path d="M24 112 H360" stroke="#58717e" fill="none" />
+      {rows.length > 1 && <polyline points={rows.map(row => `${x(row)},${y(row)}`).join(' ')} fill="none" stroke={color} strokeWidth="3" />}
+      {rows.map((row, index) => <circle key={`${row.at}-${index}`} cx={x(row)} cy={y(row)} r="4" fill={color}><title>{new Date(row.at).toLocaleString()}: {row.value} {unit}</title></circle>)}
+      <text x="24" y="135">{new Date(rows[0].at).toLocaleString()}</text><text x="360" y="135" textAnchor="end">{new Date(latest.at).toLocaleTimeString()}</text>
+    </svg><small>{note}</small></div>;
+}
+
+function MergeTrend({ merges, start, end }) {
+  const begin = Date.parse(start), finish = Date.parse(end);
+  if (!Number.isFinite(begin) || !Number.isFinite(finish)) return null;
+  const buckets = Array.from({ length: 12 }, () => 0);
+  for (const merge of merges) {
+    const time = Date.parse(merge.merged_at);
+    if (time >= begin && time <= finish) buckets[Math.min(11, Math.floor((time - begin) / (finish - begin) * 12))]++;
+  }
+  const high = Math.max(1, ...buckets);
+  return <div className="ops-chart"><div className="ops-chart-head"><h3>PR merges · 24 hours</h3><strong>{merges.length} merged</strong></div>
+    <svg viewBox="0 0 384 140" role="img" aria-label={`${merges.length} tracked PR merges in twelve two-hour intervals`}>
+      <path d="M24 112 H360" stroke="#58717e" fill="none" />
+      {buckets.map((count, index) => <rect key={index} x={28 + index * 28} y={112 - count / high * 92} width="18" height={count / high * 92} fill="#eab46f"><title>Bucket {index + 1}: {count} merges</title></rect>)}
+      <text x="24" y="135">{new Date(start).toLocaleTimeString()}</text><text x="360" y="135" textAnchor="end">Now</text>
+    </svg><small>Recent visible PRs only. A merge is not a deployment or strict C credit.</small></div>;
+}
+
 function OpsSummary() {
   const [snapshot, setSnapshot] = useState(null);
+  const [history, setHistory] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function refresh() {
     setBusy(true); setError('');
-    try { setSnapshot(await api('/ops-metrics/refresh', { method: 'POST' })); }
+    try {
+      setSnapshot(await api('/ops-metrics/refresh', { method: 'POST' }));
+      setHistory(await api('/ops-metrics/history'));
+    }
     catch (exc) { setError(exc.message); }
     finally { setBusy(false); }
   }
   useEffect(() => {
     let active = true;
-    const load = () => api('/ops-metrics')
-      .then(data => { if (active) { setSnapshot(data); setError(''); } })
+    const load = () => Promise.all([api('/ops-metrics'), api('/ops-metrics/history')])
+      .then(([data, timeline]) => { if (active) { setSnapshot(data); setHistory(timeline); setError(''); } })
       .catch(exc => { if (active) setError(exc.message); });
     load();
     const timer = setInterval(load, 60000);
@@ -193,13 +232,23 @@ function OpsSummary() {
   const quota = snapshot?.quota;
   const subscriptions = snapshot?.subscriptions || [];
   const fixedMonthly = snapshot?.monthly_fixed_usd;
+  const strictSeries = (history?.goal_observations || []).filter(row => row.goal_key === 'strict_fullc').map(row => ({ at: row.observed_at, value: row.value }));
+  const identitySeries = (history?.goal_observations || []).filter(row => row.goal_key === 'verified_game_identities').map(row => ({ at: row.observed_at, value: row.value }));
+  const coderSeries = (history?.coder_samples || []).map(row => ({ at: row.observed_at, value: row.working }));
   return <section className="dashboard-view ops-view" aria-label="Private operations dashboard">
     <div className="dashboard-tools"><span>Private sourced observations · scheduled sample every minute</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh data'}</button></div>
     {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
     <div className="ops-metrics"><div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : 'Loading…'}</small></div>
+    {history && <><div className="ops-section-head"><h2>Engineering flow · last 24 hours</h2><small>Recorded events and observations; no values are inferred between samples.</small></div>
+      <div className="ops-charts">
+        <LineTrend title="Reviewed strict C" points={strictSeries} color="#a9db7d" unit="functions" note="PM-reviewed checkpoints only; whole-game denominator unknown." />
+        <MergeTrend merges={history.pr_merges} start={history.window_start} end={history.generated_at} />
+        <LineTrend title="Working coder panes" points={coderSeries} color="#83c6ed" unit="panes" note="Process presence, not verified productive work; missing samples are gaps." />
+        <LineTrend title="Verified game identities" points={identitySeries} color="#d6a6e8" unit="identities" note="PM-reviewed identity checkpoints; distinct from strict C credit." />
+      </div><p className="ops-dora">DORA deployment frequency, change failure rate, and recovery time: unavailable until deployment and incident records exist. PR merges above measure review throughput.</p></>}
     {snapshot && <div className="ops-grid">
       <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
-      <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>{verifiedIdentities?.value ?? 'Unknown'} verified identities · playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
+      <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>{verifiedIdentities?.value ?? 'Unknown'} verified identities · observed {strict?.observed_at ? new Date(strict.observed_at).toLocaleString() : 'unknown'} · playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
       <div><b>QUOTA SAMPLE</b><strong>{quota ? (quota.age_s > 3600 ? 'Reading stale' : quota.weekly_percent_left + '% sampled') : 'No direct reading'}</strong><small>{quota ? quota.weekly_percent_left + '% observed ' + Math.round(quota.age_s / 60) + ' min ago · other accounts unknown · burn ' + (quota.burn_percentage_points_per_hour ?? 'unknown') : 'Awaiting direct reading'}</small></div>
       <div><b>SPEND AND TELEMETRY</b><strong>{fixedMonthly == null ? 'Fixed cost unknown' : '$' + fixedMonthly.toFixed(2) + '/mo fixed'}</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2)).join(' · ') || 'No owner cost record'} · usage and token cost unknown · Dunking Sheep: {snapshot.sources?.dunk_metrics || 'unavailable'}</small></div>
     </div>}</div>

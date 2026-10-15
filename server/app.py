@@ -347,6 +347,20 @@ def operations_metrics(_: Annotated[str, Depends(require_auth)]):
         raise HTTPException(503, f"Operations metrics unavailable: {type(exc).__name__}") from exc
 
 
+@app.get("/api/ops-metrics/history")
+def operations_metrics_history(_: Annotated[str, Depends(require_auth)]):
+    from ops_metrics import connect, history
+
+    try:
+        conn = connect()
+        try:
+            return history(conn)
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error) as exc:
+        raise HTTPException(503, f"Operations metrics history unavailable: {type(exc).__name__}") from exc
+
+
 @app.post("/api/ops-metrics/refresh")
 def refresh_operations_metrics(_: Annotated[str, Depends(require_auth)]):
     from ops_metrics import collect, connect
