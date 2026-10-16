@@ -237,8 +237,8 @@ function OpsSummary() {
   }, []);
   const coderStates = snapshot?.staff?.coder || {};
   const coders = Object.values(coderStates).reduce((sum, count) => sum + count, 0);
-  const strict = snapshot?.goals?.find(goal => goal.goal_key === 'strict_fullc');
-  const verifiedIdentities = snapshot?.goals?.find(goal => goal.goal_key === 'verified_game_identities');
+  const progress = snapshot?.function_progress;
+  const completionRate = snapshot?.completion_rate;
   const playable = snapshot?.goals?.find(goal => goal.goal_key === 'playable_c_demo');
   const quotas = snapshot?.quotas || {
     codex: snapshot?.quota?.provider === 'codex' ? snapshot.quota : null,
@@ -246,26 +246,32 @@ function OpsSummary() {
   };
   const subscriptions = snapshot?.subscriptions || [];
   const fixedMonthly = snapshot?.monthly_fixed_usd;
-  const strictSeries = (history?.goal_observations || []).filter(row => row.goal_key === 'strict_fullc').map(row => ({ at: row.observed_at, value: row.value }));
-  const identitySeries = (history?.goal_observations || []).filter(row => row.goal_key === 'verified_game_identities').map(row => ({ at: row.observed_at, value: row.value }));
+  const strictSeries = (history?.accounting_samples || []).map(row => ({ at: row.observed_at, value: row.strict_full_c }));
+  const identitySeries = (history?.accounting_samples || []).map(row => ({ at: row.observed_at, value: row.verified_game_identities }));
   const coderSeries = (history?.coder_samples || []).map(row => ({ at: row.observed_at, value: row.working }));
   return <section className="dashboard-view ops-view" aria-label="Private operations dashboard">
     <div className="dashboard-tools"><span>Private sourced observations · scheduled sample every minute</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh data'}</button></div>
     {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
     <div className="ops-metrics"><div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : 'Loading…'}</small></div>
+    {snapshot && <div className="ops-kpis">
+      <div><b>FIXED SUBSCRIPTIONS / CALENDAR HOUR</b><strong>{snapshot.fixed_subscription_usd_per_calendar_hour == null ? 'Unknown' : '$' + snapshot.fixed_subscription_usd_per_calendar_hour.toFixed(2) + '/hr'}</strong><small>{fixedMonthly == null ? 'No owner cost record' : `$${fixedMonthly.toFixed(2)}/month ÷ ${snapshot.calendar_hours_in_month} hours in ${snapshot.billing_month}`} · usage charges and coder-hour cost unknown</small></div>
+      <div><b>STRICT C FUNCTION COVERAGE</b><strong>{progress ? `${progress.bound_kind === 'upper_bound' ? '≥' : ''}${progress.strict_percent}%` : 'Unknown'}</strong><small>{progress ? `${progress.strict_full_c} reviewed game functions / ${progress.ceiling} possible non-library bodies · main ${progress.commit_oid.slice(0, 8)} · observed ${new Date(progress.observed_at).toLocaleString()}` : 'Awaiting published, PM-reviewed accounting'}</small></div>
+      <div><b>VERIFIED GAME IDENTITIES</b><strong>{progress ? `${progress.bound_kind === 'upper_bound' ? '≥' : ''}${progress.identity_percent}%` : 'Unknown'}</strong><small>{progress ? `${progress.verified_game_identities} identities / ${progress.ceiling} possible non-library bodies; identification is separate from translation` : 'Awaiting published, PM-reviewed accounting'}</small></div>
+      <div><b>STRICT C COVERAGE SPEED</b><strong>{completionRate ? `${completionRate.function_coverage_points_per_hour.toFixed(4)} points/hr` : 'Awaiting interval'}</strong><small>{completionRate ? `${completionRate.delta_strict_functions} new reviewed functions over ${completionRate.window_hours} hr · ${completionRate.strict_functions_per_hour.toFixed(3)} functions/hr · ${new Date(completionRate.window_start).toLocaleString()} to ${new Date(completionRate.window_end).toLocaleString()}` : 'Requires two matching published readings at least one hour apart; not whole-game completion speed'}</small></div>
+    </div>}
     {history && <><div className="ops-section-head"><h2>Engineering flow · last 24 hours</h2><small>Recorded events and observations; no values are inferred between samples.</small></div>
       <div className="ops-charts">
-        <LineTrend title="Reviewed strict C" points={strictSeries} color="#a9db7d" unit="functions" note="PM-reviewed checkpoints only; whole-game denominator unknown." />
+        <LineTrend title="Reviewed strict C" points={strictSeries} color="#a9db7d" unit="functions" note="Published PM-reviewed checkpoints; no credit from PR count or candidate rows." />
         <MergeTrend merges={history.pr_merges} start={history.window_start} end={history.generated_at} />
         <LineTrend title="Working coder panes" points={coderSeries} color="#83c6ed" unit="panes" note="Process presence, not verified productive work; missing samples are gaps." />
-        <LineTrend title="Verified game identities" points={identitySeries} color="#d6a6e8" unit="identities" note="PM-reviewed identity checkpoints; distinct from strict C credit." />
+        <LineTrend title="Verified game identities" points={identitySeries} color="#d6a6e8" unit="identities" note="Published PM-reviewed checkpoints; distinct from strict C credit." />
       </div><p className="ops-dora">DORA deployment frequency, change failure rate, and recovery time: unavailable until deployment and incident records exist. PR merges above measure review throughput.</p></>}
     {snapshot && <div className="ops-grid">
       <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
-      <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>{verifiedIdentities?.value ?? 'Unknown'} verified identities · observed {strict?.observed_at ? new Date(strict.observed_at).toLocaleString() : 'unknown'} · playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
+      <div><b>PLAYABLE GAME GATE</b><strong>{playable?.status || 'Unverified'}</strong><small>{playable?.observed_at ? `Last manual checkpoint ${new Date(playable.observed_at).toLocaleString()} · ` : ''}A same-state DOS/C full frame is still required; no whole-game completion percentage is available</small></div>
       <QuotaCard provider="codex" quota={quotas.codex} />
       <QuotaCard provider="claude" quota={quotas.claude} />
-      <div><b>SPEND AND TELEMETRY</b><strong>{fixedMonthly == null ? 'Fixed cost unknown' : '$' + fixedMonthly.toFixed(2) + '/mo fixed'}</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2)).join(' · ') || 'No owner cost record'} · usage and token cost unknown · Dunking Sheep: {snapshot.sources?.dunk_metrics || 'unavailable'}</small></div>
+      <div><b>COST SOURCES</b><strong>{subscriptions.length} owner records</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2) + '/mo').join(' · ') || 'No owner cost record'} · no metered billing source · accounting: {snapshot.sources?.accounting || 'unavailable'}</small></div>
     </div>}</div>
   </section>;
 }
@@ -282,11 +288,11 @@ function PoolradDashboard() {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   useEffect(() => { refresh(); }, []);
-  return <section className="dashboard-view" aria-label="Poolrad evidence dashboard">
-    <div className="dashboard-tools"><span>Local evidence snapshot · refresh after Poolrad main changes</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
+  return <section className="dashboard-view" aria-label="Poolrad progress dashboard">
+    <div className="dashboard-tools"><span>Function coverage and demo gate · source commit shown inside</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
     {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
       : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
-        : <iframe key={version} title="Poolrad evidence queue and compile diff" src={`/api/poolrad-dashboard/dashboard.html?v=${version}`} sandbox="allow-scripts" />}
+        : <iframe key={version} title="Poolrad function progress and evidence" src={`/api/poolrad-dashboard/dashboard.html?v=${version}`} sandbox="allow-scripts" />}
   </section>;
 }
 

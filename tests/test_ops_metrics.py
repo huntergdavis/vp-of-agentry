@@ -1,5 +1,7 @@
 """Operations metrics retain provenance and distinguish missing data from zero."""
 
+import base64
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -145,8 +147,52 @@ class OpsMetricsTests(unittest.TestCase):
             )
         self.assertEqual(result["sources"]["github"], "ok")
         self.assertEqual(result["sources"]["dunk_metrics"], "ok")
-        self.assertEqual(sum(argv[0] == "gh" for argv in calls), 2)
+        self.assertEqual(sum(argv[:2] == ["gh", "pr"] for argv in calls), 2)
         self.assertEqual(sum("metrics" in argv for argv in calls), 2)
+
+    def test_published_accounting_requires_matching_reviewed_sources(self):
+        checkpoint = {"schema_version": 1, "strict_full_c_originals": 82,
+                      "verified_game_identities": 143, "inputs": {"game": "same"}}
+        census = {"status": "reviewed", "reviewed_by": "PM", "count": 815,
+                  "bound_kind": "upper_bound",
+                  "scope": "original-game-functions-overlay-and-resident",
+                  "source_digests": {"game": "same"},
+                  "evidence_doc": "docs/re/FUNCTION_CEILING_CENSUS.md"}
+        def command(argv, **_):
+            endpoint = argv[-1]
+            if endpoint.endswith("/git/ref/heads/main"):
+                return {"object": {"sha": "a" * 40}}
+            content = checkpoint if "function_accounting_checkpoint" in endpoint else census
+            return {"encoding": "base64", "content": base64.b64encode(json.dumps(content).encode()).decode()}
+        with patch.object(ops_metrics, "command_json", side_effect=command):
+            result = ops_metrics.published_accounting()
+            self.assertEqual((result["strict_full_c"], result["ceiling"]), (82, 815))
+            census["source_digests"] = {"game": "different"}
+            with self.assertRaisesRegex(ValueError, "jointly reviewed"):
+                ops_metrics.published_accounting()
+
+    def test_hourly_cost_and_completion_rate_use_dated_comparable_snapshots(self):
+        ops_metrics.record_subscription(self.conn, provider="codex", monthly_usd="200", evidence="owner")
+        ops_metrics.record_subscription(self.conn, provider="claude", monthly_usd="200", evidence="owner")
+        with self.conn:
+            for at, strict, signature in (("2026-10-16T20:00:00Z", 82, "same"),
+                                          ("2026-10-16T22:00:00Z", 83, "same")):
+                self.conn.execute(
+                    "INSERT INTO accounting_snapshots(project,observed_at,commit_oid,strict_full_c,"
+                    "verified_game_identities,ceiling,bound_kind,source_signature,evidence_ref) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    ("poolrad", at, "a" * 40, strict, 143, 815, "upper_bound", signature, "reviewed census"),
+                )
+        result = ops_metrics.summary(self.conn, now=datetime(2026, 10, 16, 22, 0, tzinfo=timezone.utc))
+        self.assertEqual(result["function_progress"]["strict_percent"], 10.1)
+        self.assertEqual(result["completion_rate"]["delta_strict_functions"], 1)
+        self.assertEqual(result["completion_rate"]["window_hours"], 2)
+        self.assertAlmostEqual(result["completion_rate"]["function_coverage_points_per_hour"], 0.0613, places=4)
+        self.assertEqual(result["calendar_hours_in_month"], 744)
+        self.assertAlmostEqual(result["fixed_subscription_usd_per_calendar_hour"], 400 / 744, places=4)
+        with self.conn:
+            self.conn.execute("UPDATE accounting_snapshots SET source_signature='other' WHERE strict_full_c=82")
+        self.assertIsNone(ops_metrics.summary(self.conn, now=datetime(2026, 10, 16, 22, 0, tzinfo=timezone.utc))["completion_rate"])
 
     def test_owner_subscription_history_gives_fixed_total_only(self):
         ops_metrics.record_subscription(

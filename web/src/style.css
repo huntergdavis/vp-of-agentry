@@ -31,6 +31,12 @@
 .ops-view .ops-grid>div{min-height:145px;padding:18px;gap:10px}
 .ops-view .ops-grid strong{font-size:22px}
 .ops-view .ops-grid small{font-size:13px}
+.ops-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:12px 0 22px}
+.ops-kpis>div{display:flex;flex-direction:column;gap:10px;min-width:0;padding:20px;border:1px solid #597083;border-radius:10px;background:#203545}
+.ops-kpis b{font-size:12px;color:#a9db7d;letter-spacing:.06em}
+.ops-kpis strong{font-size:30px;line-height:1.15;color:#faf2bb}
+.ops-kpis small{font-size:13px;line-height:1.45;color:#d2e0e7}
+@media(max-width:780px){.ops-kpis{grid-template-columns:1fr}}
 .ops-section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:20px 0 10px}
 .ops-section-head h2{font-size:17px;margin:0;color:#faf2bb}
 .ops-section-head small,.ops-dora{color:#bacbd3;font-size:12px}

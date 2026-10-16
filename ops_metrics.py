@@ -7,9 +7,14 @@ Missing sources remain missing; a failed poll does not become a zero.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import calendar
+import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -26,6 +31,7 @@ POOLRAD_REPO = Path(os.environ.get("POOLRAD_REPO", ROOT.parent / "poolrad-decomp
 PROJECT = "poolrad"
 POLL_INTERVAL_S = 60
 EXTERNAL_INTERVAL_S = 300
+PUBLISHED_REPO = "huntergdavis/poolrad-decomp"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS collection_runs (
@@ -35,6 +41,7 @@ CREATE TABLE IF NOT EXISTS collection_runs (
     github_state TEXT NOT NULL,
     vp_messages_state TEXT NOT NULL,
     dunk_metrics_state TEXT NOT NULL,
+    accounting_state TEXT NOT NULL DEFAULT 'unavailable',
     errors_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_observed_at ON collection_runs(observed_at);
@@ -131,6 +138,20 @@ CREATE TABLE IF NOT EXISTS dunk_metrics_snapshots (
     payload_json TEXT NOT NULL,
     UNIQUE(generated_at,interval_start,interval_end)
 );
+CREATE TABLE IF NOT EXISTS accounting_snapshots (
+    id INTEGER PRIMARY KEY,
+    project TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    commit_oid TEXT NOT NULL,
+    strict_full_c INTEGER NOT NULL,
+    verified_game_identities INTEGER NOT NULL,
+    ceiling INTEGER NOT NULL,
+    bound_kind TEXT NOT NULL CHECK(bound_kind IN ('exact','upper_bound')),
+    source_signature TEXT NOT NULL,
+    evidence_ref TEXT NOT NULL,
+    UNIQUE(project,observed_at,commit_oid)
+);
+CREATE INDEX IF NOT EXISTS accounting_recent ON accounting_snapshots(project,observed_at);
 """
 
 
@@ -163,6 +184,10 @@ def connect(path: Path = DB) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    if "accounting_state" not in {row[1] for row in conn.execute("PRAGMA table_info(collection_runs)")}:
+        conn.execute("ALTER TABLE collection_runs ADD COLUMN accounting_state TEXT NOT NULL DEFAULT 'unavailable'")
+    if "source_signature" not in {row[1] for row in conn.execute("PRAGMA table_info(accounting_snapshots)")}:
+        conn.execute("ALTER TABLE accounting_snapshots ADD COLUMN source_signature TEXT NOT NULL DEFAULT ''")
     return conn
 
 
@@ -174,12 +199,57 @@ def command_json(argv: list[str], *, cwd: Path | None = None) -> Any:
 
 
 def _source_due(conn: sqlite3.Connection, column: str, now: datetime) -> bool:
-    if column not in {"github_state", "dunk_metrics_state"}:
+    if column not in {"github_state", "dunk_metrics_state", "accounting_state"}:
         raise ValueError("unknown source")
     row = conn.execute(
         f"SELECT observed_at FROM collection_runs WHERE {column}='ok' ORDER BY id DESC LIMIT 1"
     ).fetchone()
     return row is None or (now - parse_time(row["observed_at"])).total_seconds() >= EXTERNAL_INTERVAL_S
+
+
+def _published_json(path: str, commit: str) -> dict:
+    payload = command_json(["gh", "api", f"repos/{PUBLISHED_REPO}/contents/{path}?ref={commit}"])
+    if not isinstance(payload, dict) or payload.get("encoding") != "base64":
+        raise ValueError("published accounting file encoding is unsupported")
+    try:
+        decoded = base64.b64decode(payload["content"], validate=False)
+        result = json.loads(decoded)
+    except (KeyError, ValueError, TypeError, binascii.Error) as exc:
+        raise ValueError("published accounting file is invalid") from exc
+    if not isinstance(result, dict):
+        raise ValueError("published accounting file must be an object")
+    return result
+
+
+def published_accounting() -> dict:
+    """Read both PM-reviewed files at one published main commit."""
+    reference = command_json(["gh", "api", f"repos/{PUBLISHED_REPO}/git/ref/heads/main"])
+    target = reference.get("object") if isinstance(reference, dict) else None
+    commit = target.get("sha") if isinstance(target, dict) else None
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("published main commit is invalid")
+    checkpoint = _published_json("docs/re/function_accounting_checkpoint.json", commit)
+    census = _published_json("docs/re/function_ceiling_census.json", commit)
+    strict = checkpoint.get("strict_full_c_originals")
+    identities = checkpoint.get("verified_game_identities")
+    ceiling = census.get("count")
+    if (checkpoint.get("schema_version") != 1 or
+            not all(type(n) is int and n >= 0 for n in (strict, identities)) or
+            census.get("status") != "reviewed" or census.get("reviewed_by") != "PM" or
+            census.get("bound_kind") not in {"exact", "upper_bound"} or
+            census.get("scope") != "original-game-functions-overlay-and-resident" or
+            type(ceiling) is not int or ceiling <= 0 or
+            not (strict <= identities <= ceiling) or
+            not isinstance(checkpoint.get("inputs"), dict) or not checkpoint["inputs"] or
+            census.get("source_digests") != checkpoint["inputs"] or
+            not isinstance(census.get("evidence_doc"), str) or
+            not census["evidence_doc"].startswith("docs/re/")):
+        raise ValueError("published accounting and census are not jointly reviewed")
+    signature = hashlib.sha256(json.dumps(checkpoint["inputs"], sort_keys=True).encode()).hexdigest()
+    return {"commit_oid": commit, "strict_full_c": strict,
+            "verified_game_identities": identities, "ceiling": ceiling,
+            "bound_kind": census["bound_kind"], "source_signature": signature,
+            "evidence_ref": census["evidence_doc"]}
 
 
 def _vp_counts(path: Path = MESSAGE_DB) -> list[tuple[str, str, int]]:
@@ -230,12 +300,14 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
             force_external: bool = False) -> dict:
     now = now or utc_now()
     observed_at = iso(now)
-    states = {"panes": "skipped", "github": "skipped", "vp_messages": "skipped", "dunk_metrics": "skipped"}
+    states = {"panes": "skipped", "github": "skipped", "vp_messages": "skipped",
+              "dunk_metrics": "skipped", "accounting": "skipped"}
     errors: dict[str, str] = {}
     panes: list[dict] = []
     prs: list[dict] = []
     counts: list[tuple[str, str, int]] = []
     metrics: dict | None = None
+    accounting: dict | None = None
     try:
         result = command_json(["dunkingsheep", "--json", "panes"])
         panes = result["panes"]
@@ -275,13 +347,22 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
             errors["dunk_metrics"] = type(exc).__name__
     else:
         states["dunk_metrics"] = "cached"
+    if force_external or _source_due(conn, "accounting_state", now):
+        try:
+            accounting = published_accounting()
+            states["accounting"] = "ok"
+        except (OSError, RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+            states["accounting"] = "unavailable"
+            errors["accounting"] = type(exc).__name__
+    else:
+        states["accounting"] = "cached"
 
     with conn:
         run_id = conn.execute(
-            "INSERT INTO collection_runs(observed_at,panes_state,github_state,vp_messages_state,dunk_metrics_state,errors_json) "
-            "VALUES(?,?,?,?,?,?)",
+            "INSERT INTO collection_runs(observed_at,panes_state,github_state,vp_messages_state,dunk_metrics_state,accounting_state,errors_json) "
+            "VALUES(?,?,?,?,?,?,?)",
             (observed_at, states["panes"], states["github"], states["vp_messages"],
-             states["dunk_metrics"], json.dumps(errors, sort_keys=True)),
+             states["dunk_metrics"], states["accounting"], json.dumps(errors, sort_keys=True)),
         ).lastrowid
         assignments = {row["pane_id"]: row["role"] for row in conn.execute(
             "SELECT pane_id,role FROM lane_assignments WHERE project=?", (PROJECT,)
@@ -328,6 +409,15 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
                  _dunk_timestamp(metrics["interval"]["start"], "interval.start"),
                  _dunk_timestamp(metrics["interval"]["end"], "interval.end"), 1,
                  json.dumps(metrics, separators=(",", ":"), sort_keys=True)),
+            )
+        if accounting is not None:
+            conn.execute(
+                "INSERT OR IGNORE INTO accounting_snapshots"
+                "(project,observed_at,commit_oid,strict_full_c,verified_game_identities,ceiling,bound_kind,source_signature,evidence_ref) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (PROJECT, observed_at, accounting["commit_oid"], accounting["strict_full_c"],
+                 accounting["verified_game_identities"], accounting["ceiling"],
+                 accounting["bound_kind"], accounting["source_signature"], accounting["evidence_ref"]),
             )
     return summary(conn, now=now)
 
@@ -395,7 +485,7 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     now = now or utc_now()
     run = conn.execute("SELECT * FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
     source_freshness = {}
-    for source in ("panes", "github", "vp_messages", "dunk_metrics"):
+    for source in ("panes", "github", "vp_messages", "dunk_metrics", "accounting"):
         row = conn.execute(
             f"SELECT observed_at FROM collection_runs WHERE {source}_state='ok' ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -448,6 +538,8 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     for item in subscriptions:
         item["monthly_usd"] = item.pop("monthly_usd_cents") / 100
     monthly_fixed_usd = sum(item["monthly_usd"] for item in subscriptions) if subscriptions else None
+    calendar_hours = calendar.monthrange(now.year, now.month)[1] * 24
+    fixed_hourly_usd = round(monthly_fixed_usd / calendar_hours, 4) if monthly_fixed_usd is not None else None
     quota = max((item for item in quotas.values() if item),
                 key=lambda item: item["observed_at"], default=None)
     goals = [dict(row) for row in conn.execute(
@@ -456,6 +548,45 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "SELECT MAX(id) FROM goal_observations WHERE project=g.project AND goal_key=g.goal_key"
         ") ORDER BY scope,goal_key", (PROJECT,)
     )]
+    latest_accounting = conn.execute(
+        "SELECT * FROM accounting_snapshots WHERE project=? ORDER BY observed_at DESC,id DESC LIMIT 1",
+        (PROJECT,),
+    ).fetchone()
+    function_progress = None
+    completion_rate = None
+    if latest_accounting:
+        item = dict(latest_accounting)
+        ceiling = item["ceiling"]
+        upper = item["bound_kind"] == "upper_bound"
+        percent = lambda n: (n * 1000 // ceiling) / 10 if upper else round(100 * n / ceiling, 1)
+        function_progress = {
+            "strict_full_c": item["strict_full_c"],
+            "verified_game_identities": item["verified_game_identities"],
+            "ceiling": ceiling, "bound_kind": item["bound_kind"],
+            "strict_percent": percent(item["strict_full_c"]),
+            "identity_percent": percent(item["verified_game_identities"]),
+            "observed_at": item["observed_at"],
+            "age_s": max(0, int((now - parse_time(item["observed_at"])).total_seconds())),
+            "commit_oid": item["commit_oid"], "evidence_ref": item["evidence_ref"],
+        }
+        end = parse_time(item["observed_at"])
+        prior = conn.execute(
+            "SELECT * FROM accounting_snapshots WHERE project=? AND observed_at<=? "
+            "AND observed_at>=? AND ceiling=? AND bound_kind=? AND source_signature=? "
+            "ORDER BY observed_at ASC,id ASC LIMIT 1",
+            (PROJECT, iso(end - timedelta(hours=1)), iso(end - timedelta(hours=24)),
+             ceiling, item["bound_kind"], item["source_signature"]),
+        ).fetchone()
+        if prior and item["strict_full_c"] >= prior["strict_full_c"]:
+            elapsed = (end - parse_time(prior["observed_at"])).total_seconds() / 3600
+            delta = item["strict_full_c"] - prior["strict_full_c"]
+            completion_rate = {
+                "strict_functions_per_hour": round(delta / elapsed, 4),
+                "function_coverage_points_per_hour": round(100 * delta / ceiling / elapsed, 4),
+                "delta_strict_functions": delta, "window_hours": round(elapsed, 2),
+                "window_start": prior["observed_at"], "window_end": item["observed_at"],
+                "ceiling": ceiling, "bound_kind": item["bound_kind"],
+            }
     prs = [dict(row) for row in conn.execute(
         "SELECT number,state,merged_at,last_seen_at FROM pr_latest WHERE project=? "
         "ORDER BY number DESC LIMIT 12", (PROJECT,)
@@ -475,15 +606,20 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "project": PROJECT,
         "latest_sample_at": run["observed_at"] if run else None,
         "latest_sample_age_s": max(0, int((now - parse_time(run["observed_at"])).total_seconds())) if run else None,
-        "sources": {name: run[f"{name}_state"] for name in ("panes", "github", "vp_messages", "dunk_metrics")} if run else {},
+        "sources": {name: run[f"{name}_state"] for name in ("panes", "github", "vp_messages", "dunk_metrics", "accounting")} if run else {},
         "source_freshness": source_freshness,
         "staff": staff,
         "quota": quota,
         "quotas": quotas,
         "subscriptions": subscriptions,
         "monthly_fixed_usd": monthly_fixed_usd,
+        "fixed_subscription_usd_per_calendar_hour": fixed_hourly_usd,
+        "calendar_hours_in_month": calendar_hours,
+        "billing_month": now.strftime("%Y-%m"),
         "usage_cost_usd": None,
         "goals": goals,
+        "function_progress": function_progress,
+        "completion_rate": completion_rate,
         "tracked_recent_prs": prs,
         "vp_message_counts": vp_counts,
         "dunk_metrics": {
@@ -499,6 +635,8 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "Quota burn is percentage points per hour only after two direct readings at least 30 minutes apart with one reset.",
             "Usage-based money and token cost are unknown without a billing source.",
             "Fixed subscription totals are owner-reported and exclude unknown taxes, add-ons, and usage charges.",
+            "The hourly price divides fixed monthly subscriptions by calendar hours, not coder hours or metered usage.",
+            "Completion speed is change in PM-reviewed strict C credit divided by the actual interval, using the same reviewed function bound; it is not whole-game completion speed.",
         ],
     }
 
@@ -527,9 +665,15 @@ def history(conn: sqlite3.Connection, *, now: datetime | None = None, hours: int
         "SELECT number,merged_at FROM pr_latest WHERE project=? AND merged_at>=? "
         "ORDER BY merged_at,number", (PROJECT, start),
     )]
+    accounting = [dict(row) for row in conn.execute(
+        "SELECT observed_at,strict_full_c,verified_game_identities,ceiling,bound_kind,commit_oid "
+        "FROM accounting_snapshots WHERE project=? AND observed_at>=? ORDER BY observed_at,id",
+        (PROJECT, start),
+    )]
     return {
         "generated_at": iso(now), "window_start": start, "window_hours": hours,
-        "goal_observations": goals, "coder_samples": coders, "pr_merges": merges,
+        "goal_observations": goals, "accounting_samples": accounting,
+        "coder_samples": coders, "pr_merges": merges,
         "limits": {
             "coder_samples": "Pane presence, not verified productive work; gaps mean no successful sample.",
             "pr_merges": "Recent visible PRs only; merges are not deployments or strict C credit.",
