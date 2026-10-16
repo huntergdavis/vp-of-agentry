@@ -201,6 +201,17 @@ function MergeTrend({ merges, start, end }) {
     </svg><small>Recent visible PRs only. A merge is not a deployment or strict C credit.</small></div>;
 }
 
+function QuotaCard({ provider, quota }) {
+  const name = provider === 'codex' ? 'CODEX' : 'CLAUDE';
+  return <div>
+    <b>{name} WEEKLY QUOTA</b>
+    <strong>{quota ? quota.weekly_percent_left + '% left' : 'No reading'}</strong>
+    <small>{quota
+      ? `${quota.age_s > 3600 ? 'STALE · ' : ''}Observed ${Math.round(quota.age_s / 60)} min ago in ${quota.pane} · resets ${new Date(quota.reset_at).toLocaleString()} · other accounts unknown`
+      : 'Awaiting a sourced quota update'}</small>
+  </div>;
+}
+
 function OpsSummary() {
   const [snapshot, setSnapshot] = useState(null);
   const [history, setHistory] = useState(null);
@@ -229,7 +240,10 @@ function OpsSummary() {
   const strict = snapshot?.goals?.find(goal => goal.goal_key === 'strict_fullc');
   const verifiedIdentities = snapshot?.goals?.find(goal => goal.goal_key === 'verified_game_identities');
   const playable = snapshot?.goals?.find(goal => goal.goal_key === 'playable_c_demo');
-  const quota = snapshot?.quota;
+  const quotas = snapshot?.quotas || {
+    codex: snapshot?.quota?.provider === 'codex' ? snapshot.quota : null,
+    claude: snapshot?.quota?.provider === 'claude' ? snapshot.quota : null,
+  };
   const subscriptions = snapshot?.subscriptions || [];
   const fixedMonthly = snapshot?.monthly_fixed_usd;
   const strictSeries = (history?.goal_observations || []).filter(row => row.goal_key === 'strict_fullc').map(row => ({ at: row.observed_at, value: row.value }));
@@ -249,7 +263,8 @@ function OpsSummary() {
     {snapshot && <div className="ops-grid">
       <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
       <div><b>CODE AND DEMO</b><strong>{strict?.value ?? 'Unknown'} strict C functions</strong><small>{verifiedIdentities?.value ?? 'Unknown'} verified identities · observed {strict?.observed_at ? new Date(strict.observed_at).toLocaleString() : 'unknown'} · playable C demo: {playable?.status || 'unknown'} · whole-game denominator unknown</small></div>
-      <div><b>QUOTA SAMPLE</b><strong>{quota ? (quota.age_s > 3600 ? 'Reading stale' : quota.weekly_percent_left + '% sampled') : 'No direct reading'}</strong><small>{quota ? quota.weekly_percent_left + '% observed ' + Math.round(quota.age_s / 60) + ' min ago · other accounts unknown · burn ' + (quota.burn_percentage_points_per_hour ?? 'unknown') : 'Awaiting direct reading'}</small></div>
+      <QuotaCard provider="codex" quota={quotas.codex} />
+      <QuotaCard provider="claude" quota={quotas.claude} />
       <div><b>SPEND AND TELEMETRY</b><strong>{fixedMonthly == null ? 'Fixed cost unknown' : '$' + fixedMonthly.toFixed(2) + '/mo fixed'}</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2)).join(' · ') || 'No owner cost record'} · usage and token cost unknown · Dunking Sheep: {snapshot.sources?.dunk_metrics || 'unavailable'}</small></div>
     </div>}</div>
   </section>;

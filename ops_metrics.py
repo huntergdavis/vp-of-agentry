@@ -335,12 +335,16 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
 def record_quota(
     conn: sqlite3.Connection, *, pane: str, percent_left: float, reset_at: str,
     observed_at: str, evidence: str, provider: str = "codex",
-    cohort: str = "poolrad-codex", precision: str = "second",
+    cohort: str | None = None, precision: str = "second",
 ) -> None:
     if not 0 <= percent_left <= 100:
         raise ValueError("percent left must be between 0 and 100")
     if precision not in {"second", "minute", "reported"}:
         raise ValueError("invalid timestamp precision")
+    provider = provider.strip().lower()
+    if not provider:
+        raise ValueError("provider is required")
+    cohort = cohort or f"poolrad-{provider}"
     with conn:
         conn.execute(
             "INSERT OR IGNORE INTO quota_observations"
@@ -406,10 +410,35 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "FROM pane_samples WHERE run_id=? GROUP BY role,status", (run["id"],)
         ):
             staff[row["role"]][row["status"]] = row["n"]
-    quota_rows = conn.execute(
-        "SELECT * FROM quota_observations WHERE project=? ORDER BY observed_at DESC,id DESC LIMIT 2",
-        (PROJECT,),
-    ).fetchall()
+    quotas = {"codex": None, "claude": None}
+    for provider in quotas:
+        latest = conn.execute(
+            "SELECT * FROM quota_observations WHERE project=? AND provider=? "
+            "ORDER BY observed_at DESC,id DESC LIMIT 1", (PROJECT, provider),
+        ).fetchone()
+        if latest is None:
+            continue
+        item = {
+            "pane": latest["pane_id"], "provider": provider, "cohort": latest["cohort"],
+            "observed_at": latest["observed_at"],
+            "age_s": max(0, int((now - parse_time(latest["observed_at"])).total_seconds())),
+            "precision": latest["precision"], "weekly_percent_left": latest["weekly_percent_left"],
+            "reset_at": latest["reset_at"], "evidence_ref": latest["evidence_ref"],
+            "burn_percentage_points_per_hour": None,
+        }
+        prior = conn.execute(
+            "SELECT weekly_percent_left,observed_at FROM quota_observations "
+            "WHERE project=? AND provider=? AND cohort=? AND reset_at=? AND observed_at<? "
+            "ORDER BY observed_at DESC,id DESC LIMIT 1",
+            (PROJECT, provider, latest["cohort"], latest["reset_at"], latest["observed_at"]),
+        ).fetchone()
+        if prior:
+            hours = (parse_time(latest["observed_at"]) - parse_time(prior["observed_at"])).total_seconds() / 3600
+            if hours >= 0.5:
+                item["burn_percentage_points_per_hour"] = round(
+                    (prior["weekly_percent_left"] - latest["weekly_percent_left"]) / hours, 2
+                )
+        quotas[provider] = item
     subscriptions = [dict(row) for row in conn.execute(
         "SELECT provider,monthly_usd_cents,observed_at,evidence_ref "
         "FROM subscription_costs s WHERE project=? AND id=("
@@ -419,24 +448,8 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     for item in subscriptions:
         item["monthly_usd"] = item.pop("monthly_usd_cents") / 100
     monthly_fixed_usd = sum(item["monthly_usd"] for item in subscriptions) if subscriptions else None
-    quota = None
-    if quota_rows:
-        latest = quota_rows[0]
-        quota = {
-            "pane": latest["pane_id"], "provider": latest["provider"], "cohort": latest["cohort"],
-            "observed_at": latest["observed_at"], "age_s": max(0, int((now - parse_time(latest["observed_at"])).total_seconds())),
-            "precision": latest["precision"], "weekly_percent_left": latest["weekly_percent_left"],
-            "reset_at": latest["reset_at"], "evidence_ref": latest["evidence_ref"],
-            "burn_percentage_points_per_hour": None,
-        }
-        if len(quota_rows) > 1:
-            prior = quota_rows[1]
-            hours = (parse_time(latest["observed_at"]) - parse_time(prior["observed_at"])).total_seconds() / 3600
-            if (hours >= 0.5 and latest["cohort"] == prior["cohort"]
-                    and latest["provider"] == prior["provider"] and latest["reset_at"] == prior["reset_at"]):
-                quota["burn_percentage_points_per_hour"] = round(
-                    (prior["weekly_percent_left"] - latest["weekly_percent_left"]) / hours, 2
-                )
+    quota = max((item for item in quotas.values() if item),
+                key=lambda item: item["observed_at"], default=None)
     goals = [dict(row) for row in conn.execute(
         "SELECT scope,goal_key,observed_at,status,value,target,unit,evidence_ref,note "
         "FROM goal_observations g WHERE project=? AND id=("
@@ -466,6 +479,7 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "source_freshness": source_freshness,
         "staff": staff,
         "quota": quota,
+        "quotas": quotas,
         "subscriptions": subscriptions,
         "monthly_fixed_usd": monthly_fixed_usd,
         "usage_cost_usd": None,
@@ -539,7 +553,7 @@ def main() -> None:
     quota.add_argument("--precision", choices=["second", "minute", "reported"], default="second")
     quota.add_argument("--evidence", required=True)
     quota.add_argument("--provider", default="codex")
-    quota.add_argument("--cohort", default="poolrad-codex")
+    quota.add_argument("--cohort", help="account cohort; defaults to poolrad-PROVIDER")
     subscription = sub.add_parser("subscription", help="record an owner-reported fixed monthly subscription")
     subscription.add_argument("--provider", required=True)
     subscription.add_argument("--monthly-usd", required=True)

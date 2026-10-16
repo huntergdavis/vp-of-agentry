@@ -37,6 +37,7 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertIsNone(result["dunk_metrics"])
         self.assertEqual(result["staff"]["other"]["working"], 1)
         self.assertIsNone(result["quota"])
+        self.assertEqual(result["quotas"], {"codex": None, "claude": None})
         self.assertEqual(later["sources"]["github"], "cached")
         self.assertEqual(later["source_freshness"]["github"]["age_s"], 60)
         self.assertIsNone(later["source_freshness"]["dunk_metrics"]["last_ok_at"])
@@ -55,6 +56,25 @@ class OpsMetricsTests(unittest.TestCase):
         )
         self.assertEqual(result["quota"]["burn_percentage_points_per_hour"], 2)
         self.assertEqual(result["quota"]["weekly_percent_left"], 38)
+
+    def test_provider_quota_readings_stay_separate(self):
+        ops_metrics.record_quota(
+            self.conn, pane="codex:p1", percent_left=91, reset_at="2026-10-23T14:49:00Z",
+            observed_at="2026-10-16T16:49:00Z", evidence="direct Codex status",
+        )
+        ops_metrics.record_quota(
+            self.conn, pane="claude:p1", percent_left=80, reset_at="2026-10-22T14:00:00Z",
+            observed_at="2026-10-16T17:00:00Z", evidence="direct Claude status",
+            provider="claude",
+        )
+        result = ops_metrics.summary(
+            self.conn, now=datetime(2026, 10, 16, 17, 30, tzinfo=timezone.utc)
+        )
+        self.assertEqual(result["quotas"]["codex"]["weekly_percent_left"], 91)
+        self.assertEqual(result["quotas"]["claude"]["weekly_percent_left"], 80)
+        self.assertEqual(result["quotas"]["claude"]["cohort"], "poolrad-claude")
+        self.assertIsNone(result["quotas"]["claude"]["burn_percentage_points_per_hour"])
+        self.assertEqual(result["quota"]["provider"], "claude")
 
     def test_history_uses_recorded_events_without_filling_gaps(self):
         with self.conn:
