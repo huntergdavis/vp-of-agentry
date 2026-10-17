@@ -315,6 +315,37 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(result["trials"][0]["accepted_per_usd"], 0.5)
         self.assertIsNone(ops_metrics.summary(self.conn)["function_progress"])
 
+    def test_acceptance_inherits_trial_only_from_matching_authored_head(self):
+        ops_metrics.record_trial(
+            self.conn, trial_id="opus-body", pane="wN:pV", agent_type="claude",
+            provider="anthropic", model="Claude Opus 5.5", reasoning_effort="extended",
+            hypothesis="complete two bodies", started_at="2026-10-17T02:00:00Z",
+            ended_at="2026-10-17T03:00:00Z", evidence="trial log",
+        )
+        for function_id, head in (("U38+2D38", "abcdef1234567"),
+                                  ("U38+2D88", "1234567abcdef")):
+            ops_metrics.record_body(
+                self.conn, function_id=function_id, status="authored", pane="wN:pV",
+                source_head=head, evidence="trial source", trial_id="opus-body",
+            )
+        ops_metrics.record_body(
+            self.conn, function_id="U38+2D38", status="accepted", pane="wN:p1",
+            source_head="abcdef1234567", evidence="PM exact-head review", reviewed_by="PM",
+        )
+        ops_metrics.record_body(
+            self.conn, function_id="U38+2D88", status="accepted", pane="wN:p1",
+            source_head="deadbee123456", evidence="PM changed-head review", reviewed_by="PM",
+        )
+        links = dict(self.conn.execute(
+            "SELECT function_id,trial_id FROM function_body_events WHERE status='accepted'"
+        ))
+        self.assertEqual(links, {"U38+2D38": "opus-body", "U38+2D88": None})
+        result = ops_metrics.experiment_summary(
+            self.conn, datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(result["accepted_bodies"], 2)
+        self.assertEqual(result["trials"][0]["accepted_bodies"], 1)
+
     def test_model_comparison_merges_case_variants_without_rewriting_trials(self):
         for trial_id, model in (("first", "gpt-6-sol"),
                                 ("second", "GPT-6-Sol")):

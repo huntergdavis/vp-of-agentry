@@ -654,6 +654,15 @@ def record_body(
         raise ValueError("accepted C body requires a named reviewer")
     when = iso(parse_time(occurred_at)) if occurred_at else iso(utc_now())
     with conn:
+        if status == "accepted" and trial_id is None:
+            authored_trials = [row[0] for row in conn.execute(
+                "SELECT DISTINCT trial_id FROM function_body_events "
+                "WHERE project=? AND function_id=? AND source_head=? "
+                "AND status='authored' AND trial_id IS NOT NULL",
+                (PROJECT, function_id, source_head),
+            )]
+            if len(authored_trials) == 1:
+                trial_id = authored_trials[0]
         conn.execute(
             "INSERT OR IGNORE INTO function_body_events"
             "(project,function_id,status,pane_id,trial_id,source_head,evidence_ref,reviewed_by,occurred_at) "
