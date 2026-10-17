@@ -47,6 +47,41 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(later["source_freshness"]["github"]["age_s"], 60)
         self.assertIsNone(later["source_freshness"]["dunk_metrics"]["last_ok_at"])
 
+    def test_delivery_rows_use_agent_and_lane_names(self):
+        def command(argv, **_):
+            if argv[0] == "dunkingsheep" and "panes" in argv:
+                return {"panes": [
+                    {"pane_id": "sample:p1", "workspace_label": "poolrad-decomp",
+                     "tab_label": "poolrad-codex-keyroute", "cwd": "/work/strict-c-a",
+                     "agent": "codex", "agent_status": "working"},
+                    {"pane_id": "sample:p2", "workspace_label": "poolrad-decomp",
+                     "tab_label": "poolrad-codex-keyroute", "cwd": "/work/strict-c-b",
+                     "agent": "codex", "agent_status": "working"},
+                ]}
+            if argv[0] == "gh":
+                return []
+            raise RuntimeError("telemetry not installed")
+
+        with patch.object(ops_metrics, "command_json", side_effect=command), \
+             patch.object(ops_metrics, "_vp_counts", return_value=[]):
+            ops_metrics.collect(self.conn, now=datetime(2026, 10, 16, 21, 0, tzinfo=timezone.utc))
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO agent_message_events"
+                "(source_event_id,occurred_at,pane_id,kind,delivery_source,mailbox_alias,source_ref) "
+                "VALUES(?,?,?,?,?,?,?)",
+                [(1, "2026-10-16T20:59:00Z", "sample:p1", "inbox.sent", "inbox", None, "test"),
+                 (2, "2026-10-16T20:59:00Z", "sample:p2", "inbox.sent", "inbox", None, "test"),
+                 (3, "2026-10-16T20:59:00Z", "sample:vp", "inbox.sent", "inbox", "VP of Agentry", "test")],
+            )
+        result = ops_metrics.summary(self.conn, now=datetime(2026, 10, 16, 21, 0, tzinfo=timezone.utc))
+        rows = {row["pane_id"]: row for row in result["experiment_lab"]["messages_by_pane"]}
+        self.assertEqual(rows["sample:p1"]["agent_name"], "poolrad-codex-keyroute")
+        self.assertEqual(rows["sample:p1"]["lane_name"], "strict-c-a")
+        self.assertEqual(rows["sample:p2"]["agent_name"], "poolrad-codex-keyroute")
+        self.assertEqual(rows["sample:p2"]["lane_name"], "strict-c-b")
+        self.assertEqual(rows["sample:vp"]["agent_name"], "VP of Agentry")
+
     def test_burn_requires_same_reset_and_elapsed_time(self):
         ops_metrics.record_quota(
             self.conn, pane="sample:p1", percent_left=40, reset_at="2026-10-21T20:00:00Z",

@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS pane_samples (
     project TEXT NOT NULL,
     agent_kind TEXT,
     agent_status TEXT,
+    agent_name TEXT,
+    lane_name TEXT,
     role TEXT NOT NULL,
     PRIMARY KEY(run_id,pane_id)
 );
@@ -240,6 +242,10 @@ def connect(path: Path = DB) -> sqlite3.Connection:
         conn.execute("ALTER TABLE accounting_snapshots ADD COLUMN source_signature TEXT NOT NULL DEFAULT ''")
     if "agent_messages_state" not in {row[1] for row in conn.execute("PRAGMA table_info(collection_runs)")}:
         conn.execute("ALTER TABLE collection_runs ADD COLUMN agent_messages_state TEXT NOT NULL DEFAULT 'unavailable'")
+    pane_columns = {row[1] for row in conn.execute("PRAGMA table_info(pane_samples)")}
+    for name in ("agent_name", "lane_name"):
+        if name not in pane_columns:
+            conn.execute(f"ALTER TABLE pane_samples ADD COLUMN {name} TEXT")
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_message_events)")}
     for name, sql_type in (("sender_alias", "TEXT"), ("mailbox_alias", "TEXT"),
                            ("message_bytes", "INTEGER"), ("duration_ms", "INTEGER"),
@@ -467,10 +473,12 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
             if not pane_id:
                 continue
             role = assignments.get(pane_id, "other")
+            agent_name = str(pane.get("tab_label") or "").strip() or None
+            lane_name = Path(str(pane.get("cwd") or "")).name or None
             conn.execute(
-                "INSERT INTO pane_samples(run_id,pane_id,project,agent_kind,agent_status,role) VALUES(?,?,?,?,?,?)",
+                "INSERT INTO pane_samples(run_id,pane_id,project,agent_kind,agent_status,agent_name,lane_name,role) VALUES(?,?,?,?,?,?,?,?)",
                 (run_id, pane_id, PROJECT, pane.get("agent_type") or pane.get("agent"),
-                 pane.get("agent_status"), role),
+                 pane.get("agent_status"), agent_name, lane_name, role),
             )
         for channel, role, total in counts:
             conn.execute(
@@ -664,6 +672,23 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
         "GROUP BY pane_id ORDER BY inbox_deliveries+direct_sends DESC,pane_id",
         (start, iso(now)),
     )]
+    for message in messages:
+        identity = conn.execute(
+            "SELECT agent_name,lane_name FROM pane_samples "
+            "WHERE pane_id=? AND agent_name IS NOT NULL ORDER BY run_id DESC LIMIT 1",
+            (message["pane_id"],),
+        ).fetchone()
+        alias = None
+        if identity is None:
+            alias = conn.execute(
+                "SELECT mailbox_alias FROM agent_message_events "
+                "WHERE pane_id=? AND kind='inbox.sent' AND mailbox_alias IS NOT NULL "
+                "AND mailbox_alias NOT LIKE '%@%' GROUP BY mailbox_alias "
+                "ORDER BY COUNT(*) DESC,mailbox_alias LIMIT 1",
+                (message["pane_id"],),
+            ).fetchone()
+        message["agent_name"] = identity["agent_name"] if identity else alias["mailbox_alias"] if alias else None
+        message["lane_name"] = identity["lane_name"] if identity else None
     latest = [dict(row) for row in conn.execute(
         "SELECT e.function_id,e.status,e.pane_id,e.trial_id,e.source_head,e.evidence_ref,"
         "e.reviewed_by,e.occurred_at FROM function_body_events e "
@@ -768,7 +793,7 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         ):
             staff[row["role"]][row["status"]] = row["n"]
         pane_roster = [dict(row) for row in conn.execute(
-            "SELECT pane_id,role,agent_kind,agent_status FROM pane_samples "
+            "SELECT pane_id,role,agent_kind,agent_status,agent_name,lane_name FROM pane_samples "
             "WHERE run_id=? AND project=? ORDER BY pane_id", (run["id"], PROJECT),
         )]
     quotas = {"codex": None, "claude": None}
