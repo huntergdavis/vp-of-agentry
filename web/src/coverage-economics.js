@@ -15,14 +15,22 @@ export function coverageEconomics(snapshot, history, { lanes = 6, creditsPerWeek
   for (let index = 1; index < events.length; index++) {
     if (events[index].value > events[index - 1].value) lastCreditAt = events[index].at;
   }
-  const cutoff = new Date(now).getTime() - 24 * 3600 * 1000;
+  const nowMs = new Date(now).getTime();
+  const accountingAt = Date.parse(progress?.observed_at ?? '');
+  const accountingAgeMs = nowMs - accountingAt;
+  const accountingFresh = Number.isFinite(accountingAgeMs) &&
+    accountingAgeMs >= 0 && accountingAgeMs <= 3600 * 1000;
+  const cutoff = nowMs - 24 * 3600 * 1000;
   const baseline = [...events].reverse().find(row => Date.parse(row.at) <= cutoff);
-  const credits24h = baseline && current != null && events.at(-1)?.value === current && current >= baseline.value
+  const credits24h = accountingFresh && baseline && current != null &&
+    events.at(-1)?.value === current && current >= baseline.value
     ? current - baseline.value : null;
   const scenarioWeeks = remaining != null && validRate ? remaining / creditsPerWeek : null;
   return {
     events, current, ceiling, remaining, lastCreditAt,
-    credits24h,
+    credits24h, accountingAgeMinutes: Number.isFinite(accountingAgeMs) && accountingAgeMs >= 0
+      ? Math.floor(accountingAgeMs / 60000) : null,
+    accountingFresh,
     fixedHourly, laneHourly: fixedHourly != null && validLanes ? fixedHourly / lanes : null,
     scenarioWeeks, scenarioCalendarCost: scenarioWeeks != null && fixedHourly != null ? scenarioWeeks * 168 * fixedHourly : null,
     actualCSpendHourly: null,
