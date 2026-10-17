@@ -638,6 +638,17 @@ def record_trial(
         )
 
 
+def _unique_authored_trial(conn: sqlite3.Connection, function_id: str,
+                           source_head: str) -> str | None:
+    trials = [row[0] for row in conn.execute(
+        "SELECT DISTINCT trial_id FROM function_body_events "
+        "WHERE project=? AND function_id=? AND source_head=? "
+        "AND status='authored' AND trial_id IS NOT NULL",
+        (PROJECT, function_id, source_head),
+    )]
+    return trials[0] if len(trials) == 1 else None
+
+
 def record_body(
     conn: sqlite3.Connection, *, function_id: str, status: str, pane: str,
     source_head: str, evidence: str, occurred_at: str | None = None,
@@ -656,14 +667,7 @@ def record_body(
     when = iso(parse_time(occurred_at)) if occurred_at else iso(utc_now())
     with conn:
         if status == "accepted" and trial_id is None:
-            authored_trials = [row[0] for row in conn.execute(
-                "SELECT DISTINCT trial_id FROM function_body_events "
-                "WHERE project=? AND function_id=? AND source_head=? "
-                "AND status='authored' AND trial_id IS NOT NULL",
-                (PROJECT, function_id, source_head),
-            )]
-            if len(authored_trials) == 1:
-                trial_id = authored_trials[0]
+            trial_id = _unique_authored_trial(conn, function_id, source_head)
         conn.execute(
             "INSERT OR IGNORE INTO function_body_events"
             "(project,function_id,status,pane_id,trial_id,source_head,evidence_ref,reviewed_by,occurred_at) "
@@ -716,6 +720,11 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
     for body in latest:
         if body["status"] == "withdrawn":
             continue
+        if body["status"] == "accepted" and body["trial_id"] is None:
+            inferred = _unique_authored_trial(conn, body["function_id"], body["source_head"])
+            if inferred is not None:
+                body["trial_id"] = inferred
+                body["trial_attribution"] = "matching_authored_head_backfill"
         trial = by_trial.get(body["trial_id"])
         if trial is None:
             continue

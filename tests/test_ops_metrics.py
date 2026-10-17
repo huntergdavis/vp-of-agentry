@@ -348,6 +348,12 @@ class OpsMetricsTests(unittest.TestCase):
 
     def test_late_backfill_does_not_erase_newer_acceptance(self):
         head = "abcdef1234567"
+        ops_metrics.record_trial(
+            self.conn, trial_id="u16-body-trial", pane="w9:p5", agent_type="codex",
+            provider="openai", model="GPT-6-Sol", reasoning_effort="high",
+            hypothesis="complete U16 body", started_at="2026-10-17T04:00:00Z",
+            ended_at="2026-10-17T05:00:00Z", evidence="dated source trial",
+        )
         ops_metrics.record_body(
             self.conn, function_id="U16+0042", status="accepted", pane="wN:p1",
             source_head=head, evidence="PM exact-head acceptance", reviewed_by="PM",
@@ -355,7 +361,7 @@ class OpsMetricsTests(unittest.TestCase):
         )
         ops_metrics.record_body(
             self.conn, function_id="U16+0042", status="authored", pane="w9:p5",
-            source_head=head, evidence="late authored-event import",
+            source_head=head, evidence="late authored-event import", trial_id="u16-body-trial",
             occurred_at="2026-10-17T04:20:00Z",
         )
         result = ops_metrics.experiment_summary(
@@ -363,6 +369,8 @@ class OpsMetricsTests(unittest.TestCase):
         )
         self.assertEqual(result["bodies"][0]["status"], "accepted")
         self.assertEqual(result["accepted_bodies"], 1)
+        self.assertEqual(result["bodies"][0]["trial_id"], "u16-body-trial")
+        self.assertEqual(result["trials"][0]["accepted_bodies"], 1)
 
     def test_model_comparison_merges_case_variants_without_rewriting_trials(self):
         for trial_id, model in (("first", "gpt-6-sol"),

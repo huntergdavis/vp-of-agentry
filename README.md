@@ -46,7 +46,7 @@ For an isolated Codex trial, run `python3 codex_usage.py SESSION.jsonl` immediat
 
 For an isolated Claude trial, run `python3 claude_usage.py SESSION.jsonl` before and after the work, then `python3 claude_usage.py SESSION.jsonl --start-index START --end-index END`. Its message indices bracket the trial; repeated JSONL records with the same API message ID count once. It reports uncached input, cache write, cache read, output, and their total input. It refuses conflicting duplicate records or a mixed-model interval. Record `total_input_tokens` and `output_tokens` with the returned `usage_source` in `./opsctl trial`. Spawned agents with separate session logs require their own usage records; this single-session result is not a whole-trial total when they participate. These are token usage, not billed dollars; leave `--metered-usd` empty without a billing source.
 
-When PM records an accepted body without a trial ID, Operations inherits the trial from an authored event only for the same original function and exact source head. A changed head remains unattributed until the reviewer supplies a verified trial ID; model efficiency must not infer it from timing alone.
+When PM records an accepted body without a trial ID, Operations inherits the trial from an authored event only for the same original function and exact source head. This also applies when the authored event is imported after the acceptance. A changed head remains unattributed until the reviewer supplies a verified trial ID; model efficiency must not infer it from timing alone.
 
 ## Telegram
 
