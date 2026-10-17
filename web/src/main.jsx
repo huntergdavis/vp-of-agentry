@@ -388,7 +388,7 @@ function PoolradDashboard() {
   }
   useEffect(() => { refresh(); }, []);
   return <section className="dashboard-view" aria-label="Poolrad progress dashboard">
-    <div className="dashboard-tools"><span>Function coverage and demo gate · source commit shown inside</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
+    <div className="dashboard-tools"><span>Function coverage and demo gate · dashboard checkout shown inside</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
     {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
       : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
         : <iframe key={version} title="Poolrad function progress and evidence" src={`/api/poolrad-dashboard/dashboard.html?v=${version}`} sandbox="allow-scripts" />}
