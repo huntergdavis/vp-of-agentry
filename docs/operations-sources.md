@@ -22,10 +22,31 @@ The collector timer runs once per minute. GitHub and Dunking Sheep polling are t
 Enter each new direct quota observation through `./opsctl quota --provider codex|claude --pane PANE --left PERCENT --reset ISO_TIME --observed-at ISO_TIME --evidence SOURCE`. The Operations view refreshes its sourced Codex and Claude quota cards every minute; **Refresh data** fetches them immediately. Do not infer a Claude percentage from a Codex reading or from an owner statement without a dated, account-specific observation.
 
 The private Operations view plots a rolling 24-hour history from
-`GET /api/ops-metrics/history`: PM-reviewed strict full-C and verified-identity
+`GET /api/ops-metrics/history` and a seven-day verified strict-C checkpoint
+history from `GET /api/ops-metrics/history?hours=168` (allowed range: 1–168 hours):
+PM-reviewed strict full-C and verified-identity
 observations, actual merge timestamps for the recent visible PR sample, and
 working coder pane counts from successful collection runs. Missing samples are
 not interpolated. Merge throughput and pane presence are engineering flow
 signals, not deployments or verified productivity. Deployment frequency, change
 failure rate, and recovery time remain unavailable until deployment and incident
 records exist.
+
+The executive C economics panel uses the latest published strict-C count and
+working ceiling. The 24-hour credit delta requires a verified observation at
+or before the 24-hour boundary and agreement between the latest manual credit
+observation and published accounting; otherwise it is unavailable. The chart
+steps only at dated PM-reviewed credit observations. Its horizontal tail is
+the last recorded value, not evidence of zero work in progress.
+The C staffing line is a dated PM checkpoint: assigned lanes and authorized
+compile/native slots are separate. Neither measures productive lane-hours.
+
+The fixed subscription pool per calendar hour divides owner-reported monthly
+subscriptions by hours in the current month. The interactive equal-allocation
+figure divides that pool by a user-selected number of modeled C lanes, assuming
+the entire pool supports those lanes during every calendar hour. It is a planning allocation, **not**
+observed C spend per hour. Actual C spend requires C lane-hours, a billing
+allocation, and usage charges. The milestone and cost figures use a selected
+new verified functions per week; they are hypothetical scenarios, not an ETA.
+The 24-hour signal pairs a comparable net credit count with 24 hours of fixed
+pool commitment across all work; the latter is not attributable to C.

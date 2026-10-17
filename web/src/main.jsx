@@ -7,6 +7,7 @@ import StarterKit from '@tiptap/starter-kit';
 import ReactMarkdown from 'react-markdown';
 import TurndownService from 'turndown';
 import './style.css';
+import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const api = async (path, options = {}) => {
@@ -166,7 +167,7 @@ function Search({ onClose, onJump }) {
   </div></div>;
 }
 
-function LineTrend({ title, points, color, unit, note }) {
+function LineTrend({ title, points, color, unit, note, step = false }) {
   const rows = points.filter(point => Number.isFinite(point.value) && Number.isFinite(Date.parse(point.at)));
   if (!rows.length) return <div className="ops-chart"><h3>{title}</h3><p className="muted">No observations in this window</p><small>{note}</small></div>;
   const first = Date.parse(rows[0].at), last = Date.parse(rows.at(-1).at);
@@ -178,7 +179,7 @@ function LineTrend({ title, points, color, unit, note }) {
   return <div className="ops-chart"><div className="ops-chart-head"><h3>{title}</h3><strong>{latest.value} {unit}</strong></div>
     <svg viewBox="0 0 384 140" role="img" aria-label={`${title}: ${rows.length} timestamped observations, latest ${latest.value} ${unit}`}>
       <path d="M24 112 H360" stroke="#58717e" fill="none" />
-      {rows.length > 1 && <polyline points={rows.map(row => `${x(row)},${y(row)}`).join(' ')} fill="none" stroke={color} strokeWidth="3" />}
+      {step && rows.length > 1 && <path d={rows.map((row, index) => index ? `H${x(row)} V${y(row)}` : `M${x(row)} ${y(row)}`).join(' ')} fill="none" stroke={color} strokeWidth="3" />}
       {rows.map((row, index) => <circle key={`${row.at}-${index}`} cx={x(row)} cy={y(row)} r="4" fill={color}><title>{new Date(row.at).toLocaleString()}: {row.value} {unit}</title></circle>)}
       <text x="24" y="135">{new Date(rows[0].at).toLocaleString()}</text><text x="360" y="135" textAnchor="end">{new Date(latest.at).toLocaleTimeString()}</text>
     </svg><small>{note}</small></div>;
@@ -212,24 +213,81 @@ function QuotaCard({ provider, quota }) {
   </div>;
 }
 
+function CreditTrend({ events, current, ceiling, lastCreditAt }) {
+  if (!events.length) return <div className="ops-credit-chart"><p>No verified credit events in the seven-day window.</p></div>;
+  const begin = Date.parse(events[0].at), end = Date.now();
+  const width = 760, left = 52, right = 738, top = 22, bottom = 177;
+  const min = Math.max(0, Math.min(...events.map(row => row.value)) - 2);
+  const max = Math.max(min + 1, current ?? 0, ...events.map(row => row.value));
+  const x = at => left + (Date.parse(at) - begin) / Math.max(1, end - begin) * (right - left);
+  const y = value => bottom - (value - min) / (max - min) * (bottom - top);
+  const path = events.map((row, index) => `${index ? `H${x(row.at).toFixed(1)} V` : 'M' + x(row.at).toFixed(1) + ' '}${y(row.value).toFixed(1)}`).join(' ') + ` H${right}`;
+  const recordedGain = events.at(-1).value - events[0].value;
+  return <div className="ops-credit-chart">
+    <div className="ops-credit-title"><div><span className="ops-kicker">VERIFIED CREDIT HISTORY</span><h3>Strict C functions · 7 days</h3></div><strong>{current ?? '—'} <small>/ {ceiling ?? '—'}</small></strong></div>
+    <svg viewBox={`0 0 ${width} 215`} role="img" aria-label={`Step chart of ${events.length} verified strict C checkpoints; current ${current ?? 'unknown'} of ${ceiling ?? 'unknown'}`}>
+      {[0, .5, 1].map(fraction => <g key={fraction}><path d={`M${left} ${y(min + (max - min) * fraction)} H${right}`} stroke="#35505d" strokeDasharray="3 5"/><text x="7" y={y(min + (max - min) * fraction) + 4}>{Math.round(min + (max - min) * fraction)}</text></g>)}
+      <path d={path} fill="none" stroke="#a9db7d" strokeWidth="3" strokeLinejoin="round" />
+      {events.map((row, index) => <circle key={`${row.at}-${index}`} cx={x(row.at)} cy={y(row.value)} r="4" fill="#d7efb8"><title>{new Date(row.at).toLocaleString()}: {row.value} reviewed functions</title></circle>)}
+      <text x={left} y="204">{new Date(events[0].at).toLocaleDateString()}</text><text x={right} y="204" textAnchor="end">Now</text>
+    </svg>
+    <p>{recordedGain >= 0 ? '+' : ''}{recordedGain} net since the first visible checkpoint on {new Date(events[0].at).toLocaleDateString()}. Last new credit: {lastCreditAt ? new Date(lastCreditAt).toLocaleString() : 'unknown'}. The horizontal tail means no later credited change is recorded; it does not measure work in progress.</p>
+  </div>;
+}
+
+function CoverageEconomics({ snapshot, history }) {
+  const [lanes, setLanes] = useState(6);
+  const [weekly, setWeekly] = useState(10);
+  const model = coverageEconomics(snapshot, history, { lanes, creditsPerWeek: weekly });
+  const milestones = milestoneScenarios(model.current, model.ceiling, weekly);
+  const laneGoal = snapshot.goals?.find(goal => goal.goal_key === 'strict_c_assigned_lanes');
+  const compileGoal = snapshot.goals?.find(goal => goal.goal_key === 'strict_c_compile_slots');
+  const money = value => value == null ? 'Unavailable' : '$' + value.toFixed(2);
+  return <section className="ops-executive" aria-label="C coverage economics and outlook">
+    <div className="ops-executive-head"><div><span className="ops-kicker">POOLRAD / EXECUTIVE OUTLOOK</span><h2>C coverage economics</h2><p>Measured credit, fixed commitment, and a changeable planning scenario.</p></div><span className="ops-evidence-pill">PM-REVIEWED CREDIT</span></div>
+    <div className="ops-executive-cards">
+      <div><span className="ops-kicker">CREDITED FUNCTIONS</span><strong>{model.current ?? '—'} <em>/ {model.ceiling ?? '—'}</em></strong><small>{model.remaining ?? '—'} remain to the working ceiling. This is source coverage, not playable progress.</small></div>
+      <div><span className="ops-kicker">LAST 24 HOURS</span><strong>{model.credits24h == null ? 'Unknown' : `+${model.credits24h}`}</strong><small>{model.credits24h == null ? 'No comparable verified checkpoint.' : 'Net new PM-reviewed strict C functions; candidate work earns no credit.'}</small></div>
+      <div><span className="ops-kicker">FIXED POOL / CALENDAR HOUR</span><strong>{model.fixedHourly == null ? 'Unknown' : money(model.fixedHourly) + '/hr'}</strong><small>{snapshot.monthly_fixed_usd == null ? 'Owner cost source unavailable.' : `${money(snapshot.monthly_fixed_usd)}/month ÷ ${snapshot.calendar_hours_in_month} calendar hours.`} Excludes metered usage.</small></div>
+      <div className="ops-unavailable"><span className="ops-kicker">ACTUAL C SPEND / HOUR</span><strong>Unavailable</strong><small>No measured C lane-hours, provider billing allocation, or metered usage series. Quota percentages are not dollars.</small></div>
+    </div>
+    <div className="ops-capacity-line"><b>C STAFFING / EXECUTION</b><span>{laneGoal?.status === 'verified' && laneGoal.value != null ? `${laneGoal.value} assigned / ${laneGoal.target ?? 6} planned` : 'Current C assignments unverified'}{compileGoal?.value != null ? ` · ${compileGoal.value} compile/native slots authorized` : ''}{laneGoal?.observed_at ? ` · PM checkpoint ${new Date(laneGoal.observed_at).toLocaleString()}` : ''}. Assignment is not productive lane time; the six-lane cost control is a planning assumption.</span></div>
+    {model.credits24h != null && model.fixedHourly != null && <div className="ops-signal-line"><b>24-HOUR SIGNAL</b><span>+{model.credits24h} new reviewed C functions while {money(model.fixedHourly * 24)} of known fixed subscriptions elapsed across all work. This is not C-attributed spend or evidence of productive lane-hours.</span></div>}
+    <div className="ops-executive-body"><CreditTrend events={model.events} current={model.current} ceiling={model.ceiling} lastCreditAt={model.lastCreditAt} />
+      <div className="ops-model"><span className="ops-kicker">PLANNING SCENARIO · NOT A FORECAST</span><h3>What would it take?</h3>
+        <p>Assume the whole fixed subscription pool supports {lanes} C lanes every calendar hour, and {weekly} new functions pass review every week. Neither assumption is an observed work rate. Change either input to inspect the math.</p>
+        <div className="ops-model-inputs"><label>Modeled C lanes<input type="number" min="1" max="20" value={lanes} onChange={event => setLanes(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} /></label>
+          <label>New verified functions / week<input type="number" min="1" max="500" value={weekly} onChange={event => setWeekly(Math.max(1, Math.min(500, Number(event.target.value) || 1)))} /></label></div>
+        <div className="ops-model-result"><div><small>EQUAL POOL ALLOCATION</small><strong>{model.laneHourly == null ? 'Unknown' : money(model.laneHourly) + '/lane-hr'}</strong><span>Fixed calendar-hour pool ÷ {lanes} modeled lanes, all hours. This is not observed lane spend.</span></div>
+          <div><small>TO WORKING CEILING</small><strong>{model.scenarioWeeks == null ? 'Unknown' : model.scenarioWeeks.toFixed(1) + ' weeks'}</strong><span>{model.remaining ?? '—'} remaining ÷ {weekly} newly credited per week. No evidence-backed ETA.</span></div></div>
+        <p className="ops-rate-note">Required modeled pace: {(weekly / lanes).toFixed(2)} reviewed functions per lane-week if every modeled lane contributes equally.</p>
+        <table className="ops-milestones"><thead><tr><th>Strict C milestone</th><th>More functions</th><th>Scenario weeks</th></tr></thead><tbody>{milestones.map(row => <tr key={row.share}><td>{Math.round(row.share * 100)}% · {row.target}/{model.ceiling}</td><td>+{row.additional}</td><td>{row.weeks.toFixed(1)}</td></tr>)}</tbody></table>
+        <p className="ops-model-limit">At this assumed duration the fixed subscription commitment would be {money(model.scenarioCalendarCost)} if this month’s hourly rate held constant; this is not incremental C cost and excludes usage, taxes, and staffing. The working denominator can change with review.</p>
+      </div></div>
+    <div className="ops-next-evidence"><b>NEXT EVIDENCE GATES</b><span>Record verified strict C credit with timestamp and exact source head; measure C lane-hours and billable usage for actual spend; capture a same-run DOS/C frame for the playable demo. No defensible delivery date yet.</span></div>
+  </section>;
+}
+
 function OpsSummary() {
   const [snapshot, setSnapshot] = useState(null);
   const [history, setHistory] = useState(null);
+  const [weekHistory, setWeekHistory] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function refresh() {
     setBusy(true); setError('');
     try {
       setSnapshot(await api('/ops-metrics/refresh', { method: 'POST' }));
-      setHistory(await api('/ops-metrics/history'));
+      const [day, week] = await Promise.all([api('/ops-metrics/history'), api('/ops-metrics/history?hours=168')]);
+      setHistory(day); setWeekHistory(week);
     }
     catch (exc) { setError(exc.message); }
     finally { setBusy(false); }
   }
   useEffect(() => {
     let active = true;
-    const load = () => Promise.all([api('/ops-metrics'), api('/ops-metrics/history')])
-      .then(([data, timeline]) => { if (active) { setSnapshot(data); setHistory(timeline); setError(''); } })
+    const load = () => Promise.all([api('/ops-metrics'), api('/ops-metrics/history'), api('/ops-metrics/history?hours=168')])
+      .then(([data, timeline, week]) => { if (active) { setSnapshot(data); setHistory(timeline); setWeekHistory(week); setError(''); } })
       .catch(exc => { if (active) setError(exc.message); });
     load();
     const timer = setInterval(load, 60000);
@@ -238,33 +296,27 @@ function OpsSummary() {
   const coderStates = snapshot?.staff?.coder || {};
   const coders = Object.values(coderStates).reduce((sum, count) => sum + count, 0);
   const progress = snapshot?.function_progress;
-  const completionRate = snapshot?.completion_rate;
   const playable = snapshot?.goals?.find(goal => goal.goal_key === 'playable_c_demo');
   const quotas = snapshot?.quotas || {
     codex: snapshot?.quota?.provider === 'codex' ? snapshot.quota : null,
     claude: snapshot?.quota?.provider === 'claude' ? snapshot.quota : null,
   };
   const subscriptions = snapshot?.subscriptions || [];
-  const fixedMonthly = snapshot?.monthly_fixed_usd;
-  const strictSeries = (history?.accounting_samples || []).map(row => ({ at: row.observed_at, value: row.strict_full_c }));
-  const identitySeries = (history?.accounting_samples || []).map(row => ({ at: row.observed_at, value: row.verified_game_identities }));
+  const strictSeries = (history?.goal_observations || []).filter(row => row.goal_key === 'strict_fullc').map(row => ({ at: row.observed_at, value: Number(row.value) }));
+  const identitySeries = (history?.goal_observations || []).filter(row => row.goal_key === 'verified_game_identities').map(row => ({ at: row.observed_at, value: Number(row.value) }));
   const coderSeries = (history?.coder_samples || []).map(row => ({ at: row.observed_at, value: row.working }));
   return <section className="dashboard-view ops-view" aria-label="Private operations dashboard">
     <div className="dashboard-tools"><span>Private sourced observations · scheduled sample every minute</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh data'}</button></div>
     {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
     <div className="ops-metrics"><div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : 'Loading…'}</small></div>
-    {snapshot && <div className="ops-kpis">
-      <div><b>FIXED SUBSCRIPTIONS / CALENDAR HOUR</b><strong>{snapshot.fixed_subscription_usd_per_calendar_hour == null ? 'Unknown' : '$' + snapshot.fixed_subscription_usd_per_calendar_hour.toFixed(2) + '/hr'}</strong><small>{fixedMonthly == null ? 'No owner cost record' : `$${fixedMonthly.toFixed(2)}/month ÷ ${snapshot.calendar_hours_in_month} hours in ${snapshot.billing_month}`} · usage charges and coder-hour cost unknown</small></div>
-      <div><b>STRICT C FUNCTION COVERAGE</b><strong>{progress ? `${progress.bound_kind === 'upper_bound' ? '≥' : ''}${progress.strict_percent}%` : 'Unknown'}</strong><small>{progress ? `${progress.strict_full_c} reviewed game functions / ${progress.ceiling} possible non-library bodies · main ${progress.commit_oid.slice(0, 8)} · observed ${new Date(progress.observed_at).toLocaleString()}` : 'Awaiting published, PM-reviewed accounting'}</small></div>
-      <div><b>VERIFIED GAME IDENTITIES</b><strong>{progress ? `${progress.bound_kind === 'upper_bound' ? '≥' : ''}${progress.identity_percent}%` : 'Unknown'}</strong><small>{progress ? `${progress.verified_game_identities} identities / ${progress.ceiling} possible non-library bodies; identification is separate from translation` : 'Awaiting published, PM-reviewed accounting'}</small></div>
-      <div><b>STRICT C COVERAGE SPEED</b><strong>{completionRate ? `${completionRate.function_coverage_points_per_hour.toFixed(4)} points/hr` : 'Awaiting interval'}</strong><small>{completionRate ? `${completionRate.delta_strict_functions} new reviewed functions over ${completionRate.window_hours} hr · ${completionRate.strict_functions_per_hour.toFixed(3)} functions/hr · ${new Date(completionRate.window_start).toLocaleString()} to ${new Date(completionRate.window_end).toLocaleString()}` : 'Requires two matching published readings at least one hour apart; not whole-game completion speed'}</small></div>
-    </div>}
+    {snapshot && weekHistory && <CoverageEconomics snapshot={snapshot} history={weekHistory} />}
+    {progress && <p className="ops-source-line">Published main {progress.commit_oid.slice(0, 8)} · checkpoint {new Date(progress.observed_at).toLocaleString()} · {progress.verified_game_identities} verified identities / {progress.ceiling} working ceiling; identity is separate from strict C credit.</p>}
     {history && <><div className="ops-section-head"><h2>Engineering flow · last 24 hours</h2><small>Recorded events and observations; no values are inferred between samples.</small></div>
       <div className="ops-charts">
-        <LineTrend title="Reviewed strict C" points={strictSeries} color="#a9db7d" unit="functions" note="Published PM-reviewed checkpoints; no credit from PR count or candidate rows." />
+        <LineTrend title="Reviewed strict C" points={strictSeries} color="#a9db7d" unit="functions" step note="Dated verified credit events; no credit from PR count or candidate rows." />
         <MergeTrend merges={history.pr_merges} start={history.window_start} end={history.generated_at} />
-        <LineTrend title="Working coder panes" points={coderSeries} color="#83c6ed" unit="panes" note="Process presence, not verified productive work; missing samples are gaps." />
-        <LineTrend title="Verified game identities" points={identitySeries} color="#d6a6e8" unit="identities" note="Published PM-reviewed checkpoints; distinct from strict C credit." />
+        <LineTrend title="Working coder panes" points={coderSeries} color="#83c6ed" unit="panes" note="Sampled process presence, not verified productive work; missing samples are gaps." />
+        <LineTrend title="Verified game identities" points={identitySeries} color="#d6a6e8" unit="identities" step note="Dated verified identity events; distinct from strict C credit." />
       </div><p className="ops-dora">DORA deployment frequency, change failure rate, and recovery time: unavailable until deployment and incident records exist. PR merges above measure review throughput.</p></>}
     {snapshot && <div className="ops-grid">
       <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>

@@ -348,13 +348,16 @@ def operations_metrics(_: Annotated[str, Depends(require_auth)]):
 
 
 @app.get("/api/ops-metrics/history")
-def operations_metrics_history(_: Annotated[str, Depends(require_auth)]):
+def operations_metrics_history(_: Annotated[str, Depends(require_auth)], hours: int = 24):
     from ops_metrics import connect, history
+
+    if not 1 <= hours <= 168:
+        raise HTTPException(422, "History window must be 1 to 168 hours")
 
     try:
         conn = connect()
         try:
-            return history(conn)
+            return history(conn, hours=hours)
         finally:
             conn.close()
     except (OSError, sqlite3.Error) as exc:
