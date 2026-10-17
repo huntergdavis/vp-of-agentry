@@ -220,17 +220,22 @@ class OpsMetricsTests(unittest.TestCase):
         source = Path(self.temporary.name) / "events.db"
         import sqlite3
         with sqlite3.connect(source) as conn:
-            conn.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,at REAL,kind TEXT,pane_id TEXT,source TEXT)")
-            conn.executemany("INSERT INTO events VALUES(?,?,?,?,?)", [
-                (1, 1792200000, "inbox.sent", "wN:pF", "inbox"),
-                (2, 1792200030, "message.sent", "wN:pF", "send_text"),
-                (3, 1792200040, "inbox.read", "wN:pF", "inbox"),
+            conn.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,at REAL,kind TEXT,pane_id TEXT,source TEXT,sender TEXT,mailbox TEXT,bytes INTEGER,duration_ms INTEGER,attempts INTEGER)")
+            conn.executemany("INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?)", [
+                (1, 1792200000, "inbox.sent", "wN:pF", "inbox", "poolrad-codex", "C lane", 42, None, None),
+                (2, 1792200030, "message.sent", "wN:pF", "send_text", "x@example.com", "C lane", 20, 150, 1),
+                (3, 1792200040, "inbox.read", "wN:pF", "inbox", None, "C lane", None, None, None),
             ])
         first = ops_metrics._new_agent_message_events(self.conn, source)
         self.assertEqual(len(first), 2)
+        self.assertEqual(first[0][5], "poolrad-codex")
+        self.assertIsNone(first[1][5])
+        self.assertEqual(first[1][7:10], (20, 150, 1))
         with self.conn:
             self.conn.executemany(
-                "INSERT INTO agent_message_events VALUES(?,?,?,?,?,?)", first
+                "INSERT INTO agent_message_events"
+                "(source_event_id,occurred_at,pane_id,kind,delivery_source,sender_alias,mailbox_alias,message_bytes,duration_ms,attempts,source_ref) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)", first
             )
         self.assertEqual(ops_metrics._new_agent_message_events(self.conn, source), [])
         result = ops_metrics.experiment_summary(

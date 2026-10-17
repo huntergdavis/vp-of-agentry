@@ -160,6 +160,11 @@ CREATE TABLE IF NOT EXISTS agent_message_events (
     pane_id TEXT NOT NULL,
     kind TEXT NOT NULL CHECK(kind IN ('inbox.sent','message.sent')),
     delivery_source TEXT NOT NULL,
+    sender_alias TEXT,
+    mailbox_alias TEXT,
+    message_bytes INTEGER,
+    duration_ms INTEGER,
+    attempts INTEGER,
     source_ref TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agent_message_recent ON agent_message_events(occurred_at,pane_id);
@@ -235,6 +240,12 @@ def connect(path: Path = DB) -> sqlite3.Connection:
         conn.execute("ALTER TABLE accounting_snapshots ADD COLUMN source_signature TEXT NOT NULL DEFAULT ''")
     if "agent_messages_state" not in {row[1] for row in conn.execute("PRAGMA table_info(collection_runs)")}:
         conn.execute("ALTER TABLE collection_runs ADD COLUMN agent_messages_state TEXT NOT NULL DEFAULT 'unavailable'")
+    message_columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_message_events)")}
+    for name, sql_type in (("sender_alias", "TEXT"), ("mailbox_alias", "TEXT"),
+                           ("message_bytes", "INTEGER"), ("duration_ms", "INTEGER"),
+                           ("attempts", "INTEGER")):
+        if name not in message_columns:
+            conn.execute(f"ALTER TABLE agent_message_events ADD COLUMN {name} {sql_type}")
     return conn
 
 
@@ -314,12 +325,20 @@ def _new_agent_message_events(conn: sqlite3.Connection, path: Path | None = None
     if not path.exists():
         raise FileNotFoundError("Dunking Sheep event database is absent")
     last_id = conn.execute("SELECT COALESCE(MAX(source_event_id),0) FROM agent_message_events").fetchone()[0]
+    def safe_alias(value: Any) -> str | None:
+        if not isinstance(value, str) or not value or "@" in value:
+            return None
+        return value[:120]
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as source:
         return [
             (int(event_id), iso(datetime.fromtimestamp(float(at), timezone.utc)), str(pane_id),
-             str(kind), str(delivery_source or "unknown"), f"dunkingsheep:metrics.db:events:{event_id}")
-            for event_id, at, kind, pane_id, delivery_source in source.execute(
-                "SELECT id,at,kind,pane_id,source FROM events WHERE id>? "
+             str(kind), str(delivery_source or "unknown"), safe_alias(sender),
+             safe_alias(mailbox), message_bytes, duration_ms, attempts,
+             f"dunkingsheep:metrics.db:events:{event_id}")
+            for event_id, at, kind, pane_id, delivery_source, sender, mailbox,
+                message_bytes, duration_ms, attempts in source.execute(
+                "SELECT id,at,kind,pane_id,source,sender,mailbox,bytes,duration_ms,attempts "
+                "FROM events WHERE id>? "
                 "AND kind IN ('inbox.sent','message.sent') AND pane_id IS NOT NULL ORDER BY id",
                 (last_id,),
             )
@@ -460,8 +479,9 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
             )
         conn.executemany(
             "INSERT OR IGNORE INTO agent_message_events"
-            "(source_event_id,occurred_at,pane_id,kind,delivery_source,source_ref) "
-            "VALUES(?,?,?,?,?,?)", agent_message_events,
+            "(source_event_id,occurred_at,pane_id,kind,delivery_source,sender_alias,"
+            "mailbox_alias,message_bytes,duration_ms,attempts,source_ref) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?)", agent_message_events,
         )
         for pr in prs:
             number = int(pr["number"])
