@@ -244,6 +244,10 @@ function RecreationLab({ snapshot, history }) {
   const efficiency = lab.efficiency_by_type_model || [];
   const closedTrials = efficiency.reduce((total, row) => total + (row.completed_trials || 0), 0);
   const acceptedInClosedTrials = efficiency.reduce((total, row) => total + (row.completed_accepted_bodies || 0), 0);
+  const costedClosedTrials = trials.filter(row => row.ended_at && row.metered_usd != null);
+  const sourcedTrialSpend = costedClosedTrials.length
+    ? costedClosedTrials.reduce((total, row) => total + row.metered_usd, 0)
+    : null;
   const costsSourced = efficiency.filter(row => row.completed_trials > 0)
     .every(row => row.metered_usd != null);
   const trialDecision = closedTrials === 0
@@ -261,7 +265,7 @@ function RecreationLab({ snapshot, history }) {
       <div><b>PUBLISHED PM CREDIT</b><strong>{model.current ?? '—'}</strong><small>{model.remaining ?? '—'} candidate targets still uncredited. Source: reviewed main checkpoint {snapshot.function_progress?.commit_oid?.slice(0, 8) || 'unavailable'}; ceiling: PM-reviewed census PR #819.</small></div>
       <div><b>NEW CREDIT / 24H</b><strong>{model.credits24h == null ? 'Unknown' : `+${model.credits24h}`}</strong><small>Comparable reviewed checkpoints. A local draft does not change this number.</small></div>
       <div><b>NEW BODY LEDGER</b><strong>{lab.authored_bodies ?? 0} <span>authored</span></strong><small>{lab.accepted_bodies ?? 0} independently accepted since tracking began; logged separately from published credit to avoid double counting.</small></div>
-      <div><b>ACTUAL USAGE COST</b><strong>{snapshot.usage_cost_usd == null ? 'Unmeasured' : `$${snapshot.usage_cost_usd.toFixed(2)}`}</strong><small>Model efficiency per dollar stays unknown until usage or billing records are entered.</small></div>
+      <div><b>SOURCED TRIAL SPEND</b><strong>{sourcedTrialSpend == null ? 'Unmeasured' : `$${sourcedTrialSpend.toFixed(2)}`}</strong><small>{costedClosedTrials.length}/{closedTrials} closed trials have attributed usage costs. This is trial spend only; model efficiency per dollar needs accepted bodies and complete cost records.</small></div>
     </div>
     <div className="ops-mission-main"><CreditTrend events={model.events} current={model.current} ceiling={model.ceiling} lastCreditAt={model.lastCreditAt}/>
       <div className="ops-lab-panel"><span className="ops-kicker">NEXT PROOF POINT</span><h3>First newly accepted C body</h3><p>PM reviews an exact authored head for source completeness. Write its focused test after the body and run bounded parity when host capacity permits. Record author/model, elapsed time, review effort and sourced cost.</p><small>ETA: no measured accepted-body rate yet. The existing 82 credits do not establish a current completion pace.</small></div></div>
@@ -270,8 +274,8 @@ function RecreationLab({ snapshot, history }) {
       <small>{lab.message_definition || 'Waiting for the delivery-event source.'} Counts are stored in the private database with event IDs and timestamps.</small></div>
       <div className="ops-lab-panel"><div className="ops-lab-head"><h3>Model and reasoning trials</h3><span>{trials.length} recorded</span></div>
       <p><b>TRIAL DECISION:</b> {trialDecision}</p>
-      <div className="ops-table-wrap"><table><thead><tr><th>Type / model</th><th>Effort</th><th>Bodies</th><th>Accepted/hr</th><th>$/body</th></tr></thead><tbody>{efficiency.map(row => <tr key={`${row.agent_type}-${row.model}-${row.reasoning_effort}`}><td>{row.agent_type}<small>{row.model} · {row.completed_trials}/{row.trials} trials closed</small></td><td>{row.reasoning_effort}</td><td>{row.authored_bodies} / {row.accepted_bodies}</td><td>{unknown(row.accepted_per_hour)}</td><td>{row.usd_per_accepted == null ? 'Unmeasured' : `$${row.usd_per_accepted.toFixed(2)}`}</td></tr>)}{!efficiency.length && <tr><td colSpan="5">No trial recorded yet. Opus/Sonnet and Codex reasoning comparisons are queued.</td></tr>}</tbody></table></div>
-      <small>Body counts are distinct authored function outputs per trial / latest exact-head acceptances. Later repairs retain the earlier trial's authored output without assigning its acceptance. Rates use completed trial hours; later review time and actual usage dollars remain unmeasured.</small>
+      <div className="ops-table-wrap"><table><thead><tr><th>Type / model</th><th>Effort</th><th>Bodies</th><th>Accepted/hr</th><th>$/accepted</th></tr></thead><tbody>{efficiency.map(row => <tr key={`${row.agent_type}-${row.model}-${row.reasoning_effort}`}><td>{row.agent_type}<small>{row.model} · {row.completed_trials}/{row.trials} trials closed</small></td><td>{row.reasoning_effort}</td><td>{row.authored_bodies} / {row.accepted_bodies}</td><td>{unknown(row.accepted_per_hour)}</td><td>{row.usd_per_accepted == null ? 'Unmeasured' : `$${row.usd_per_accepted.toFixed(2)}`}</td></tr>)}{!efficiency.length && <tr><td colSpan="5">No trial recorded yet. Opus/Sonnet and Codex reasoning comparisons are queued.</td></tr>}</tbody></table></div>
+      <small>Body counts are distinct authored function outputs per trial / latest exact-head acceptances. Later repairs retain the earlier trial's authored output without assigning its acceptance. Rates use completed trial hours; review time and usage dollars appear only where sourced.</small>
       <details><summary>Individual trial records</summary><div className="ops-table-wrap"><table><thead><tr><th>Pane</th><th>Model / effort</th><th>Minutes</th><th>Messages</th><th>Review</th></tr></thead><tbody>{trials.map(row => <tr key={row.trial_id}><td>{row.pane_id}</td><td>{row.model}<small>{row.reasoning_effort || 'unspecified'}</small></td><td>{Math.round(row.elapsed_hours * 60)}</td><td>{row.inbox_deliveries} inbox / {row.direct_sends} direct</td><td>{row.correction_minutes == null ? 'Unmeasured' : `${row.correction_minutes} min`}</td></tr>)}</tbody></table></div></details>
       <small>Stored per trial: model, provider, reasoning effort, start/end, function IDs and status, review time, delivered messages, host PSI, tokens and measured cost when sourced.</small></div></div>
   </section>;
