@@ -36,9 +36,11 @@ records exist.
 
 The executive C economics panel uses the latest published strict-C count and
 working ceiling. The 24-hour credit delta requires a verified observation at
-or before the 24-hour boundary and agreement between the latest manual credit
-observation and published accounting; otherwise it is unavailable. The chart
-steps only at dated PM-reviewed credit observations. Its horizontal tail is
+or before the 24-hour boundary, agreement between the latest manual credit
+observation and published accounting, and an accounting sample no older than
+60 minutes; otherwise it is unavailable. The credit card shows the accounting
+sample age so a stale published count cannot appear as a measured zero-credit
+day. The chart steps only at dated PM-reviewed credit observations. Its horizontal tail is
 the last recorded value, not evidence of zero work in progress.
 The C staffing line is a dated PM checkpoint: assigned lanes and authorized
 compile/native slots are separate. Neither measures productive lane-hours.
