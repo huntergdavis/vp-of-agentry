@@ -28,6 +28,40 @@
 .ops-metrics{padding:12px 18px;background:#10212d;border-bottom:1px solid #36505b;color:#eaf3f5}
 .ops-view .ops-metrics{flex:1;min-height:0;max-height:none;overflow:auto;padding:20px;border-bottom:0}
 .ops-executive{margin:14px 0 24px;border:1px solid #496270;border-radius:16px;background:linear-gradient(135deg,#1c3544,#172733 55%,#13232d);box-shadow:0 18px 45px #07111a4d;overflow:hidden}
+.ops-mission{margin:12px 0 24px;border:2px solid #a9db7d;border-radius:16px;background:#182d39;overflow:hidden;box-shadow:0 18px 45px #07111a4d}
+.ops-mission-head{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:25px 28px;background:linear-gradient(120deg,#254839,#193440);border-bottom:1px solid #678b70}
+.ops-mission-head h2{font-size:32px;line-height:1.05;color:#fff6c6;margin:6px 0}
+.ops-mission-head p{font-size:14px;color:#d4e7df;margin:0;line-height:1.4}
+.ops-mission-head>strong{font-size:44px;white-space:nowrap;color:#fff6c6}
+.ops-mission-head>strong span{font-size:24px;color:#d0e4d9}
+.ops-mission-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:#466263}
+.ops-mission-cards>div{display:flex;flex-direction:column;gap:7px;padding:18px 21px;min-width:0;background:#1a3440}
+.ops-mission-cards b{font-size:11px;letter-spacing:.08em;color:#b7e9a3}
+.ops-mission-cards strong{font-size:28px;line-height:1.1;color:#fff4bc}
+.ops-mission-cards strong span{font-size:15px;color:#c9dcce}
+.ops-mission-cards small,.ops-lab-panel small{font-size:12px;line-height:1.4;color:#c0d2d5}
+.ops-mission-main{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:14px;padding:17px}
+.ops-mission-main .ops-credit-chart{margin:0}
+.ops-lab-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 17px 17px}
+.ops-lab-panel{min-width:0;background:#132a36;border:1px solid #4b6b70;border-radius:11px;padding:18px}
+.ops-lab-panel h3{font-size:19px;color:#fff4c9;margin:6px 0 10px}
+.ops-lab-panel p{font-size:14px;color:#d6e7e8;line-height:1.5}
+.ops-lab-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.ops-lab-head span{font-size:11px;color:#b6d8bf;text-transform:uppercase}
+.ops-table-wrap{max-height:350px;overflow:auto;margin:10px 0}
+.ops-lab-panel table{width:100%;border-collapse:collapse;font-size:12px;color:#ebf4ed}
+.ops-lab-panel th{text-align:left;color:#b9e3a3;font-size:10px;letter-spacing:.04em;position:sticky;top:0;background:#132a36}
+.ops-lab-panel th,.ops-lab-panel td{border-bottom:1px solid #3d5860;padding:8px 6px;vertical-align:top}
+.ops-lab-panel td small{display:block;font-size:10px}
+.ops-message-bar{height:4px;max-width:160px;background:#314d55;border-radius:3px;margin-top:5px;overflow:hidden}
+.ops-message-bar i{display:block;height:100%;background:#aadf94;border-radius:3px}
+.ops-lab-panel details{margin-top:12px;border-top:1px solid #3d5860;padding-top:11px}
+.ops-lab-panel summary{font-size:12px;color:#c9e9b8;cursor:pointer;font-weight:700}
+.ops-reference{border:1px solid #405c64;border-radius:10px;margin:0 0 20px;padding:12px;color:#cfe0dc}
+.ops-reference>summary{font-size:13px;font-weight:800;cursor:pointer}
+.ops-reference .ops-executive{margin-bottom:0}
+@media(max-width:1150px){.ops-mission-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.ops-mission-main,.ops-lab-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.ops-mission-head{display:block;padding:20px}.ops-mission-head h2{font-size:27px}.ops-mission-head>strong{display:block;font-size:36px;margin-top:10px}.ops-mission-cards{grid-template-columns:1fr}.ops-mission-main{padding:12px}.ops-lab-grid{padding:0 12px 12px}}
 .ops-executive-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;padding:28px 30px 18px;border-bottom:1px solid #385564}
 .ops-executive-head h2{font-size:30px;letter-spacing:-.045em;margin:6px 0 4px;color:#f9f4d4}
 .ops-executive-head p{font-size:14px;color:#bdd0d8;margin:0}

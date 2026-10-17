@@ -235,6 +235,36 @@ function CreditTrend({ events, current, ceiling, lastCreditAt }) {
   </div>;
 }
 
+function RecreationLab({ snapshot, history }) {
+  const lab = snapshot.experiment_lab || {};
+  const model = coverageEconomics(snapshot, history);
+  const roster = Object.fromEntries((snapshot.pane_roster || []).map(pane => [pane.pane_id, pane]));
+  const messages = lab.messages_by_pane || [];
+  const trials = lab.trials || [];
+  const efficiency = lab.efficiency_by_type_model || [];
+  const maxMessages = Math.max(1, ...messages.map(row => row.inbox_deliveries + row.direct_sends));
+  const unknown = value => value == null ? 'Unmeasured' : value;
+  return <section className="ops-mission" aria-label="815 C function mission and agent experiment lab">
+    <div className="ops-mission-head"><div><span className="ops-kicker">PRIMARY PROJECT GOAL / ORIGINAL C BODIES</span><h2>Recreate all 815 functions</h2><p>Count substantive original-function C bodies. Tests, PRs and demo work are quality or activity signals.</p></div><strong>{model.current ?? '—'} <span>/ {model.ceiling ?? 815}</span></strong></div>
+    <div className="ops-mission-cards">
+      <div><b>PUBLISHED PM CREDIT</b><strong>{model.current ?? '—'}</strong><small>{model.remaining ?? '—'} still uncredited. Source: reviewed main checkpoint {snapshot.function_progress?.commit_oid?.slice(0, 8) || 'unavailable'}.</small></div>
+      <div><b>NEW CREDIT / 24H</b><strong>{model.credits24h == null ? 'Unknown' : `+${model.credits24h}`}</strong><small>Comparable reviewed checkpoints. A local draft does not change this number.</small></div>
+      <div><b>NEW BODY LEDGER</b><strong>{lab.authored_bodies ?? 0} <span>authored</span></strong><small>{lab.accepted_bodies ?? 0} independently accepted since tracking began; logged separately from published credit to avoid double counting.</small></div>
+      <div><b>ACTUAL USAGE COST</b><strong>{snapshot.usage_cost_usd == null ? 'Unmeasured' : `$${snapshot.usage_cost_usd.toFixed(2)}`}</strong><small>Model efficiency per dollar stays unknown until usage or billing records are entered.</small></div>
+    </div>
+    <div className="ops-mission-main"><CreditTrend events={model.events} current={model.current} ceiling={model.ceiling} lastCreditAt={model.lastCreditAt}/>
+      <div className="ops-lab-panel"><span className="ops-kicker">NEXT PROOF POINT</span><h3>One complete C body</h3><p>Record original function ID, exact source head, author/model, elapsed time and PM source review. Write the focused test after the body. Run bounded parity when host capacity permits.</p><small>ETA: no measured body rate yet. Existing 82/815 is a reviewed baseline, not evidence of a current completion pace.</small></div></div>
+    <div className="ops-lab-grid"><div className="ops-lab-panel"><div className="ops-lab-head"><h3>Messages delivered per agent · 24h</h3><span>{snapshot.sources?.agent_messages || 'unavailable'}</span></div>
+      <div className="ops-table-wrap"><table><thead><tr><th>Pane</th><th>Type</th><th>Inbox</th><th>Direct</th></tr></thead><tbody>{messages.slice(0, 20).map(row => <tr key={row.pane_id}><td>{row.pane_id}<div className="ops-message-bar"><i style={{width:`${(row.inbox_deliveries + row.direct_sends) / maxMessages * 100}%`}} /></div></td><td>{roster[row.pane_id]?.agent_kind || 'Unknown'}</td><td>{row.inbox_deliveries}</td><td>{row.direct_sends}</td></tr>)}{!messages.length && <tr><td colSpan="4">No sourced delivery events in this window.</td></tr>}</tbody></table></div>
+      <small>{lab.message_definition || 'Waiting for the delivery-event source.'} Counts are stored in the private database with event IDs and timestamps.</small></div>
+      <div className="ops-lab-panel"><div className="ops-lab-head"><h3>Model and reasoning trials</h3><span>{trials.length} recorded</span></div>
+      <div className="ops-table-wrap"><table><thead><tr><th>Type / model</th><th>Effort</th><th>Bodies</th><th>Accepted/hr</th><th>$/body</th></tr></thead><tbody>{efficiency.map(row => <tr key={`${row.agent_type}-${row.model}-${row.reasoning_effort}`}><td>{row.agent_type}<small>{row.model} · {row.completed_trials}/{row.trials} trials closed</small></td><td>{row.reasoning_effort}</td><td>{row.authored_bodies} / {row.accepted_bodies}</td><td>{unknown(row.accepted_per_hour)}</td><td>{row.usd_per_accepted == null ? 'Unmeasured' : `$${row.usd_per_accepted.toFixed(2)}`}</td></tr>)}{!efficiency.length && <tr><td colSpan="5">No trial recorded yet. Opus/Sonnet and Codex reasoning comparisons are queued.</td></tr>}</tbody></table></div>
+      <small>Body counts are authored / accepted. Rates use only completed trial hours; actual dollars require sourced usage.</small>
+      <details><summary>Individual trial records</summary><div className="ops-table-wrap"><table><thead><tr><th>Pane</th><th>Model / effort</th><th>Minutes</th><th>Messages</th><th>Review</th></tr></thead><tbody>{trials.map(row => <tr key={row.trial_id}><td>{row.pane_id}</td><td>{row.model}<small>{row.reasoning_effort || 'unspecified'}</small></td><td>{Math.round(row.elapsed_hours * 60)}</td><td>{row.inbox_deliveries} inbox / {row.direct_sends} direct</td><td>{row.correction_minutes == null ? 'Unmeasured' : `${row.correction_minutes} min`}</td></tr>)}</tbody></table></div></details>
+      <small>Stored per trial: model, provider, reasoning effort, start/end, function IDs and status, review time, delivered messages, host PSI, tokens and measured cost when sourced.</small></div></div>
+  </section>;
+}
+
 function CoverageEconomics({ snapshot, history }) {
   const [lanes, setLanes] = useState(6);
   const [weekly, setWeekly] = useState(10);
@@ -309,7 +339,8 @@ function OpsSummary() {
     <div className="dashboard-tools"><span>Private sourced observations · scheduled sample every minute</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh data'}</button></div>
     {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
     <div className="ops-metrics"><div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : 'Loading…'}</small></div>
-    {snapshot && weekHistory && <CoverageEconomics snapshot={snapshot} history={weekHistory} />}
+    {snapshot && weekHistory && <RecreationLab snapshot={snapshot} history={weekHistory} />}
+    {snapshot && weekHistory && <details className="ops-reference"><summary>Reviewed credit history and fixed-cost planning reference</summary><CoverageEconomics snapshot={snapshot} history={weekHistory} /></details>}
     {progress && <p className="ops-source-line">Published main {progress.commit_oid.slice(0, 8)} · checkpoint {new Date(progress.observed_at).toLocaleString()} · {progress.verified_game_identities} verified identities / {progress.ceiling} working ceiling; identity is separate from strict C credit.</p>}
     {history && <><div className="ops-section-head"><h2>Engineering flow · last 24 hours</h2><small>Recorded events and observations; no values are inferred between samples.</small></div>
       <div className="ops-charts">

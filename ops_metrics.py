@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("VP_DATA_DIR", ROOT / "data"))
 DB = Path(os.environ.get("VP_OPS_DB", DATA / "operations.sqlite3"))
 MESSAGE_DB = DATA / "messages.sqlite3"
+DUNK_EVENTS_DB = Path(os.environ.get("DUNK_EVENTS_DB", Path.home() / ".config/dunkingsheep/metrics.db"))
 POOLRAD_REPO = Path(os.environ.get("POOLRAD_REPO", ROOT.parent / "poolrad-decomp"))
 PROJECT = "poolrad"
 POLL_INTERVAL_S = 60
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS collection_runs (
     vp_messages_state TEXT NOT NULL,
     dunk_metrics_state TEXT NOT NULL,
     accounting_state TEXT NOT NULL DEFAULT 'unavailable',
+    agent_messages_state TEXT NOT NULL DEFAULT 'unavailable',
     errors_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_observed_at ON collection_runs(observed_at);
@@ -152,6 +154,49 @@ CREATE TABLE IF NOT EXISTS accounting_snapshots (
     UNIQUE(project,observed_at,commit_oid)
 );
 CREATE INDEX IF NOT EXISTS accounting_recent ON accounting_snapshots(project,observed_at);
+CREATE TABLE IF NOT EXISTS agent_message_events (
+    source_event_id INTEGER PRIMARY KEY,
+    occurred_at TEXT NOT NULL,
+    pane_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('inbox.sent','message.sent')),
+    delivery_source TEXT NOT NULL,
+    source_ref TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_message_recent ON agent_message_events(occurred_at,pane_id);
+CREATE TABLE IF NOT EXISTS agent_trials (
+    trial_id TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    pane_id TEXT NOT NULL,
+    agent_type TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    hypothesis TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    input_tokens INTEGER CHECK(input_tokens IS NULL OR input_tokens >= 0),
+    output_tokens INTEGER CHECK(output_tokens IS NULL OR output_tokens >= 0),
+    metered_usd REAL CHECK(metered_usd IS NULL OR metered_usd >= 0),
+    correction_minutes REAL CHECK(correction_minutes IS NULL OR correction_minutes >= 0),
+    host_psi10 REAL CHECK(host_psi10 IS NULL OR host_psi10 >= 0),
+    usage_source TEXT,
+    evidence_ref TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_trials_recent ON agent_trials(project,started_at);
+CREATE TABLE IF NOT EXISTS function_body_events (
+    id INTEGER PRIMARY KEY,
+    project TEXT NOT NULL,
+    function_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('authored','accepted','withdrawn')),
+    pane_id TEXT NOT NULL,
+    trial_id TEXT REFERENCES agent_trials(trial_id),
+    source_head TEXT NOT NULL,
+    evidence_ref TEXT NOT NULL,
+    reviewed_by TEXT,
+    occurred_at TEXT NOT NULL,
+    UNIQUE(project,function_id,status,source_head)
+);
+CREATE INDEX IF NOT EXISTS body_events_recent ON function_body_events(project,occurred_at);
 """
 
 
@@ -188,6 +233,8 @@ def connect(path: Path = DB) -> sqlite3.Connection:
         conn.execute("ALTER TABLE collection_runs ADD COLUMN accounting_state TEXT NOT NULL DEFAULT 'unavailable'")
     if "source_signature" not in {row[1] for row in conn.execute("PRAGMA table_info(accounting_snapshots)")}:
         conn.execute("ALTER TABLE accounting_snapshots ADD COLUMN source_signature TEXT NOT NULL DEFAULT ''")
+    if "agent_messages_state" not in {row[1] for row in conn.execute("PRAGMA table_info(collection_runs)")}:
+        conn.execute("ALTER TABLE collection_runs ADD COLUMN agent_messages_state TEXT NOT NULL DEFAULT 'unavailable'")
     return conn
 
 
@@ -261,6 +308,24 @@ def _vp_counts(path: Path = MESSAGE_DB) -> list[tuple[str, str, int]]:
         )]
 
 
+def _new_agent_message_events(conn: sqlite3.Connection, path: Path | None = None) -> list[tuple]:
+    """Read delivery metadata only; never copy message text or account details."""
+    path = path or DUNK_EVENTS_DB
+    if not path.exists():
+        raise FileNotFoundError("Dunking Sheep event database is absent")
+    last_id = conn.execute("SELECT COALESCE(MAX(source_event_id),0) FROM agent_message_events").fetchone()[0]
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as source:
+        return [
+            (int(event_id), iso(datetime.fromtimestamp(float(at), timezone.utc)), str(pane_id),
+             str(kind), str(delivery_source or "unknown"), f"dunkingsheep:metrics.db:events:{event_id}")
+            for event_id, at, kind, pane_id, delivery_source in source.execute(
+                "SELECT id,at,kind,pane_id,source FROM events WHERE id>? "
+                "AND kind IN ('inbox.sent','message.sent') AND pane_id IS NOT NULL ORDER BY id",
+                (last_id,),
+            )
+        ]
+
+
 def _dunk_timestamp(item: Any, label: str) -> str:
     if isinstance(item, str):
         return iso(parse_time(item))
@@ -301,11 +366,13 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     now = now or utc_now()
     observed_at = iso(now)
     states = {"panes": "skipped", "github": "skipped", "vp_messages": "skipped",
+              "agent_messages": "skipped",
               "dunk_metrics": "skipped", "accounting": "skipped"}
     errors: dict[str, str] = {}
     panes: list[dict] = []
     prs: list[dict] = []
     counts: list[tuple[str, str, int]] = []
+    agent_message_events: list[tuple] = []
     metrics: dict | None = None
     accounting: dict | None = None
     try:
@@ -323,6 +390,12 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     except (OSError, sqlite3.Error) as exc:
         states["vp_messages"] = "unavailable"
         errors["vp_messages"] = type(exc).__name__
+    try:
+        agent_message_events = _new_agent_message_events(conn)
+        states["agent_messages"] = "ok"
+    except (OSError, sqlite3.Error, ValueError, OverflowError) as exc:
+        states["agent_messages"] = "unavailable"
+        errors["agent_messages"] = type(exc).__name__
     if force_external or _source_due(conn, "github_state", now):
         try:
             prs = command_json(
@@ -359,10 +432,11 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
 
     with conn:
         run_id = conn.execute(
-            "INSERT INTO collection_runs(observed_at,panes_state,github_state,vp_messages_state,dunk_metrics_state,accounting_state,errors_json) "
-            "VALUES(?,?,?,?,?,?,?)",
+            "INSERT INTO collection_runs(observed_at,panes_state,github_state,vp_messages_state,dunk_metrics_state,accounting_state,agent_messages_state,errors_json) "
+            "VALUES(?,?,?,?,?,?,?,?)",
             (observed_at, states["panes"], states["github"], states["vp_messages"],
-             states["dunk_metrics"], states["accounting"], json.dumps(errors, sort_keys=True)),
+             states["dunk_metrics"], states["accounting"], states["agent_messages"],
+             json.dumps(errors, sort_keys=True)),
         ).lastrowid
         assignments = {row["pane_id"]: row["role"] for row in conn.execute(
             "SELECT pane_id,role FROM lane_assignments WHERE project=?", (PROJECT,)
@@ -384,6 +458,11 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
                 "INSERT INTO vp_message_counts(run_id,channel,role,total) VALUES(?,?,?,?)",
                 (run_id, channel, role, total),
             )
+        conn.executemany(
+            "INSERT OR IGNORE INTO agent_message_events"
+            "(source_event_id,occurred_at,pane_id,kind,delivery_source,source_ref) "
+            "VALUES(?,?,?,?,?,?)", agent_message_events,
+        )
         for pr in prs:
             number = int(pr["number"])
             state = str(pr["state"])
@@ -481,11 +560,178 @@ def record_goal(
         )
 
 
+def record_trial(
+    conn: sqlite3.Connection, *, trial_id: str, pane: str, agent_type: str,
+    provider: str, model: str, hypothesis: str, started_at: str, evidence: str,
+    reasoning_effort: str | None = None, ended_at: str | None = None,
+    input_tokens: int | None = None, output_tokens: int | None = None,
+    metered_usd: float | None = None, correction_minutes: float | None = None,
+    host_psi10: float | None = None, usage_source: str | None = None,
+) -> None:
+    if not all(value and value.strip() for value in
+               (trial_id, pane, agent_type, provider, model, hypothesis, evidence)):
+        raise ValueError("trial identity, model, hypothesis and evidence are required")
+    start = iso(parse_time(started_at))
+    end = iso(parse_time(ended_at)) if ended_at else None
+    if end and end < start:
+        raise ValueError("trial end precedes start")
+    for value in (input_tokens, output_tokens, metered_usd, correction_minutes, host_psi10):
+        if value is not None and (not math.isfinite(value) or value < 0):
+            raise ValueError("trial measures must be finite and nonnegative")
+    if (input_tokens is not None and type(input_tokens) is not int or
+            output_tokens is not None and type(output_tokens) is not int):
+        raise ValueError("token counts must be integers")
+    if (input_tokens is not None or output_tokens is not None or metered_usd is not None) and not usage_source:
+        raise ValueError("usage source is required for measured tokens or spend")
+    identity = (PROJECT, pane, agent_type, provider, model, reasoning_effort,
+                hypothesis, start)
+    with conn:
+        old = conn.execute(
+            "SELECT project,pane_id,agent_type,provider,model,reasoning_effort,hypothesis,started_at "
+            "FROM agent_trials WHERE trial_id=?", (trial_id,),
+        ).fetchone()
+        if old and tuple(old) != identity:
+            raise ValueError("trial identity cannot change")
+        conn.execute(
+            "INSERT INTO agent_trials(trial_id,project,pane_id,agent_type,provider,model,reasoning_effort,"
+            "hypothesis,started_at,ended_at,input_tokens,output_tokens,metered_usd,correction_minutes,"
+            "host_psi10,usage_source,evidence_ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(trial_id) DO UPDATE SET ended_at=COALESCE(excluded.ended_at,agent_trials.ended_at),"
+            "input_tokens=COALESCE(excluded.input_tokens,agent_trials.input_tokens),"
+            "output_tokens=COALESCE(excluded.output_tokens,agent_trials.output_tokens),"
+            "metered_usd=COALESCE(excluded.metered_usd,agent_trials.metered_usd),"
+            "correction_minutes=COALESCE(excluded.correction_minutes,agent_trials.correction_minutes),"
+            "host_psi10=COALESCE(excluded.host_psi10,agent_trials.host_psi10),"
+            "usage_source=COALESCE(excluded.usage_source,agent_trials.usage_source),"
+            "evidence_ref=excluded.evidence_ref",
+            (trial_id, *identity, end, input_tokens, output_tokens, metered_usd,
+             correction_minutes, host_psi10, usage_source, evidence),
+        )
+
+
+def record_body(
+    conn: sqlite3.Connection, *, function_id: str, status: str, pane: str,
+    source_head: str, evidence: str, occurred_at: str | None = None,
+    reviewed_by: str | None = None, trial_id: str | None = None,
+) -> None:
+    if status not in {"authored", "accepted", "withdrawn"}:
+        raise ValueError("invalid C body status")
+    if not re.fullmatch(r"[A-Za-z0-9_+.-]{3,64}", function_id):
+        raise ValueError("invalid original function ID")
+    if not re.fullmatch(r"[0-9a-f]{7,40}", source_head):
+        raise ValueError("exact local or published source head required")
+    if not pane or not evidence:
+        raise ValueError("pane and evidence are required")
+    if status == "accepted" and not reviewed_by:
+        raise ValueError("accepted C body requires a named reviewer")
+    when = iso(parse_time(occurred_at)) if occurred_at else iso(utc_now())
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO function_body_events"
+            "(project,function_id,status,pane_id,trial_id,source_head,evidence_ref,reviewed_by,occurred_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (PROJECT, function_id, status, pane, trial_id, source_head,
+             evidence, reviewed_by, when),
+        )
+
+
+def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
+    start = iso(now - timedelta(hours=24))
+    messages = [dict(row) for row in conn.execute(
+        "SELECT pane_id, SUM(kind='inbox.sent') AS inbox_deliveries,"
+        "SUM(kind='message.sent') AS direct_sends "
+        "FROM agent_message_events WHERE occurred_at>=? AND occurred_at<=? "
+        "GROUP BY pane_id ORDER BY inbox_deliveries+direct_sends DESC,pane_id",
+        (start, iso(now)),
+    )]
+    latest = [dict(row) for row in conn.execute(
+        "SELECT e.function_id,e.status,e.pane_id,e.trial_id,e.source_head,e.evidence_ref,"
+        "e.reviewed_by,e.occurred_at FROM function_body_events e "
+        "WHERE e.project=? AND e.id=(SELECT MAX(x.id) FROM function_body_events x "
+        "WHERE x.project=e.project AND x.function_id=e.function_id) "
+        "ORDER BY e.occurred_at DESC,e.function_id", (PROJECT,),
+    )]
+    trials = [dict(row) for row in conn.execute(
+        "SELECT * FROM agent_trials WHERE project=? AND started_at>=? "
+        "ORDER BY started_at DESC,trial_id", (PROJECT, iso(now - timedelta(hours=168))),
+    )]
+    by_trial = {row["trial_id"]: row for row in trials}
+    counts: dict[str, dict] = {}
+    for body in latest:
+        if body["status"] == "withdrawn":
+            continue
+        trial = by_trial.get(body["trial_id"])
+        if trial is None:
+            continue
+        item = counts.setdefault(trial["trial_id"], {"authored_bodies": 0, "accepted_bodies": 0})
+        item["authored_bodies"] += 1
+        if body["status"] == "accepted":
+            item["accepted_bodies"] += 1
+    for trial in trials:
+        trial.update(counts.get(trial["trial_id"], {"authored_bodies": 0, "accepted_bodies": 0}))
+        end = parse_time(trial["ended_at"]) if trial["ended_at"] else now
+        hours = max(0, (end - parse_time(trial["started_at"])).total_seconds() / 3600)
+        trial["elapsed_hours"] = round(hours, 3)
+        trial["accepted_per_hour"] = round(trial["accepted_bodies"] / hours, 3) if hours > 0 and trial["ended_at"] else None
+        trial["accepted_per_usd"] = round(trial["accepted_bodies"] / trial["metered_usd"], 3) if trial["metered_usd"] else None
+        trial_messages = conn.execute(
+            "SELECT SUM(kind='inbox.sent') AS inbox_deliveries,"
+            "SUM(kind='message.sent') AS direct_sends FROM agent_message_events "
+            "WHERE pane_id=? AND occurred_at>=? AND occurred_at<=?",
+            (trial["pane_id"], trial["started_at"], trial["ended_at"] or iso(now)),
+        ).fetchone()
+        trial["inbox_deliveries"] = trial_messages["inbox_deliveries"] or 0
+        trial["direct_sends"] = trial_messages["direct_sends"] or 0
+    groups: dict[tuple, dict] = {}
+    for trial in trials:
+        key = (trial["agent_type"], trial["model"], trial["reasoning_effort"] or "unspecified")
+        group = groups.setdefault(key, {
+            "agent_type": key[0], "model": key[1], "reasoning_effort": key[2],
+            "trials": 0, "completed_trials": 0, "authored_bodies": 0,
+            "accepted_bodies": 0, "completed_accepted_bodies": 0,
+            "completed_hours": 0.0,
+            "inbox_deliveries": 0, "direct_sends": 0,
+            "metered_usd": 0.0, "all_completed_costs_sourced": True,
+        })
+        group["trials"] += 1
+        group["authored_bodies"] += trial["authored_bodies"]
+        group["accepted_bodies"] += trial["accepted_bodies"]
+        group["inbox_deliveries"] += trial["inbox_deliveries"]
+        group["direct_sends"] += trial["direct_sends"]
+        if trial["ended_at"]:
+            group["completed_trials"] += 1
+            group["completed_accepted_bodies"] += trial["accepted_bodies"]
+            group["completed_hours"] += trial["elapsed_hours"]
+            if trial["metered_usd"] is None:
+                group["all_completed_costs_sourced"] = False
+            else:
+                group["metered_usd"] += trial["metered_usd"]
+    efficiency = []
+    for group in groups.values():
+        hours = group["completed_hours"]
+        accepted = group["completed_accepted_bodies"]
+        group["completed_hours"] = round(hours, 3)
+        group["accepted_per_hour"] = round(accepted / hours, 3) if hours > 0 else None
+        group["usd_per_accepted"] = (
+            round(group["metered_usd"] / accepted, 3)
+            if accepted and group["all_completed_costs_sourced"] else None
+        )
+        if not group["all_completed_costs_sourced"]:
+            group["metered_usd"] = None
+        efficiency.append(group)
+    efficiency.sort(key=lambda item: (item["agent_type"], item["model"], item["reasoning_effort"]))
+    return {"window_start": start, "messages_by_pane": messages,
+            "message_definition": "Dunking Sheep inbox.sent plus confirmed message.sent delivery events to each pane; these are prompts/notifications, not model turns or token usage. A direct notification and its inbox item can both appear.",
+            "bodies": latest, "authored_bodies": sum(row["status"] in {"authored", "accepted"} for row in latest),
+            "accepted_bodies": sum(row["status"] == "accepted" for row in latest),
+            "trials": trials, "efficiency_by_type_model": efficiency}
+
+
 def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     now = now or utc_now()
     run = conn.execute("SELECT * FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
     source_freshness = {}
-    for source in ("panes", "github", "vp_messages", "dunk_metrics", "accounting"):
+    for source in ("panes", "github", "vp_messages", "agent_messages", "dunk_metrics", "accounting"):
         row = conn.execute(
             f"SELECT observed_at FROM collection_runs WHERE {source}_state='ok' ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -494,12 +740,17 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "age_s": max(0, int((now - parse_time(row["observed_at"])).total_seconds())) if row else None,
         }
     staff = {"pm": {}, "coder": {}, "reviewer": {}, "other": {}}
+    pane_roster = []
     if run and run["panes_state"] == "ok":
         for row in conn.execute(
             "SELECT role,COALESCE(agent_status,'unknown') status,COUNT(*) n "
             "FROM pane_samples WHERE run_id=? GROUP BY role,status", (run["id"],)
         ):
             staff[row["role"]][row["status"]] = row["n"]
+        pane_roster = [dict(row) for row in conn.execute(
+            "SELECT pane_id,role,agent_kind,agent_status FROM pane_samples "
+            "WHERE run_id=? AND project=? ORDER BY pane_id", (run["id"], PROJECT),
+        )]
     quotas = {"codex": None, "claude": None}
     for provider in quotas:
         latest = conn.execute(
@@ -606,9 +857,10 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "project": PROJECT,
         "latest_sample_at": run["observed_at"] if run else None,
         "latest_sample_age_s": max(0, int((now - parse_time(run["observed_at"])).total_seconds())) if run else None,
-        "sources": {name: run[f"{name}_state"] for name in ("panes", "github", "vp_messages", "dunk_metrics", "accounting")} if run else {},
+        "sources": {name: run[f"{name}_state"] for name in ("panes", "github", "vp_messages", "agent_messages", "dunk_metrics", "accounting")} if run else {},
         "source_freshness": source_freshness,
         "staff": staff,
+        "pane_roster": pane_roster,
         "quota": quota,
         "quotas": quotas,
         "subscriptions": subscriptions,
@@ -629,6 +881,7 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "schema_version": telemetry["schema_version"],
             "data": json.loads(telemetry["payload_json"]),
         } if telemetry else None,
+        "experiment_lab": experiment_summary(conn, now),
         "limitations": [
             "Pane state is sampled presence, not verified productive work or token consumption.",
             "PR list tracks recent visible PRs, not a whole-game completion denominator.",
@@ -637,6 +890,8 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "Fixed subscription totals are owner-reported and exclude unknown taxes, add-ons, and usage charges.",
             "The hourly price divides fixed monthly subscriptions by calendar hours, not coder hours or metered usage.",
             "Completion speed is change in PM-reviewed strict C credit divided by the actual interval, using the same reviewed function bound; it is not whole-game completion speed.",
+            "Agent delivery events count prompts and inbox items delivered to a pane; they do not count model turns, and notification sends can duplicate inbox items.",
+            "Function body trial records are append-only local evidence and remain separate from the PM-reviewed published 815 denominator.",
         ],
     }
 
@@ -717,6 +972,32 @@ def main() -> None:
     lane.add_argument("--pane", required=True)
     lane.add_argument("--role", choices=["pm", "coder", "reviewer", "other"], required=True)
     lane.add_argument("--focus", required=True)
+    trial = sub.add_parser("trial", help="record or finish one sourced model/reasoning trial")
+    trial.add_argument("--id", required=True)
+    trial.add_argument("--pane", required=True)
+    trial.add_argument("--agent-type", required=True)
+    trial.add_argument("--provider", required=True)
+    trial.add_argument("--model", required=True)
+    trial.add_argument("--reasoning-effort")
+    trial.add_argument("--hypothesis", required=True)
+    trial.add_argument("--started-at", required=True)
+    trial.add_argument("--ended-at")
+    trial.add_argument("--input-tokens", type=int)
+    trial.add_argument("--output-tokens", type=int)
+    trial.add_argument("--metered-usd", type=float)
+    trial.add_argument("--correction-minutes", type=float)
+    trial.add_argument("--host-psi10", type=float)
+    trial.add_argument("--usage-source")
+    trial.add_argument("--evidence", required=True)
+    body = sub.add_parser("body", help="record an authored or reviewed substantive original C body")
+    body.add_argument("--function-id", required=True)
+    body.add_argument("--status", choices=["authored", "accepted", "withdrawn"], required=True)
+    body.add_argument("--pane", required=True)
+    body.add_argument("--source-head", required=True)
+    body.add_argument("--trial-id")
+    body.add_argument("--reviewed-by")
+    body.add_argument("--occurred-at")
+    body.add_argument("--evidence", required=True)
     args = parser.parse_args()
     conn = connect(args.db)
     try:
@@ -747,6 +1028,23 @@ def main() -> None:
                     "ON CONFLICT(project,pane_id) DO UPDATE SET role=excluded.role,focus=excluded.focus,updated_at=excluded.updated_at",
                     (PROJECT, args.pane, args.role, args.focus, iso(utc_now())),
                 )
+            print(json.dumps({"recorded": True}))
+        elif args.command == "trial":
+            record_trial(conn, trial_id=args.id, pane=args.pane,
+                         agent_type=args.agent_type, provider=args.provider,
+                         model=args.model, reasoning_effort=args.reasoning_effort,
+                         hypothesis=args.hypothesis, started_at=args.started_at,
+                         ended_at=args.ended_at, input_tokens=args.input_tokens,
+                         output_tokens=args.output_tokens, metered_usd=args.metered_usd,
+                         correction_minutes=args.correction_minutes,
+                         host_psi10=args.host_psi10, usage_source=args.usage_source,
+                         evidence=args.evidence)
+            print(json.dumps({"recorded": True}))
+        elif args.command == "body":
+            record_body(conn, function_id=args.function_id, status=args.status,
+                        pane=args.pane, source_head=args.source_head,
+                        trial_id=args.trial_id, reviewed_by=args.reviewed_by,
+                        occurred_at=args.occurred_at, evidence=args.evidence)
             print(json.dumps({"recorded": True}))
     finally:
         conn.close()

@@ -15,6 +15,9 @@ class OpsMetricsTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
+        source = patch.object(ops_metrics, "DUNK_EVENTS_DB", Path(self.temporary.name) / "missing-events.db")
+        source.start()
+        self.addCleanup(source.stop)
         self.conn = ops_metrics.connect(Path(self.temporary.name) / "ops.sqlite3")
         self.addCleanup(self.conn.close)
 
@@ -212,3 +215,62 @@ class OpsMetricsTests(unittest.TestCase):
             ops_metrics.record_subscription(
                 self.conn, provider="codex", monthly_usd="1.001", evidence="invalid"
             )
+
+    def test_agent_delivery_ingestion_is_append_only_and_content_free(self):
+        source = Path(self.temporary.name) / "events.db"
+        import sqlite3
+        with sqlite3.connect(source) as conn:
+            conn.execute("CREATE TABLE events(id INTEGER PRIMARY KEY,at REAL,kind TEXT,pane_id TEXT,source TEXT)")
+            conn.executemany("INSERT INTO events VALUES(?,?,?,?,?)", [
+                (1, 1792200000, "inbox.sent", "wN:pF", "inbox"),
+                (2, 1792200030, "message.sent", "wN:pF", "send_text"),
+                (3, 1792200040, "inbox.read", "wN:pF", "inbox"),
+            ])
+        first = ops_metrics._new_agent_message_events(self.conn, source)
+        self.assertEqual(len(first), 2)
+        with self.conn:
+            self.conn.executemany(
+                "INSERT INTO agent_message_events VALUES(?,?,?,?,?,?)", first
+            )
+        self.assertEqual(ops_metrics._new_agent_message_events(self.conn, source), [])
+        result = ops_metrics.experiment_summary(
+            self.conn, datetime.fromtimestamp(1792200100, timezone.utc)
+        )
+        self.assertEqual(result["messages_by_pane"][0]["inbox_deliveries"], 1)
+        self.assertEqual(result["messages_by_pane"][0]["direct_sends"], 1)
+
+    def test_trial_and_body_events_keep_authored_separate_from_reviewed_credit(self):
+        start = "2026-10-17T02:00:00Z"
+        end = "2026-10-17T03:00:00Z"
+        ops_metrics.record_trial(
+            self.conn, trial_id="sonnet-a", pane="wN:pT", agent_type="claude",
+            provider="claude", model="sonnet", reasoning_effort="low",
+            hypothesis="whole body in less time", started_at=start, ended_at=end,
+            metered_usd=2.0, usage_source="provider bill", evidence="trial log",
+        )
+        ops_metrics.record_body(
+            self.conn, function_id="U25+20CC", status="authored", pane="wN:pT",
+            source_head="abcdef1234567", evidence="local review", trial_id="sonnet-a",
+        )
+        before = ops_metrics.experiment_summary(
+            self.conn, datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(before["authored_bodies"], 1)
+        self.assertEqual(before["accepted_bodies"], 0)
+        with self.assertRaisesRegex(ValueError, "named reviewer"):
+            ops_metrics.record_body(
+                self.conn, function_id="U25+20CC", status="accepted", pane="wN:pT",
+                source_head="abcdef1234567", evidence="unchecked", trial_id="sonnet-a",
+            )
+        ops_metrics.record_body(
+            self.conn, function_id="U25+20CC", status="accepted", pane="wN:pT",
+            source_head="abcdef1234567", evidence="source completeness", trial_id="sonnet-a",
+            reviewed_by="PM",
+        )
+        result = ops_metrics.experiment_summary(
+            self.conn, datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(result["accepted_bodies"], 1)
+        self.assertEqual(result["trials"][0]["accepted_per_hour"], 1)
+        self.assertEqual(result["trials"][0]["accepted_per_usd"], 0.5)
+        self.assertIsNone(ops_metrics.summary(self.conn)["function_progress"])
