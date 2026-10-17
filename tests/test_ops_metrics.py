@@ -346,6 +346,24 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(result["accepted_bodies"], 2)
         self.assertEqual(result["trials"][0]["accepted_bodies"], 1)
 
+    def test_late_backfill_does_not_erase_newer_acceptance(self):
+        head = "abcdef1234567"
+        ops_metrics.record_body(
+            self.conn, function_id="U16+0042", status="accepted", pane="wN:p1",
+            source_head=head, evidence="PM exact-head acceptance", reviewed_by="PM",
+            occurred_at="2026-10-17T04:30:00Z",
+        )
+        ops_metrics.record_body(
+            self.conn, function_id="U16+0042", status="authored", pane="w9:p5",
+            source_head=head, evidence="late authored-event import",
+            occurred_at="2026-10-17T04:20:00Z",
+        )
+        result = ops_metrics.experiment_summary(
+            self.conn, datetime(2026, 10, 17, 4, 40, tzinfo=timezone.utc)
+        )
+        self.assertEqual(result["bodies"][0]["status"], "accepted")
+        self.assertEqual(result["accepted_bodies"], 1)
+
     def test_model_comparison_merges_case_variants_without_rewriting_trials(self):
         for trial_id, model in (("first", "gpt-6-sol"),
                                 ("second", "GPT-6-Sol")):

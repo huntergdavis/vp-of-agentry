@@ -204,6 +204,7 @@ CREATE TABLE IF NOT EXISTS function_body_events (
     UNIQUE(project,function_id,status,source_head)
 );
 CREATE INDEX IF NOT EXISTS body_events_recent ON function_body_events(project,occurred_at);
+CREATE INDEX IF NOT EXISTS body_events_by_function_time ON function_body_events(project,function_id,occurred_at,id);
 """
 
 
@@ -701,8 +702,9 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
     latest = [dict(row) for row in conn.execute(
         "SELECT e.function_id,e.status,e.pane_id,e.trial_id,e.source_head,e.evidence_ref,"
         "e.reviewed_by,e.occurred_at FROM function_body_events e "
-        "WHERE e.project=? AND e.id=(SELECT MAX(x.id) FROM function_body_events x "
-        "WHERE x.project=e.project AND x.function_id=e.function_id) "
+        "WHERE e.project=? AND e.id=(SELECT x.id FROM function_body_events x "
+        "WHERE x.project=e.project AND x.function_id=e.function_id "
+        "ORDER BY x.occurred_at DESC,x.id DESC LIMIT 1) "
         "ORDER BY e.occurred_at DESC,e.function_id", (PROJECT,),
     )]
     trials = [dict(row) for row in conn.execute(
