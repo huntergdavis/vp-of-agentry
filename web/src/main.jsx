@@ -242,6 +242,17 @@ function RecreationLab({ snapshot, history }) {
   const messages = lab.messages_by_pane || [];
   const trials = lab.trials || [];
   const efficiency = lab.efficiency_by_type_model || [];
+  const closedTrials = efficiency.reduce((total, row) => total + (row.completed_trials || 0), 0);
+  const acceptedInClosedTrials = efficiency.reduce((total, row) => total + (row.completed_accepted_bodies || 0), 0);
+  const costsSourced = efficiency.filter(row => row.completed_trials > 0)
+    .every(row => row.metered_usd != null);
+  const trialDecision = closedTrials === 0
+    ? 'No completed model trials yet.'
+    : acceptedInClosedTrials === 0
+      ? `No model winner: ${closedTrials} closed trials, zero accepted bodies.`
+      : !costsSourced
+        ? `No cost winner: ${acceptedInClosedTrials} accepted bodies in closed trials, with incomplete usage costs.`
+        : 'Observed accepted-body rates and costs are available below; compare completed trials before choosing a lane mix.';
   const maxMessages = Math.max(1, ...messages.map(row => row.inbox_deliveries + row.direct_sends));
   const unknown = value => value == null ? 'Unmeasured' : value;
   return <section className="ops-mission" aria-label="815 candidate C bodies and agent experiment lab">
@@ -258,6 +269,7 @@ function RecreationLab({ snapshot, history }) {
       <div className="ops-table-wrap"><table><thead><tr><th>Agent</th><th>Type</th><th>Inbox</th><th>Direct</th></tr></thead><tbody>{messages.slice(0, 20).map(row => <tr key={row.pane_id}><td title={row.pane_id}>{row.agent_name || roster[row.pane_id]?.agent_name || 'Unnamed agent'}{(row.lane_name || roster[row.pane_id]?.lane_name) && <small>{row.lane_name || roster[row.pane_id]?.lane_name}</small>}<div className="ops-message-bar"><i style={{width:`${(row.inbox_deliveries + row.direct_sends) / maxMessages * 100}%`}} /></div></td><td>{roster[row.pane_id]?.agent_kind || 'Unknown'}</td><td>{row.inbox_deliveries}</td><td>{row.direct_sends}</td></tr>)}{!messages.length && <tr><td colSpan="4">No sourced delivery events in this window.</td></tr>}</tbody></table></div>
       <small>{lab.message_definition || 'Waiting for the delivery-event source.'} Counts are stored in the private database with event IDs and timestamps.</small></div>
       <div className="ops-lab-panel"><div className="ops-lab-head"><h3>Model and reasoning trials</h3><span>{trials.length} recorded</span></div>
+      <p><b>TRIAL DECISION:</b> {trialDecision}</p>
       <div className="ops-table-wrap"><table><thead><tr><th>Type / model</th><th>Effort</th><th>Bodies</th><th>Accepted/hr</th><th>$/body</th></tr></thead><tbody>{efficiency.map(row => <tr key={`${row.agent_type}-${row.model}-${row.reasoning_effort}`}><td>{row.agent_type}<small>{row.model} · {row.completed_trials}/{row.trials} trials closed</small></td><td>{row.reasoning_effort}</td><td>{row.authored_bodies} / {row.accepted_bodies}</td><td>{unknown(row.accepted_per_hour)}</td><td>{row.usd_per_accepted == null ? 'Unmeasured' : `$${row.usd_per_accepted.toFixed(2)}`}</td></tr>)}{!efficiency.length && <tr><td colSpan="5">No trial recorded yet. Opus/Sonnet and Codex reasoning comparisons are queued.</td></tr>}</tbody></table></div>
       <small>Body counts are authored / accepted. Rates use only completed trial hours; actual dollars require sourced usage.</small>
       <details><summary>Individual trial records</summary><div className="ops-table-wrap"><table><thead><tr><th>Pane</th><th>Model / effort</th><th>Minutes</th><th>Messages</th><th>Review</th></tr></thead><tbody>{trials.map(row => <tr key={row.trial_id}><td>{row.pane_id}</td><td>{row.model}<small>{row.reasoning_effort || 'unspecified'}</small></td><td>{Math.round(row.elapsed_hours * 60)}</td><td>{row.inbox_deliveries} inbox / {row.direct_sends} direct</td><td>{row.correction_minutes == null ? 'Unmeasured' : `${row.correction_minutes} min`}</td></tr>)}</tbody></table></div></details>
