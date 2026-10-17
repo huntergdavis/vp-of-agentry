@@ -717,6 +717,17 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
     )]
     by_trial = {row["trial_id"]: row for row in trials}
     counts: dict[str, dict] = {}
+    authored_keys: set[tuple[str, str]] = set()
+    for row in conn.execute(
+        "SELECT DISTINCT trial_id,function_id FROM function_body_events "
+        "WHERE project=? AND status='authored' AND trial_id IS NOT NULL",
+        (PROJECT,),
+    ):
+        key = (row["trial_id"], row["function_id"])
+        if key[0] not in by_trial:
+            continue
+        authored_keys.add(key)
+        counts.setdefault(key[0], {"authored_bodies": 0, "accepted_bodies": 0})["authored_bodies"] += 1
     for body in latest:
         if body["status"] == "withdrawn":
             continue
@@ -729,8 +740,11 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
         if trial is None:
             continue
         item = counts.setdefault(trial["trial_id"], {"authored_bodies": 0, "accepted_bodies": 0})
-        item["authored_bodies"] += 1
         if body["status"] == "accepted":
+            key = (trial["trial_id"], body["function_id"])
+            if key not in authored_keys:
+                item["authored_bodies"] += 1
+                authored_keys.add(key)
             item["accepted_bodies"] += 1
     for trial in trials:
         trial.update(counts.get(trial["trial_id"], {"authored_bodies": 0, "accepted_bodies": 0}))

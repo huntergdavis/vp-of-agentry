@@ -346,6 +346,34 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(result["accepted_bodies"], 2)
         self.assertEqual(result["trials"][0]["accepted_bodies"], 1)
 
+    def test_later_unattributed_repair_keeps_original_trial_output(self):
+        ops_metrics.record_trial(
+            self.conn, trial_id="u16-first-draft", pane="w9:p5",
+            agent_type="codex", provider="openai", model="GPT-6-Sol",
+            reasoning_effort="high", hypothesis="first U16 body",
+            started_at="2026-10-17T04:00:00Z",
+            ended_at="2026-10-17T04:05:00Z", evidence="dated trial",
+        )
+        ops_metrics.record_body(
+            self.conn, function_id="U16+0042", status="authored", pane="w9:p5",
+            source_head="abcdef1234567", trial_id="u16-first-draft",
+            evidence="first draft",
+            occurred_at="2026-10-17T04:05:00Z",
+        )
+        ops_metrics.record_body(
+            self.conn, function_id="U16+0042", status="authored", pane="w9:p5",
+            source_head="1234567abcdef", evidence="later repair, separate effort",
+            occurred_at="2026-10-17T06:05:00Z",
+        )
+        result = ops_metrics.experiment_summary(
+            self.conn, datetime(2026, 10, 17, 6, 10, tzinfo=timezone.utc)
+        )
+        self.assertEqual(result["authored_bodies"], 1)
+        self.assertEqual(result["bodies"][0]["source_head"], "1234567abcdef")
+        self.assertIsNone(result["bodies"][0]["trial_id"])
+        self.assertEqual(result["trials"][0]["authored_bodies"], 1)
+        self.assertEqual(result["trials"][0]["accepted_bodies"], 0)
+
     def test_late_backfill_does_not_erase_newer_acceptance(self):
         head = "abcdef1234567"
         ops_metrics.record_trial(
