@@ -1,6 +1,10 @@
 # VP of Agentry
 
+New VP agent: start with [handoff-quickstart.md](handoff-quickstart.md). Owner gameplay in the **Play Poolrad** pane is documented in [the tracked gameplay skill](skills/vp-gameplay/SKILL.md).
+
 A private LAN desk for the owner's existing Herdr agents. Messages use Dunking Sheep's durable inbox where the agent has a unique mailbox; generic shared mailboxes use guarded exact-pane delivery. The website does not start a new model session.
+
+For a new VP agent on any model or harness, read [AGENTS.md](AGENTS.md) and [the handoff guide](docs/VP_HANDOFF.md).
 
 ## Run
 
@@ -14,7 +18,7 @@ Open `http://<LAN-host>:8787`. The initial password and API token are in ignored
 
 ## Channels
 
-Copy `channels.example.json` to `channels.json` and edit the local file for your agents. `channels.json` is Git ignored; the checked-in example contains only generic labels. Each entry needs a unique `id`, display `name`, Herdr pane label `match`, and `kind` (`active`, `standby`, or `monitor`). Add `"dashboard": true` to the channel linked from the project dashboard. The server reads the local file at startup and uses the generic example if no local file exists. Set `VP_CHANNELS_FILE` to use a different private file; an explicit missing path is an error. Restart the service after edits.
+Copy `channels.example.json` to `channels.json` and edit the local file for stable named channels and message history. `channels.json` is Git ignored; the checked-in example contains only generic labels. Each entry needs a unique `id`, display `name`, Herdr pane label `match`, and legacy `kind` (`active`, `standby`, or `monitor`). Add `"dashboard": true` to the channel linked from the project dashboard. The server reads the local file at startup and uses the generic example if no local file exists. Set `VP_CHANNELS_FILE` to use a different private file; an explicit missing path is an error. Restart the service after config edits. The website also discovers unconfigured live agent panes on every load and 12-second refresh. Active/standby grouping comes from live agent status, and each row shows its current workspace; new panes need no config edit to appear.
 
 ## Delivery
 

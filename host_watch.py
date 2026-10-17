@@ -39,6 +39,16 @@ def sample_host() -> dict:
     used = (stat.f_blocks - stat.f_bfree) * block
     inode_used = stat.f_files - stat.f_ffree if stat.f_files else 0
     load1, load5, load15 = os.getloadavg()
+    process_count = zombie_count = 0
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            process_state = (entry / "stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            continue
+        process_count += 1
+        zombie_count += process_state == "Z"
     return {
         "at": time.time(),
         "tmp_total_bytes": total,
@@ -51,6 +61,8 @@ def sample_host() -> dict:
         "load5": load5,
         "load15": load15,
         "cpu_psi_some_avg60": cpu_pressure_avg60(),
+        "process_count": process_count,
+        "zombie_count": zombie_count,
     }
 
 

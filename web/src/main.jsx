@@ -348,6 +348,8 @@ function OpsSummary() {
     claude: snapshot?.quota?.provider === 'claude' ? snapshot.quota : null,
   };
   const subscriptions = snapshot?.subscriptions || [];
+  const opencodeUsage = snapshot?.opencode_usage;
+  const hostHealth = snapshot?.host_health;
   const strictSeries = (history?.goal_observations || []).filter(row => row.goal_key === 'strict_fullc').map(row => ({ at: row.observed_at, value: Number(row.value) }));
   const identitySeries = (history?.goal_observations || []).filter(row => row.goal_key === 'verified_game_identities').map(row => ({ at: row.observed_at, value: Number(row.value) }));
   const coderSeries = (history?.coder_samples || []).map(row => ({ at: row.observed_at, value: row.working }));
@@ -370,7 +372,9 @@ function OpsSummary() {
       <div><b>PLAYABLE GAME GATE</b><strong>{playable?.status || 'Unverified'}</strong><small>{playable?.observed_at ? `Last manual checkpoint ${new Date(playable.observed_at).toLocaleString()} · ` : ''}A same-state DOS/C full frame is still required; no whole-game completion percentage is available</small></div>
       <QuotaCard provider="codex" quota={quotas.codex} />
       <QuotaCard provider="claude" quota={quotas.claude} />
-      <div><b>COST SOURCES</b><strong>{subscriptions.length} owner records</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2) + '/mo').join(' · ') || 'No owner cost record'} · no metered billing source · accounting: {snapshot.sources?.accounting || 'unavailable'}</small></div>
+      <div><b>FIXED SUBSCRIPTIONS</b><strong>{snapshot.monthly_fixed_usd == null ? 'Unavailable' : '$' + snapshot.monthly_fixed_usd.toFixed(2) + '/mo'}</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2) + '/mo').join(' · ') || 'No owner cost record'} · owner reported</small></div>
+      <div><b>OPENCODE MODEL COST</b><strong>{opencodeUsage ? '$' + opencodeUsage.month_estimated_usd.toFixed(4) + ' this month' : 'Unavailable'}</strong><small>{opencodeUsage ? `All local sessions $${opencodeUsage.all_time_estimated_usd.toFixed(4)} · ${opencodeUsage.session_count} sessions · observed ${new Date(opencodeUsage.observed_at).toLocaleString()} · ${opencodeUsage.scope}` : 'Local OpenCode cost source unavailable'} · no metered billing source</small></div>
+      <div><b>HOST HEALTH</b><strong>{hostHealth ? `${hostHealth.stale ? 'STALE · ' : ''}/tmp ${Math.round(hostHealth.tmp_used_fraction * 100)}% · ${hostHealth.levels.tmp || 'unknown'}` : 'Unavailable'}</strong><small>{hostHealth ? `${hostHealth.tmp_free_gib.toFixed(2)} GiB free · inodes ${Math.round(hostHealth.tmp_inode_used_fraction * 100)}% · load ${hostHealth.load1.toFixed(1)}/${hostHealth.load5.toFixed(1)} on ${hostHealth.cpus} CPUs · CPU pressure ${hostHealth.cpu_psi_some_avg60.toFixed(1)}% · ${hostHealth.process_count ?? '—'} processes, ${hostHealth.zombie_count ?? '—'} zombies · observed ${Math.round(hostHealth.age_s / 60)} min ago` : 'Host watcher has no saved sample'}</small></div>
     </div>}</div>
   </section>;
 }
@@ -392,6 +396,45 @@ function PoolradDashboard() {
     {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
       : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
         : <iframe key={version} title="Poolrad function progress and evidence" src={`/api/poolrad-dashboard/dashboard.html?v=${version}`} sandbox="allow-scripts" />}
+  </section>;
+}
+
+function PoolradPlay() {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [stream, setStream] = useState(0);
+  const screenRef = useRef(null);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => api('/game/status').then(data => { if (live) setStatus(data); }).catch(e => { if (live) setError(e.message); });
+    refresh(); const timer = setInterval(refresh, 5000);
+    return () => { live = false; clearInterval(timer); };
+  }, []);
+  async function action(path, body) {
+    setBusy(true); setError('');
+    try {
+      const data = await api(`/game/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+      setStatus(data); setStream(n => n + 1);
+      if (data.running) setTimeout(() => screenRef.current?.focus(), 100);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  function keyDown(event) {
+    if (!status?.running || event.ctrlKey || event.metaKey || event.altKey) return;
+    const names = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Enter: 'Return', ' ': 'space', Backspace: 'BackSpace', PageUp: 'Page_Up', PageDown: 'Page_Down' };
+    const key = names[event.key] || (/^[a-z0-9]$/i.test(event.key) ? event.key.toLowerCase() : event.key);
+    if (!/^(?:[a-z0-9]|F(?:[1-9]|1[0-2])|Up|Down|Left|Right|Return|Escape|space|BackSpace|Tab|Delete|Home|End|Page_Up|Page_Down)$/.test(key)) return;
+    event.preventDefault();
+    api('/game/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) }).catch(e => setError(e.message));
+  }
+  return <section className="game-view" aria-label="Play Poolrad">
+    <div className="game-tools"><div><strong>Pool of Radiance</strong><small>{status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}</small></div>
+      <div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div></div>
+    {error && <div className="game-error" role="alert">{error}</div>}
+    <div className="game-stage" ref={screenRef} tabIndex={0} onKeyDown={keyDown} onClick={() => screenRef.current?.focus()} aria-label="Poolrad game screen; click here to control with keyboard">
+      {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game to play here.</div>}
+    </div>
+    <div className="game-footer"><span>Click the screen, then use your keyboard. Arrow keys move; Enter selects; Escape goes back. Saves stay in the private run on this PC.</span>{status?.running && status.audio && <audio key={stream} controls preload="none" src={`/api/game/audio?v=${stream}`} aria-label="Poolrad game audio" />}</div>
   </section>;
 }
 
@@ -499,15 +542,16 @@ function Desk({ onLogout }) {
   function jumpTo(item) { setDashboardView(null); setChannel(item.channel); setJumpId(item.id); }
   return <div className={`shell ${dashboardOpen ? 'dashboard-mode' : ''}`}>
     <aside className="sidebar"><div className="identity"><div className="brand-mark small">VA</div><div><strong>VP OF AGENTRY</strong><span>Executive desk</span></div></div>
-      <div className="sidebar-section">PROJECT VIEW</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
+      <div className="sidebar-section">PROJECT VIEW · {new Set(channels.filter(c => c.online && c.workspace).map(c => c.workspace)).size} live spaces</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'ops' ? 'selected' : ''}`} onClick={() => setDashboardView('ops')}><span aria-hidden="true">▤</span><span>Operations dashboard</span><small>metrics</small></button>
-      <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.kind === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
-      <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.kind !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small>{c.status}</small></button>)}
+      <button className={`channel dashboard-nav ${dashboardView === 'play' ? 'selected' : ''}`} onClick={() => setDashboardView('play')}><span aria-hidden="true">▶</span><span>Play Poolrad</span><small>live game</small></button>
+      <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.activity_group === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
+      <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.activity_group !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad evidence dashboard' : dashboardView === 'ops' ? 'Operations dashboard' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad evidence dashboard' : dashboardView === 'ops' ? 'Operations dashboard' : dashboardView === 'play' ? 'Play Pool of Radiance' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      {dashboardView === 'poolrad' ? <PoolradDashboard /> : dashboardView === 'ops' ? <OpsSummary /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
+      {dashboardView === 'poolrad' ? <PoolradDashboard /> : dashboardView === 'ops' ? <OpsSummary /> : dashboardView === 'play' ? <PoolradPlay /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
         <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
       </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>

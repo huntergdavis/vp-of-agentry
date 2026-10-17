@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -38,7 +38,8 @@ DB = DATA / "messages.sqlite3"
 AUTH = DATA / "auth.json"
 CREDENTIALS = DATA / "owner-credentials"
 DUNKING_SHEEP = Path(os.getenv("DUNKING_SHEEP_DIR", ROOT.parent / "dunkingsheep"))
-DASHBOARD_DIR = Path(os.getenv("POOLRAD_DASHBOARD_DIR", ROOT.parent / "poolrad-decomp" / "tools" / "dashboard")).resolve()
+DASHBOARD_DIR = Path(os.getenv("POOLRAD_DASHBOARD_DIR", ROOT / "integrations" / "poolrad-dashboard")).resolve()
+DASHBOARD_REPO = Path(os.getenv("POOLRAD_DASHBOARD_REPO", ROOT.parent / "poolrad-decomp-opencode-ds41flash")).resolve()
 DASHBOARD_REPORTS = {"SLOT_A_FIRST_EGA_ROW64.md", "SLOT_A_ROW6_COL38_PRINTER_PAGE.md"}
 sys.path.insert(0, str(DUNKING_SHEEP))
 
@@ -73,6 +74,9 @@ def _load_channels():
 
 CHANNELS = _load_channels()
 CHANNEL_INDEX = {item["id"]: item for item in CHANNELS}
+from server.roster import build_roster, discovered_id, match_pane, presence
+from server.gameplay import GameError, GameSession
+GAME = GameSession(Path(os.getenv("POOLRAD_REPO_DIR", ROOT.parent / "poolrad-decomp")).resolve(), DATA)
 MAX_UPLOAD = 25 * 1024 * 1024
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 DELIVERY_LOCK = threading.Lock()
@@ -296,22 +300,24 @@ def _panes():
 
 def _target(channel: str, panes: list[dict]):
     cfg = CHANNEL_INDEX.get(channel)
-    if not cfg:
-        raise HTTPException(404, "Unknown channel")
-    match = cfg["match"].casefold()
+    if cfg:
+        return match_pane(cfg, panes)
     for pane in panes:
-        if pane.get("tab_label", "").casefold() == match:
+        if pane.get("agent") and discovered_id(pane.get("pane_id", "")) == channel:
             return pane
-    for pane in panes:
-        if match in pane.get("tab_label", "").casefold() or match in pane.get("workspace_label", "").casefold():
-            return pane
-    return None
+    if _known_channel(channel):
+        return None
+    raise HTTPException(404, "Unknown channel")
 
 
 def _presence(raw_status: str | None):
     # Herdr's "blocked" can mean a transient tool wait. It is not evidence of
     # a project blocker or a decision needed from the owner.
-    return {"working": "working", "idle": "idle", "blocked": "waiting"}.get(raw_status, "unknown")
+    return presence(raw_status)
+
+
+def _known_channel(channel: str) -> bool:
+    return channel in CHANNEL_INDEX or bool(re.fullmatch(r"pane-[a-z0-9-]+", channel))
 
 
 @app.get("/api/channels")
@@ -321,14 +327,7 @@ def channels(_: Annotated[str, Depends(require_auth)]):
         daemon = True
     except HTTPException:
         panes, daemon = [], False
-    rows = []
-    for cfg in CHANNELS:
-        pane = _target(cfg["id"], panes)
-        rows.append({"id": cfg["id"], "name": cfg["name"], "kind": cfg["kind"],
-                     "dashboard": cfg.get("dashboard", False),
-                     "online": pane is not None, "status": _presence(pane.get("agent_status")) if pane else "offline",
-                     "pane_id": pane.get("pane_id") if pane else None,
-                     "can_message": bool(pane and pane.get("agent"))})
+    rows = build_roster(CHANNELS, panes)
     return {"channels": rows, "daemon": daemon,
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
@@ -518,6 +517,7 @@ def _delivery_watch():
 
 @app.on_event("startup")
 def start_delivery_watch():
+    GAME.recover_orphans()
     DELIVERY_STOP.clear()
     app.state.delivery_thread = threading.Thread(target=_delivery_watch, name="vp-delivery-watch", daemon=True)
     app.state.delivery_thread.start()
@@ -527,11 +527,63 @@ def start_delivery_watch():
 def stop_delivery_watch():
     DELIVERY_STOP.set()
     app.state.delivery_thread.join(timeout=6)
+    GAME.stop()
+
+
+class GameStart(BaseModel):
+    fresh: bool = False
+
+
+class GameKey(BaseModel):
+    key: str = Field(min_length=1, max_length=16)
+
+
+@app.get("/api/game/status")
+def game_status(_: Annotated[str, Depends(require_auth)]):
+    return GAME.status()
+
+
+@app.post("/api/game/start")
+def game_start(body: GameStart, _: Annotated[str, Depends(require_auth)]):
+    try:
+        return GAME.start(body.fresh)
+    except GameError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.post("/api/game/stop")
+def game_stop(_: Annotated[str, Depends(require_auth)]):
+    return GAME.stop()
+
+
+@app.post("/api/game/key")
+def game_key(body: GameKey, _: Annotated[str, Depends(require_auth)]):
+    try:
+        GAME.key(body.key)
+    except GameError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
+
+
+@app.get("/api/game/video")
+def game_video(_: Annotated[str, Depends(require_auth)]):
+    if not GAME.status()["running"]:
+        raise HTTPException(404, "Poolrad is not running")
+    return StreamingResponse(GAME.stream("video"), media_type="multipart/x-mixed-replace;boundary=ffmpeg",
+                             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@app.get("/api/game/audio")
+def game_audio(_: Annotated[str, Depends(require_auth)]):
+    status = GAME.status()
+    if not status["running"] or not status["audio"]:
+        raise HTTPException(404, "Poolrad audio is unavailable")
+    return StreamingResponse(GAME.stream("audio"), media_type="audio/ogg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/messages")
 def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int | None = None, limit: int = 50):
-    if channel not in CHANNEL_INDEX:
+    if not _known_channel(channel):
         raise HTTPException(404, "Unknown channel")
     _reconcile(channel)
     limit = max(1, min(limit, 100))
@@ -546,7 +598,7 @@ def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int
 
 @app.get("/api/deliveries")
 def deliveries(channel: str, ids: str, _: Annotated[str, Depends(require_auth)]):
-    if channel not in CHANNEL_INDEX:
+    if not _known_channel(channel):
         raise HTTPException(404, "Unknown channel")
     try:
         message_ids = [int(part) for part in ids.split(",") if part]
@@ -594,7 +646,7 @@ class MessageIn(BaseModel):
 
 @app.post("/api/messages")
 def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)]):
-    if data.channel not in CHANNEL_INDEX:
+    if not _known_channel(data.channel):
         raise HTTPException(404, "Unknown channel")
     if not data.body.strip() and not data.attachment_ids:
         raise HTTPException(422, "Message is empty")
@@ -705,7 +757,7 @@ class BriefIn(BaseModel):
 def post_brief(data: BriefIn, identity: Annotated[str, Depends(require_auth)]):
     if identity != "api":
         raise HTTPException(403, "API token required")
-    if data.channel not in CHANNEL_INDEX:
+    if not _known_channel(data.channel):
         raise HTTPException(404, "Unknown channel")
     with _db() as conn:
         for attachment_id in data.attachment_ids:
@@ -726,7 +778,7 @@ def post_brief(data: BriefIn, identity: Annotated[str, Depends(require_auth)]):
 def search(q: str, _: Annotated[str, Depends(require_auth)], channel: str | None = None, before: int | None = None):
     if len(q.strip()) < 2:
         return {"items": [], "has_more": False}
-    if channel and channel not in CHANNEL_INDEX:
+    if channel and not _known_channel(channel):
         raise HTTPException(404, "Unknown channel")
     clause = "AND channel=?" if channel else ""
     args = [f"%{q.strip()}%"] + ([channel] if channel else []) + [before or 2**63 - 1]
@@ -781,7 +833,7 @@ def refresh_poolrad_dashboard(_: Annotated[str, Depends(require_auth)]):
     if not script.is_file():
         raise HTTPException(404, "Poolrad dashboard unavailable")
     try:
-        result = subprocess.run([sys.executable, str(script), "render"], cwd=script.parent.parent.parent,
+        result = subprocess.run([sys.executable, str(script), "--repo", str(DASHBOARD_REPO), "render"], cwd=ROOT,
                                 capture_output=True, text=True, timeout=20, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise HTTPException(503, "Poolrad dashboard refresh failed") from None

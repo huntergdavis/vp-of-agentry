@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent
@@ -29,6 +30,8 @@ DB = Path(os.environ.get("VP_OPS_DB", DATA / "operations.sqlite3"))
 MESSAGE_DB = DATA / "messages.sqlite3"
 DUNK_EVENTS_DB = Path(os.environ.get("DUNK_EVENTS_DB", Path.home() / ".config/dunkingsheep/metrics.db"))
 POOLRAD_REPO = Path(os.environ.get("POOLRAD_REPO", ROOT.parent / "poolrad-decomp"))
+OPENCODE_DB = Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
+HOST_WATCH_STATE = Path(os.environ.get("VP_HOST_WATCH_STATE", DATA / "host-watch-state.json"))
 PROJECT = "poolrad"
 POLL_INTERVAL_S = 60
 EXTERNAL_INTERVAL_S = 300
@@ -810,6 +813,61 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
             "trials": trials, "efficiency_by_type_model": efficiency}
 
 
+def host_health(now: datetime, *, path: Path | None = None) -> dict | None:
+    """Return the latest host-watch sample without exposing its private state file."""
+    path = path or HOST_WATCH_STATE
+    try:
+        state = json.loads(path.read_text())
+        sample = state["last_sample"]
+        age = max(0, int(now.timestamp() - sample["at"]))
+        return {
+            "observed_at": iso(datetime.fromtimestamp(sample["at"], timezone.utc)),
+            "age_s": age, "stale": age > 180,
+            "levels": state.get("levels", {}),
+            "tmp_used_fraction": sample["tmp_used_fraction"],
+            "tmp_free_gib": round(sample["tmp_free_bytes"] / 1024**3, 2),
+            "tmp_inode_used_fraction": sample["tmp_inode_used_fraction"],
+            "load1": sample["load1"], "load5": sample["load5"],
+            "cpus": sample["cpus"],
+            "cpu_psi_some_avg60": sample["cpu_psi_some_avg60"],
+            "process_count": sample.get("process_count"),
+            "zombie_count": sample.get("zombie_count"),
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def opencode_usage(now: datetime, *, path: Path | None = None) -> dict | None:
+    """Read aggregate session estimates without copying OpenCode prompts or account data."""
+    path = path or OPENCODE_DB
+    if not path.is_file():
+        return None
+    local = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = (start.replace(year=start.year + 1, month=1) if start.month == 12
+           else start.replace(month=start.month + 1))
+    try:
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2) as source:
+            count, total, month, updated = source.execute(
+                "SELECT COUNT(*), COALESCE(SUM(cost),0), "
+                "COALESCE(SUM(CASE WHEN time_created>=? AND time_created<? THEN cost ELSE 0 END),0), "
+                "MAX(time_updated) FROM session",
+                (int(start.timestamp() * 1000), int(end.timestamp() * 1000)),
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        return None
+    return {
+        "source": "OpenCode local session cost (same source as opencode stats)",
+        "scope": "All local OpenCode sessions; model cost estimate, not billed overage",
+        "observed_at": iso(now),
+        "billing_month": start.strftime("%Y-%m"),
+        "month_estimated_usd": round(month, 4),
+        "all_time_estimated_usd": round(total, 4),
+        "session_count": count,
+        "last_session_at": iso(datetime.fromtimestamp(updated / 1000, timezone.utc)) if updated else None,
+    }
+
+
 def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     now = now or utc_now()
     run = conn.execute("SELECT * FROM collection_runs ORDER BY id DESC LIMIT 1").fetchone()
@@ -952,6 +1010,8 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "calendar_hours_in_month": calendar_hours,
         "billing_month": now.strftime("%Y-%m"),
         "usage_cost_usd": None,
+        "opencode_usage": opencode_usage(now),
+        "host_health": host_health(now),
         "goals": goals,
         "function_progress": function_progress,
         "completion_rate": completion_rate,

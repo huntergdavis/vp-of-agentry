@@ -2,6 +2,7 @@
 
 import base64
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -18,6 +19,12 @@ class OpsMetricsTests(unittest.TestCase):
         source = patch.object(ops_metrics, "DUNK_EVENTS_DB", Path(self.temporary.name) / "missing-events.db")
         source.start()
         self.addCleanup(source.stop)
+        opencode_source = patch.object(ops_metrics, "OPENCODE_DB", Path(self.temporary.name) / "missing-opencode.db")
+        opencode_source.start()
+        self.addCleanup(opencode_source.stop)
+        host_source = patch.object(ops_metrics, "HOST_WATCH_STATE", Path(self.temporary.name) / "missing-host-state.json")
+        host_source.start()
+        self.addCleanup(host_source.stop)
         self.conn = ops_metrics.connect(Path(self.temporary.name) / "ops.sqlite3")
         self.addCleanup(self.conn.close)
 
@@ -246,10 +253,44 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(result["monthly_fixed_usd"], 32)
         self.assertIsNone(result["usage_cost_usd"])
         self.assertEqual(len(result["subscriptions"]), 2)
+        self.assertIsNone(result["opencode_usage"])
         with self.assertRaisesRegex(ValueError, "two decimal places"):
             ops_metrics.record_subscription(
                 self.conn, provider="codex", monthly_usd="1.001", evidence="invalid"
             )
+
+    def test_opencode_cost_is_local_estimate_separate_from_subscription(self):
+        path = Path(self.temporary.name) / "opencode.db"
+        with sqlite3.connect(path) as source:
+            source.execute("CREATE TABLE session(cost REAL,time_created INTEGER,time_updated INTEGER)")
+            source.executemany("INSERT INTO session VALUES(?,?,?)", [
+                (0.25, 1792250000000, 1792250000000),
+                (0.50, 1790000000000, 1790000000000),
+            ])
+        now = datetime(2026, 10, 17, 17, 0, tzinfo=timezone.utc)
+        with patch.object(ops_metrics, "OPENCODE_DB", path):
+            usage = ops_metrics.summary(self.conn, now=now)["opencode_usage"]
+        self.assertEqual(usage["billing_month"], "2026-10")
+        self.assertEqual(usage["month_estimated_usd"], 0.25)
+        self.assertEqual(usage["all_time_estimated_usd"], 0.75)
+        self.assertEqual(usage["session_count"], 2)
+        self.assertIsNone(ops_metrics.summary(self.conn, now=now)["opencode_usage"])
+
+    def test_host_health_preserves_age_and_warning(self):
+        path = Path(self.temporary.name) / "host-state.json"
+        now = datetime(2026, 10, 17, 17, 0, tzinfo=timezone.utc)
+        path.write_text(json.dumps({"last_sample": {
+            "at": now.timestamp() - 60, "tmp_used_fraction": 0.7,
+            "tmp_free_bytes": 2 * 1024**3, "tmp_inode_used_fraction": 0.2,
+            "load1": 8.0, "load5": 5.0, "cpus": 8,
+            "cpu_psi_some_avg60": 15.0, "process_count": 100, "zombie_count": 2,
+        }, "levels": {"tmp": "warning", "load": "ok"}}))
+        with patch.object(ops_metrics, "HOST_WATCH_STATE", path):
+            health = ops_metrics.summary(self.conn, now=now)["host_health"]
+        self.assertEqual((health["levels"]["tmp"], health["age_s"], health["zombie_count"]),
+                         ("warning", 60, 2))
+        self.assertFalse(health["stale"])
+        self.assertTrue(ops_metrics.host_health(now.replace(minute=4), path=path)["stale"])
 
     def test_agent_delivery_ingestion_is_append_only_and_content_free(self):
         source = Path(self.temporary.name) / "events.db"
