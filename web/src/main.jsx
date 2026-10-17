@@ -399,18 +399,44 @@ function PoolradDashboard() {
   </section>;
 }
 
-function PoolradPlay() {
+function PoolradPlay({ vpChannel }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [stream, setStream] = useState(0);
+  const [chat, setChat] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState('');
   const screenRef = useRef(null);
+  const chatLogRef = useRef(null);
   useEffect(() => {
     let live = true;
     const refresh = () => api('/game/status').then(data => { if (live) setStatus(data); }).catch(e => { if (live) setError(e.message); });
     refresh(); const timer = setInterval(refresh, 5000);
     return () => { live = false; clearInterval(timer); };
   }, []);
+  useEffect(() => {
+    if (!vpChannel) return;
+    let live = true;
+    const load = () => api(`/messages?channel=${encodeURIComponent(vpChannel.id)}&limit=15`)
+      .then(data => { if (live) setChat(data.items || []); })
+      .catch(e => { if (live) setChatError(e.message); });
+    load(); const timer = setInterval(load, 4000);
+    return () => { live = false; clearInterval(timer); };
+  }, [vpChannel]);
+  useEffect(() => { const pane = chatLogRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [chat]);
+  async function sendChat(text) {
+    const body = (text ?? draft).trim();
+    if (!body || !vpChannel) return;
+    setChatBusy(true); setChatError('');
+    try {
+      await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: vpChannel.id, body }) });
+      setDraft('');
+      const data = await api(`/messages?channel=${encodeURIComponent(vpChannel.id)}&limit=15`);
+      setChat(data.items || []);
+    } catch (e) { setChatError(e.message); } finally { setChatBusy(false); }
+  }
   async function action(path, body) {
     setBusy(true); setError('');
     try {
@@ -435,6 +461,22 @@ function PoolradPlay() {
       {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game to play here.</div>}
     </div>
     <div className="game-footer"><span>Click the screen, then use your keyboard. Arrow keys move; Enter selects; Escape goes back. Saves stay in the private run on this PC.</span>{status?.running && status.audio && <audio key={stream} controls preload="none" src={`/api/game/audio?v=${stream}`} aria-label="Poolrad game audio" />}</div>
+    <div className="game-chat" aria-label="Direct line to the VP">
+      <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
+      <div className="game-chat-log" ref={chatLogRef}>
+        {chat.length === 0 && <div className="game-chat-empty">{vpChannel ? 'No messages yet. Say where you are, or hit Quicksave.' : 'VP channel unavailable.'}</div>}
+        {chat.map(m => <div key={m.id} className={`game-chat-item ${m.role === 'owner' ? 'owner' : 'agent'}`}><span className="game-chat-role">{m.role === 'owner' ? 'You' : 'VP'}</span><span className="game-chat-body">{m.body}</span></div>)}
+      </div>
+      {chatError && <div className="game-error" role="alert">{chatError}</div>}
+      <div className="game-chat-input">
+        <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="e.g. I am on Sokal Keep first floor, quicksave" rows={2} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }} aria-label="Message the VP" />
+        <div className="game-chat-actions">
+          <button onClick={() => sendChat('Quicksave now')} disabled={chatBusy || !vpChannel}>Quicksave</button>
+          <button onClick={() => sendChat('Load the last quicksave')} disabled={chatBusy || !vpChannel}>Load save</button>
+          <button className="primary send" onClick={() => sendChat()} disabled={chatBusy || !draft.trim() || !vpChannel}>{chatBusy ? 'Sending…' : 'Send to VP'}</button>
+        </div>
+      </div>
+    </div>
   </section>;
 }
 
@@ -551,7 +593,7 @@ function Desk({ onLogout }) {
     </aside>
     <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad evidence dashboard' : dashboardView === 'ops' ? 'Operations dashboard' : dashboardView === 'play' ? 'Play Pool of Radiance' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      {dashboardView === 'poolrad' ? <PoolradDashboard /> : dashboardView === 'ops' ? <OpsSummary /> : dashboardView === 'play' ? <PoolradPlay /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
+      {dashboardView === 'poolrad' ? <PoolradDashboard /> : dashboardView === 'ops' ? <OpsSummary /> : dashboardView === 'play' ? <PoolradPlay vpChannel={channels.find(c => c.id === 'vp')} /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
         <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
       </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>
