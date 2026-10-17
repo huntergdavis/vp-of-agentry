@@ -314,3 +314,22 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertEqual(result["trials"][0]["accepted_per_hour"], 1)
         self.assertEqual(result["trials"][0]["accepted_per_usd"], 0.5)
         self.assertIsNone(ops_metrics.summary(self.conn)["function_progress"])
+
+    def test_model_comparison_merges_case_variants_without_rewriting_trials(self):
+        for trial_id, model in (("first", "gpt-6-sol"),
+                                ("second", "GPT-6-Sol")):
+            ops_metrics.record_trial(
+                self.conn, trial_id=trial_id, pane="wN:pF", agent_type="codex",
+                provider="openai", model=model, reasoning_effort="high",
+                hypothesis="compare complete bodies", started_at="2026-10-17T02:00:00Z",
+                ended_at="2026-10-17T02:10:00Z", evidence="local trial",
+            )
+        result = ops_metrics.experiment_summary(
+            self.conn, datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc)
+        )
+        self.assertEqual(len(result["efficiency_by_type_model"]), 1)
+        group = result["efficiency_by_type_model"][0]
+        self.assertEqual(group["model"], "GPT-6-Sol")
+        self.assertEqual(group["completed_trials"], 2)
+        self.assertEqual({row["model"] for row in result["trials"]},
+                         {"gpt-6-sol", "GPT-6-Sol"})

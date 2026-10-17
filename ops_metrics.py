@@ -729,9 +729,13 @@ def experiment_summary(conn: sqlite3.Connection, now: datetime) -> dict:
         trial["direct_sends"] = trial_messages["direct_sends"] or 0
     groups: dict[tuple, dict] = {}
     for trial in trials:
-        key = (trial["agent_type"], trial["model"], trial["reasoning_effort"] or "unspecified")
+        model_key = trial["model"].strip().casefold()
+        key = (trial["agent_type"].strip().casefold(), model_key,
+               (trial["reasoning_effort"] or "unspecified").strip().casefold())
         group = groups.setdefault(key, {
-            "agent_type": key[0], "model": key[1], "reasoning_effort": key[2],
+            "agent_type": key[0],
+            "model": {"gpt-6-sol": "GPT-6-Sol"}.get(model_key, trial["model"].strip()),
+            "reasoning_effort": key[2],
             "trials": 0, "completed_trials": 0, "authored_bodies": 0,
             "accepted_bodies": 0, "completed_accepted_bodies": 0,
             "completed_hours": 0.0,
