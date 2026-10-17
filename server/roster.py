@@ -12,7 +12,8 @@ def discovered_id(pane_id: str) -> str:
 def match_pane(config: dict, panes: list[dict]) -> dict | None:
     match = config["match"].casefold()
     for pane in panes:
-        if pane.get("tab_label", "").casefold() == match:
+        cwd = pane.get("cwd", "").casefold().rstrip("/")
+        if pane.get("tab_label", "").casefold() == match or cwd == match or cwd.endswith("/" + match):
             return pane
     for pane in panes:
         if match in pane.get("tab_label", "").casefold() or match in pane.get("workspace_label", "").casefold():

@@ -6,6 +6,15 @@ from server.roster import build_roster, discovered_id
 
 
 class RosterTests(unittest.TestCase):
+    def test_configured_checkout_follows_renamed_agent_pane(self):
+        configured = [{"id": "claude", "name": "Claude Fable", "match": "poolrad-decomp-claude-lane", "kind": "active"}]
+        panes = [{"pane_id": "wR:p1", "tab_label": "renamed C lane", "workspace_label": "poolrad-decomp",
+                  "cwd": "/home/hunter/workspace/poolrad-decomp-claude-lane", "agent": "claude", "agent_status": "working"}]
+        rows = build_roster(configured, panes)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["pane_id"], "wR:p1")
+        self.assertEqual(rows[0]["activity_group"], "active")
+
     def test_configured_and_new_panes_follow_live_status(self):
         configured = [{"id": "vp", "name": "VP", "match": "VP of Agentry", "kind": "active"},
                       {"id": "old", "name": "Old project", "match": "old", "kind": "active"}]
