@@ -144,24 +144,18 @@ def run_once(dry_run: bool) -> int:
         if new != old:
             body = alert_body(sample, old, new)
             try:
-                subprocess.run([str(ROOT / "vpctl"), "brief", "--channel", "vp"],
-                               input=body, text=True, capture_output=True, check=True, timeout=15)
+                subprocess.run([
+                    "/home/hunter/workspace/dunkingsheep/dunkingsheep", "inbox", "send",
+                    "VP of Agentry", body, "--subject", "Host health threshold changed",
+                ], capture_output=True, check=True, timeout=10)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-                state["last_error"] = f"VP alert delivery failed: {exc}"
+                state["last_error"] = f"VP inbox alert failed: {exc}"
                 save_state(state)
                 print(state["last_error"], file=sys.stderr)
                 return 1
             state["levels"] = new
             state["last_alert_at"] = sample["at"]
             state.pop("last_error", None)
-            try:
-                subprocess.run([
-                    "/home/hunter/workspace/dunkingsheep/dunkingsheep", "inbox", "send",
-                    "VP of Agentry", body, "--subject", "Host health threshold changed",
-                ], capture_output=True, check=True, timeout=10)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-                state["last_error"] = f"VP inbox nudge failed: {exc}"
-                print(state["last_error"], file=sys.stderr)
         else:
             state.setdefault("levels", old)
         save_state(state)
