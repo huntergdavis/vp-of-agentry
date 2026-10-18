@@ -25,7 +25,7 @@ def presence(raw_status: str | None) -> str:
     return {"working": "working", "idle": "idle", "blocked": "waiting"}.get(raw_status, "unknown")
 
 
-def build_roster(configured: list[dict], panes: list[dict]) -> list[dict]:
+def build_roster(configured: list[dict], panes: list[dict], *, include_terminals: bool = False) -> list[dict]:
     rows = []
     used = set()
     for config in configured:
@@ -34,10 +34,10 @@ def build_roster(configured: list[dict], panes: list[dict]) -> list[dict]:
             used.add(pane["pane_id"])
         rows.append((config, pane))
     for pane in panes:
-        if pane.get("agent") and pane.get("pane_id") not in used:
+        if (pane.get("agent") or include_terminals) and pane.get("pane_id") not in used:
             rows.append(({
                 "id": discovered_id(pane["pane_id"]),
-                "name": pane.get("tab_label") or pane.get("agent") or "Agent",
+                "name": pane.get("tab_label") or pane.get("agent") or pane["pane_id"],
                 "kind": "discovered", "dashboard": False,
             }, pane))
     output = []
@@ -50,6 +50,7 @@ def build_roster(configured: list[dict], panes: list[dict]) -> list[dict]:
             "activity_group": "active" if pane and pane.get("agent") and status in {"working", "waiting"} else "standby",
             "pane_id": pane.get("pane_id") if pane else None,
             "workspace": pane.get("workspace_label") if pane else None,
+            "tab_label": pane.get("tab_label") if pane else None,
             "agent": pane.get("agent") if pane else None,
             "can_message": bool(pane and pane.get("agent")),
         })

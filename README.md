@@ -38,6 +38,14 @@ The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the defau
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
+## Herdr panes
+
+Choose **Herdr panes** in the desk sidebar for a read-only grid of all live Herdr panes, including plain terminals. Each card shows its workspace, tab label, agent, presence, and roughly 40 recent output lines. **Focus pane** enlarges a card in the browser; **Show all panes** or Escape returns to the grid. These controls do not send input or change the native Herdr selection.
+
+The authenticated `GET /api/panes/activity` endpoint shares a four-second in-memory snapshot across browsers, bounds output per pane, and uses at most four concurrent socket reads. Errors are cached too; individual failed panes remain visible. The view refreshes about every four seconds while visible, stops polling when closed, and labels retained output as stale after a failed refresh. Output is volatile and responses use `Cache-Control: no-store`.
+
+After deploying this branch, run `npm run build --prefix web`, restart `vp-of-agentry.service`, refresh the signed-in desk, and select **Herdr panes**. To validate without touching the running desk, build with `npm run build --prefix web -- --outDir /tmp/vp-herdr-build`, then run `.venv/bin/python tests/browser_herdr_panes.py /tmp/vp-herdr-build`. This optional Playwright check uses synthetic APIs and no owner credentials, covering desktop/mobile layout, polling, stale output, focus, and read-only requests. Backend coverage is included in the normal Python suite.
+
 ## Operations metrics
 
 The private collector stores timestamped observations in ignored `data/operations.sqlite3` (mode `0600`). Run `./install-ops-metrics-service.sh` to collect pane presence every minute; recent GitHub PR states and Dunking Sheep aggregate telemetry are polled at most every five minutes. Open **Operations dashboard** below Poolrad in the sidebar, or read `./opsctl summary` or authenticated `GET /api/ops-metrics`. Its **Refresh data** button calls authenticated `POST /api/ops-metrics/refresh` for a fresh sample, including external sources. The summary gives source ages and leaves unavailable sources unavailable. Pane presence is not verified coding output; recent PRs are not a whole-game denominator.

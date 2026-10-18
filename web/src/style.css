@@ -178,3 +178,21 @@
 .game-chat-actions button.primary.send{background:#2f6f57;border-color:#3d8a6c;color:#eafff5}
 .game-chat-actions button:disabled{opacity:.5;cursor:default}
 @media(max-width:700px){.game-tools,.game-footer{flex-direction:column;align-items:stretch}.game-footer audio{max-width:100%;width:100%}.game-chat-actions{justify-content:stretch}}
+.herdr-view{flex:1;min-height:0;overflow:auto;background:#101924;color:#e9f2f4;padding:18px}
+.herdr-tools{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:12px;color:#b5c8d4;margin-bottom:16px}
+.herdr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
+.herdr-grid.has-focus{grid-template-columns:minmax(0,1fr)}
+.herdr-grid>div{min-width:0}
+.herdr-card{border:1px solid #345065;border-radius:12px;background:#192a38;padding:16px;min-width:0}
+.herdr-card header{display:flex;align-items:start;justify-content:space-between;gap:12px}
+.herdr-card header>div{min-width:0}.herdr-card h2{font-size:16px;margin:0;overflow-wrap:anywhere}
+.herdr-card header p{font-size:11px;color:#b5c8d4;margin:6px 0 12px;overflow-wrap:anywhere}
+.herdr-card .status-badge{flex:none}
+.herdr-card pre{height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#0e1922;color:#d9e6ec;border-radius:7px;padding:12px;margin:12px 0 0;font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overscroll-behavior:contain}
+.herdr-card.focused pre{height:clamp(260px,60vh,900px)}
+.herdr-focus{border:1px solid #75935b;background:#d7efb8;color:#193322;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700}
+.herdr-focus:focus-visible,.herdr-card pre:focus-visible{outline:2px solid #b8e58b;outline-offset:3px}
+.herdr-error,.herdr-pane-error{color:#ffce9e;font-size:13px;line-height:1.6}
+.herdr-error{padding:12px;background:#3c2d23;border-radius:8px;margin-bottom:16px}
+.herdr-empty{color:#b5c8d4;padding:24px;text-align:center}
+@media(max-width:700px){.herdr-view{padding:12px}.herdr-card{padding:12px}}

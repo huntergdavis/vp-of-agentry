@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated
 
@@ -82,6 +83,9 @@ LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 DELIVERY_LOCK = threading.Lock()
 DELIVERY_STOP = threading.Event()
 READ_STATUS_WINDOW_S = 8 * 24 * 3600  # Inbox retains read messages for seven days.
+PANES_ACTIVITY_TTL_S = 4
+PANES_ACTIVITY_LOCK = threading.Lock()
+PANES_ACTIVITY_CACHE = {"expires": 0.0, "data": None}
 
 
 @contextmanager
@@ -817,14 +821,55 @@ def download(attachment_id: str, _: Annotated[str, Depends(require_auth)], previ
                         headers={"X-Content-Type-Options": "nosniff"})
 
 
+def _read_pane_activity(pane: dict, *, lines: int = 80, client=None):
+    result = (client or _flock()).call("read_pane", target=pane["pane_id"], lines=lines)
+    return {"pane_id": pane["pane_id"],
+            "status": (_presence(result["agent_status"]) if "agent_status" in result
+                       else pane.get("status", _presence(pane.get("agent_status")))),
+            "text": result.get("text", "")}
+
+
+@app.get("/api/panes/activity")
+def panes_activity(response: Response, _: Annotated[str, Depends(require_auth)]):
+    # One refresh per process, shared by all browsers. Cache failures too, so
+    # a disconnected daemon cannot cause a request storm. Never persist output.
+    response.headers["Cache-Control"] = "no-store"
+    with PANES_ACTIVITY_LOCK:
+        if time.monotonic() >= PANES_ACTIVITY_CACHE["expires"]:
+            try:
+                client = _flock()
+                client.timeout = 2.0
+                panes = client.call("list_panes")["panes"]
+                rows = build_roster([], panes, include_terminals=True)
+
+                def read(row):
+                    try:
+                        output = _read_pane_activity(row, lines=40, client=client)
+                        # Bound the response even if an upstream ignores lines.
+                        output["text"] = "\n".join(output["text"].splitlines()[-40:])[-32000:]
+                        return {**row, **output, "error": None}
+                    except Exception:
+                        return {**row, "text": "", "error": "Pane output unavailable"}
+
+                with ThreadPoolExecutor(max_workers=4) as readers:
+                    rows = list(readers.map(read, rows))
+                data = {"panes": rows, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "refresh_after_seconds": PANES_ACTIVITY_TTL_S}
+            except Exception:
+                # Socket exceptions can contain terminal details; keep errors generic.
+                data = None
+            PANES_ACTIVITY_CACHE.update(data=data, expires=time.monotonic() + PANES_ACTIVITY_TTL_S)
+        if PANES_ACTIVITY_CACHE["data"] is None:
+            raise HTTPException(503, "Herdr panes unavailable", headers={"Cache-Control": "no-store"})
+        return PANES_ACTIVITY_CACHE["data"]
+
+
 @app.get("/api/activity")
 def activity(channel: str, _: Annotated[str, Depends(require_auth)]):
     pane = _target(channel, _panes())
     if not pane:
         raise HTTPException(404, "Pane unavailable")
-    result = _flock().call("read_pane", target=pane["pane_id"], lines=80)
-    return {"channel": channel, "pane_id": pane["pane_id"],
-            "status": _presence(result.get("agent_status")), "text": result.get("text", "")}
+    return {"channel": channel, **_read_pane_activity(pane)}
 
 
 @app.post("/api/poolrad-dashboard/refresh")
