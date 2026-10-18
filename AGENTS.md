@@ -28,7 +28,8 @@ The owner reports monthly fixed subscriptions of Claude $200, Codex $200, and Op
 - **Never close a herdr tab, workspace, or pane you did not create for that purpose.** Spawning an agent without `--workspace`/`--tab` splits it into your own tab; closing that tab then kills you mid-turn. See [docs/INCIDENT_20261018_VP_TAB_CLOSE.md](docs/INCIDENT_20261018_VP_TAB_CLOSE.md).
 - **Always pass `--workspace` and `--tab` when starting an agent,** and give free/open models a dedicated sandbox workspace.
 - **Free/open models are untrusted.** Run them headless (`tools/free_verify.sh`), give them inbox and task access only, and never let them drive `herdr`/pane control or credit/accounting files.
-- Until Dunking Sheep ships superuser gating for `close`, the installed herdr guard covers only `pane run`, `pane send-text`, `pane send-keys`, and `agent send` — it does **not** stop a `close`.
+- **On takeover, run `dunkingsheep superuser recover`** and confirm `dunkingsheep superuser status` says `superuser: yes`. Dunking Sheep 2.15.1+ gates `close`/`shutdown`/layout/`start-agent` behind a superuser allowlist; non-superusers are inbox/task-only, and even a superuser needs `--force` to close its own pane.
+- **The herdr guard now covers close.** As of Dunking Sheep 2.15.1 the wrapper intercepts `pane run`, `pane send-text`, `pane send-keys`, `agent send`, `pane close`, `pane kill`, `tab close`, `workspace close`, and layout/`agent start`, and fails closed (it never falls back to the real herdr on a refusal). If herdr is updated, run `dunkingsheep guard install` again.
 
 ## Privacy and continuity
 

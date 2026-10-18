@@ -18,9 +18,32 @@ df -h /tmp
 df -i /tmp
 systemctl --user --failed
 git status --short
+dunkingsheep superuser status      # confirm this VP pane is on the allowlist
+dunkingsheep superuser recover     # takeover step: re-assert $HERDR_PANE_ID + "VP of agentry"
 ```
 
-Read `dunkingsheep inbox read`, inspect the pane roster and existing auto-dunks, and then check live branches before assigning work. The active VP reminder was `d50` on 2026-10-17; confirm its target before changing it. The web desk discovers active and standby panes at load and refresh, while the Operations dashboard shows current costs and host readings.
+Read `dunkingsheep inbox read`, inspect the pane roster and existing auto-dunks, and then check live branches before assigning work.
+
+## Superuser recovery (on takeover/recovery)
+
+Dunking Sheep **2.15.0** gates every destructive or affecting-others operation
+behind a superuser allowlist. On takeover, from the **VP pane**:
+
+```sh
+dunkingsheep superuser recover          # adds $HERDR_PANE_ID + "VP of agentry"
+dunkingsheep superuser status           # confirm superuser: yes
+```
+
+Only superusers may close panes/tabs/workspaces, stop the daemon, manage dunks,
+spawn agents, or use the raw herdr passthrough. Everyone else communicates
+through the inbox and task queue and may type only into their own pane. Even a
+superuser must pass `close --force` to close the pane/tab/workspace it is
+running in. The allowlist is `~/.config/dunkingsheep/superusers.json` (0600);
+`dunkingsheep superuser add/remove <pane-or-name>` manages it. The herdr guard
+now intercepts `pane close`, `pane kill`, `tab close`, `workspace close` and
+layout mutations, and fails closed (it never falls back to the real herdr).
+Run `dunkingsheep guard install` after upgrading so the shadowed wrapper is
+current. The active VP reminder was `d50` on 2026-10-17; confirm its target before changing it. The web desk discovers active and standby panes at load and refresh, while the Operations dashboard shows current costs and host readings.
 
 The primary Poolrad checkout is `../poolrad-decomp`; Claude uses `../poolrad-decomp-claude-lane`; OpenCode uses `../poolrad-decomp-opencode-ds41flash`. Claude's target is real C ports with a direct 5%-remaining weekly quota stop. OpenCode's independent task is a strict C candidate queue. The owner wants later-game oracle evidence from manual play. The [tracked gameplay skill](skills/vp-gameplay/SKILL.md) covers the **Play Poolrad** pane and local debugger backend. Confirm these lanes are still current through the inbox and Git before acting.
 
@@ -31,10 +54,11 @@ For each owner check-in, publish one VP brief for web and Telegram and verify br
 ## Live handoff state — 2026-10-18 10:45 PDT
 
 - **VP crash root-caused (read [docs/INCIDENT_20261018_VP_TAB_CLOSE.md](docs/INCIDENT_20261018_VP_TAB_CLOSE.md)).** A cleanup loop ran `herdr tab close` on a free-agent tab id, but the eight free agents had been spawned *without* `--workspace`/`--tab`, so they shared the VP's tab. One `tab.close` killed nine panes (the VP plus all eight agents) at 10:14:52 PDT. It was **not** OOM: memory was fine; the host was merely busy. The installed herdr guard does not cover `close`, so nothing blocked it.
-  - **Safety rules now:** never `herdr close`/`tab close`/`workspace close` a tab you did not create for that purpose; always pass `--workspace`/`--tab` when starting an agent; free/open models run **headless** via `tools/free_verify.sh` and are inbox/task-only, never a control plane. Superuser gating is requested from Dunking Sheep (inbox `i18190`/`i18191` to `dunky pi`).
+  - **Safety rules now:** never `herdr close`/`tab close`/`workspace close` a tab you did not create for that purpose; always pass `--workspace`/`--tab` when starting an agent; free/open models run **headless** via `tools/free_verify.sh` and are inbox/task-only, never a control plane. **Superuser gating is implemented in Dunking Sheep 2.15.0** (inbox `i18190`/`i18191`): reinstall the guard and run `superuser recover` on takeover (see the section above).
   - Recovered: `d55` retargeted to `w9:pH`; dead-target dunks `d7–d10`, `d45`, `d48` removed; `/tmp` cleared 68%→55% (inodes 21%→17%).
 - **Free models.** On the logged-in `opencode-go` provider: `longcat-2.5-preview-free` and `cat-jam-free` ($0, reasoning, 1M/1M context; `step-5-preview-free` is advertised but upstream 400 "unavailable"). **`big-pickle` works through the OpenCode client** (`opencode run --model opencode/big-pickle`), which is why it appears in the owner's picker; it is **not** usable through pi/opencode-go (free tier is restricted to the OpenCode client — 403 `FreeTierError`, and the go endpoint needs `x-opencode-session`). Other free OpenCode-client models: `deepseek-v4.1-flash-free`, `nemotron-3.5-lightning-free`, `nemotron-3-ultra-free`, `beam-free`, `mimo-v2.6-flash-free`, `glm-5.3-flash-free`, `space-bunny-free`, `longcat-2.5-preview-free`.
 - **Services:** VP web desk `http://<LAN-host>:8787` returns 200 locally and on the LAN; the earlier `/api/activity?channel=vp` 404s were the `vp` channel losing its pane when the VP died, not a service outage. Telegram bridge is paired and advancing (`last_brief_id` 855). The stray `/exit` VP pane was renamed `old-vp-exit` (it made "VP of Agentry" an ambiguous inbox target and broke host-watch alerts); `host_watch.py` now retries a failed alert without failing the minute unit. `deja-health --repair` finished: the index is rebuilt and `deja-health` reports **recall probe ok** (broken recall had been hanging agents that follow the memory rule).
+- **Pane safety (Dunking Sheep 2.15.1+).** `close`/`shutdown`/layout/`start-agent` are superuser-gated; non-superusers keep inbox + task only; an agent spawned without `--workspace`/`--tab` goes to the sandbox workspace. **On takeover run `dunkingsheep superuser recover`** and confirm `dunkingsheep superuser status` says `superuser: yes`. Even a superuser needs `--force` to close its own pane/tab.
 - **Host:** load peaked ~17 during the deja rebuild and is now ~8–11 on 8 CPUs, CPU-pressure60 ~10–20%; the rebuild was capped to 2 cores with `taskset` and niceness 15. `/tmp` 57%, memory ~24 GiB available, no OOM, no pane lost. The remaining heavy load is the Crackdown build (two clang++ at ~95%) plus live agents. Keep concurrent free workers to 2–4 and use `nice`.
 
 - **Harness: pi.** MCP servers `deja` and `dunkingsheep` configured. pi default model = `opencode-go` / `deepseek-v4.1-flash` (`~/.pi/agent/settings.json`). `deja` was rebuilt (~247 MB) and now has a 15-min `deja-health` timer surfaced in `opsctl summary`.
