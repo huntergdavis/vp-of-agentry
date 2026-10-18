@@ -220,15 +220,15 @@ class GameSession:
                 raise GameError("Audio capture is unavailable")
             env = {**os.environ, "DISPLAY": self.display or "", "XAUTHORITY": str(self.run_dir / ".vp-xauthority")}
             if kind == "video":
-                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-framerate", "12",
+                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-framerate", "15",
                        "-video_size", "800x600", "-i", self.display or "", "-vf", "scale=800:600",
-                       "-q:v", "5", "-f", "mpjpeg", "pipe:1"]
+                       "-q:v", "6", "-fflags", "nobuffer", "-flush_packets", "1", "-f", "mpjpeg", "pipe:1"]
             else:
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "pulse", "-i", f"{self.sink_name}.monitor",
                        "-ac", "2", "-ar", "48000", "-c:a", "libopus", "-b:a", "64k", "-page_duration", "200000", "-flush_packets", "1", "-f", "ogg", "pipe:1"]
             proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
         try:
-            while data := proc.stdout.read1(8192):
+            while data := proc.stdout.read1(262144):
                 yield data
         finally:
             self._terminate(proc)
