@@ -409,6 +409,7 @@ function PoolradPlay({ vpChannel }) {
   const [draft, setDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [code, setCode] = useState(() => { try { return localStorage.getItem('vp-codeword') || ''; } catch { return ''; } });
   const screenRef = useRef(null);
   const chatLogRef = useRef(null);
   useEffect(() => {
@@ -454,6 +455,12 @@ function PoolradPlay({ vpChannel }) {
     event.preventDefault();
     api('/game/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) }).catch(e => setError(e.message));
   }
+  function sendText(submit) {
+    const text = code.trim();
+    if (!text) return;
+    try { localStorage.setItem('vp-codeword', text); } catch {}
+    action('type', { text, submit });
+  }
   return <section className="game-view" aria-label="Play Poolrad">
     <div className="game-tools"><div><strong>Pool of Radiance</strong><small>{status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}</small></div>
       <div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div></div>
@@ -462,6 +469,13 @@ function PoolradPlay({ vpChannel }) {
       {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game to play here.</div>}
     </div>
     <div className="game-footer"><span>Click the screen, then use your keyboard. Arrow keys move; Enter selects; Escape goes back. Saves stay in the private run on this PC.</span>{status?.running && status.audio && <audio key={stream} controls preload="none" src={`/api/game/audio?v=${stream}`} aria-label="Poolrad game audio" />}</div>
+    <div className="game-type">
+      <label htmlFor="game-code">Type into game</label>
+      <input id="game-code" value={code} onChange={e => setCode(e.target.value)} placeholder="Code word / text (press Enter to send)" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sendText(true); } }} aria-label="Text to type into the game" />
+      <button onClick={() => sendText(true)} disabled={busy || !code.trim()}>Send + Enter</button>
+      <button onClick={() => sendText(false)} disabled={busy || !code.trim()}>Send only</button>
+      <button onClick={() => { setCode(''); try { localStorage.removeItem('vp-codeword'); } catch {} }} disabled={!code}>Clear</button>
+    </div>
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
       <div className="game-chat-log" ref={chatLogRef}>

@@ -212,6 +212,19 @@ class GameSession:
             with (self.run_dir / "vp-input.jsonl").open("a") as output:
                 output.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "key": key}) + "\n")
 
+    def type_text(self, text: str, submit: bool = True):
+        if not isinstance(text, str) or not text or len(text) > 64 or any(ord(ch) < 32 for ch in text):
+            raise GameError("Unsupported text")
+        with self.lock:
+            if not self._game_running() or not self.display or not self.run_dir:
+                raise GameError("Poolrad is not running")
+            env = {**os.environ, "DISPLAY": self.display, "XAUTHORITY": str(self.run_dir / ".vp-xauthority")}
+            self._run(["xdotool", "type", "--clearmodifiers", "--delay", "60", text], env=env)
+            if submit:
+                self._run(["xdotool", "key", "--clearmodifiers", "--delay", "70", "Return"], env=env)
+            with (self.run_dir / "vp-input.jsonl").open("a") as output:
+                output.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "type": text, "submit": submit}) + "\n")
+
     def stream(self, kind: str):
         with self.lock:
             if not self._game_running() or not self.run_dir:
@@ -220,8 +233,11 @@ class GameSession:
                 raise GameError("Audio capture is unavailable")
             env = {**os.environ, "DISPLAY": self.display or "", "XAUTHORITY": str(self.run_dir / ".vp-xauthority")}
             if kind == "video":
+                # DOSBox-X renders the 320x200 game as a 640x400 window centered in the 800x600 display.
+                # Capture just that window and integer-upscale 2x so the desk shows the full game, crisply.
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-framerate", "15",
-                       "-video_size", "800x600", "-i", self.display or "", "-vf", "scale=800:600",
+                       "-video_size", "800x600", "-i", self.display or "",
+                       "-vf", "crop=640:400:80:100,scale=1280:800:flags=neighbor",
                        "-q:v", "6", "-fflags", "nobuffer", "-flush_packets", "1", "-f", "mpjpeg", "pipe:1"]
             else:
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "pulse", "-i", f"{self.sink_name}.monitor",

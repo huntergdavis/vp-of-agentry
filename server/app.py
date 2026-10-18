@@ -542,6 +542,11 @@ class GameKey(BaseModel):
     key: str = Field(min_length=1, max_length=16)
 
 
+class GameType(BaseModel):
+    text: str = Field(min_length=1, max_length=64)
+    submit: bool = True
+
+
 @app.get("/api/game/status")
 def game_status(_: Annotated[str, Depends(require_auth)]):
     return GAME.status()
@@ -564,6 +569,15 @@ def game_stop(_: Annotated[str, Depends(require_auth)]):
 def game_key(body: GameKey, _: Annotated[str, Depends(require_auth)]):
     try:
         GAME.key(body.key)
+    except GameError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True}
+
+
+@app.post("/api/game/type")
+def game_type(body: GameType, _: Annotated[str, Depends(require_auth)]):
+    try:
+        GAME.type_text(body.text, body.submit)
     except GameError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True}
