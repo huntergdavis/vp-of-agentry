@@ -63,7 +63,7 @@ mkdir -p "$OUT"
 CPUS=$(nproc)
 LOAD1=$(awk '{print $1}' /proc/loadavg)
 PSI=$(awk -F'avg60=' '/some/{split($2,a," ");print a[1]+0}' /proc/pressure/cpu 2>/dev/null || echo 0)
-if [ "$FORCE" -eq 0 ] && awk -v l="$LOAD1" -v c="$CPUS" -v p="$PSI" 'BEGIN{exit !((l > c*1.5) || (p > 35))}'; then
+if [ "$FORCE" -eq 0 ] && awk -v l="$LOAD1" -v c="$CPUS" -v p="$PSI" 'BEGIN{exit !((l > c*2) || (p > 50))}'; then
   echo "refusing to start: load1=$LOAD1 on $CPUS cpus, cpu-pressure60=$PSI% (use --force to override)" >&2
   exit 1
 fi
