@@ -38,6 +38,41 @@ The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the defau
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
+## Play: code word helper
+
+In **Play Poolrad**, open **Visual rune picker**, choose Espruar (outer) and Dethek
+(inner), explicitly choose the path, then press **Type code word**. Numbered
+inputs and the existing known-word text entry remain available. This is the
+supported manual route for the DOS Decimer screen; the wheel formula is unchanged.
+
+**Auto code word** captures the currently displayed game frame in browser memory.
+It segments red marks, classifies the repeated path, preserves each rune's aspect
+ratio, and compares both possible ring assignments. It types only when both runes
+score at least 0.90, each exceeds its next candidate by 0.08, and the ring assignment
+is unambiguous. A second capture must agree, with no intervening local game input.
+Missing/ambiguous marks, unsupported frames, missing images, or changed prompts
+produce **No typing** and expose the picker. Nothing is typed just by opening the
+view or selecting a rune. These conservative thresholds are not a claim of DOS/Mac
+artwork parity or validation across every game prompt.
+
+The owner's private 800×600 DOS Decimer reference contains only one identifiable
+red glyph and five dashes; its upper prompt is clipped. It **abstains**, rather than
+inventing a second rune. No complete pair or automatic word has been verified for
+that frame. Screenshots and template pixels are not stored in the repository.
+
+Personal template setup: copy `esp01.gif`–`esp36.gif` and `det01.gif`–`det36.gif`
+from the existing local Macmaps codewheel assets into ignored `data/codewheel/`
+(directory mode `0700`, files `0600`). Alternatively set `VP_CODEWHEEL_DIR` to a
+private directory. The authenticated, filename-allowlisted
+`/api/game/codewheel/{filename}` route serves the GIFs with `Cache-Control: no-store`.
+They are not frontend public assets; see [the artwork notice](licenses/CODEWHEEL.md).
+
+The standard Python and frontend tests cover route authentication, path and shape
+ambiguity, scale, ring order, and the lookup formula. The optional private regression
+`.venv/bin/python tests/browser_codewheel.py /path/to/web-dist /path/to/dos-code-prompt.png`
+uses Playwright and ffmpeg to reproduce the desk's crop/scale, checks reference-frame
+abstention and manual selection on desktop/mobile, and mocks **all** typing requests.
+
 ## Herdr panes
 
 Choose **Herdr panes** in the desk sidebar for a read-only grid of all live Herdr panes, including plain terminals. Each card shows its workspace, tab label, agent, presence, and roughly 40 recent output lines. **Focus pane** enlarges a card in the browser; **Show all panes** or Escape returns to the grid. These controls do not send input or change the native Herdr selection.

@@ -38,6 +38,7 @@ UPLOADS.mkdir(exist_ok=True)
 DB = DATA / "messages.sqlite3"
 AUTH = DATA / "auth.json"
 CREDENTIALS = DATA / "owner-credentials"
+CODEWHEEL_DIR = Path(os.getenv("VP_CODEWHEEL_DIR", DATA / "codewheel")).resolve()
 DUNKING_SHEEP = Path(os.getenv("DUNKING_SHEEP_DIR", ROOT.parent / "dunkingsheep"))
 DASHBOARD_DIR = Path(os.getenv("POOLRAD_DASHBOARD_DIR", ROOT / "integrations" / "poolrad-dashboard")).resolve()
 DASHBOARD_REPO = Path(os.getenv("POOLRAD_DASHBOARD_REPO", ROOT.parent / "poolrad-decomp-opencode-ds41flash")).resolve()
@@ -550,6 +551,19 @@ class GameType(BaseModel):
 @app.get("/api/game/status")
 def game_status(_: Annotated[str, Depends(require_auth)]):
     return GAME.status()
+
+
+@app.get("/api/game/codewheel/{filename}")
+def game_codewheel_image(filename: str, _: Annotated[str, Depends(require_auth)]):
+    if not re.fullmatch(r"(?:esp|det)(?:0[1-9]|[12][0-9]|3[0-6])\.gif", filename):
+        raise HTTPException(404, "Unknown rune template")
+    path = CODEWHEEL_DIR / filename
+    if path.is_symlink() or not path.is_file():
+        raise HTTPException(404, "Private rune template unavailable")
+    return FileResponse(path, media_type="image/gif", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "Cross-Origin-Resource-Policy": "same-origin",
+    })
 
 
 @app.post("/api/game/start")

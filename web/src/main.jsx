@@ -9,6 +9,7 @@ import TurndownService from 'turndown';
 import './style.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { HerdrPanes } from './herdr-panes.jsx';
+import { CodewheelPicker } from './codewheel-picker.jsx';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const api = async (path, options = {}) => {
@@ -400,12 +401,6 @@ function PoolradDashboard() {
   </section>;
 }
 
-const WHEEL_WORDS = ['AXEIAX','BEWARE','COPPER','DRAGON','EFREET','FRIEND','GOOGLE','HARASH','IXYVSI','JUNGLE','KNIGHT','LQLGMT','MLSSXS','NOTNOW','OTTAWA','POOLRD','QUOHOG','RHUDIA','SAVIOR','TEMPLE','UICDRH','VULCAN','WYVERN','XRSEHK','YUFSTA','ZOMBIE','1GKKRY','2IOLCD','3MASAI','4NINER','5GUNGA','6BROWN','7GNATS','80ASIS','9TROUT','0SOMAS'];
-function wheelWord(a, b, path) {
-  const w = WHEEL_WORDS[(a + b - 1 + path * 12) % WHEEL_WORDS.length];
-  return /^[0-9]/.test(w) ? w.slice(1) : w;
-}
-
 function PoolradPlay({ vpChannel }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -416,10 +411,8 @@ function PoolradPlay({ vpChannel }) {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
   const [code, setCode] = useState(() => { try { return localStorage.getItem('vp-codeword') || ''; } catch { return ''; } });
-  const [runeA, setRuneA] = useState(1);
-  const [runeB, setRuneB] = useState(1);
-  const [wheelPath, setWheelPath] = useState(0);
   const screenRef = useRef(null);
+  const inputRevision = useRef(0), actionBusy = useRef(false);
   const chatLogRef = useRef(null);
   useEffect(() => {
     let live = true;
@@ -449,19 +442,24 @@ function PoolradPlay({ vpChannel }) {
     } catch (e) { setChatError(e.message); } finally { setChatBusy(false); }
   }
   async function action(path, body) {
+    if (actionBusy.current) return false;
+    actionBusy.current = true; inputRevision.current++;
     setBusy(true); setError('');
     try {
       const data = await api(`/game/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-      setStatus(data); setStream(n => n + 1);
+      if (typeof data.running === 'boolean') { setStatus(data); setStream(n => n + 1); }
       if (data.running) setTimeout(() => screenRef.current?.focus(), 100);
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
+      return true;
+    } catch (e) { setError(e.message); return false; }
+    finally { actionBusy.current = false; setBusy(false); }
   }
   function keyDown(event) {
-    if (!status?.running || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (actionBusy.current || !status?.running || event.ctrlKey || event.metaKey || event.altKey) return;
     const names = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Enter: 'Return', ' ': 'space', Backspace: 'BackSpace', PageUp: 'Page_Up', PageDown: 'Page_Down' };
     const key = names[event.key] || (/^[a-z0-9]$/i.test(event.key) ? event.key.toLowerCase() : event.key);
     if (!/^(?:[a-z0-9]|F(?:[1-9]|1[0-2])|Up|Down|Left|Right|Return|Escape|space|BackSpace|Tab|Delete|Home|End|Page_Up|Page_Down)$/.test(key)) return;
     event.preventDefault();
+    inputRevision.current++;
     api('/game/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) }).catch(e => setError(e.message));
   }
   function sendText(submit) {
@@ -473,7 +471,7 @@ function PoolradPlay({ vpChannel }) {
   function sendWord(word) {
     setCode(word);
     try { localStorage.setItem('vp-codeword', word); } catch {}
-    action('type', { text: word, submit: true });
+    return action('type', { text: word, submit: true });
   }
   return <section className="game-view" aria-label="Play Poolrad">
     <div className="game-tools"><div><strong>Pool of Radiance</strong><small>{status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}</small></div>
@@ -490,18 +488,7 @@ function PoolradPlay({ vpChannel }) {
       <button onClick={() => sendText(false)} disabled={busy || !code.trim()}>Send only</button>
       <button onClick={() => { setCode(''); try { localStorage.removeItem('vp-codeword'); } catch {} }} disabled={!code}>Clear</button>
     </div>
-    <div className="game-wheel">
-      <label>Code wheel</label>
-      <input type="number" min="1" max="36" value={runeA} onChange={e => setRuneA(Math.min(36, Math.max(1, Number(e.target.value) || 1)))} aria-label="Espruar rune 1-36" title="Espruar rune (1-36)" />
-      <input type="number" min="1" max="36" value={runeB} onChange={e => setRuneB(Math.min(36, Math.max(1, Number(e.target.value) || 1)))} aria-label="Dethek rune 1-36" title="Dethek rune (1-36)" />
-      <select value={wheelPath} onChange={e => setWheelPath(Number(e.target.value))} aria-label="Wheel path">
-        <option value={0}>dots</option>
-        <option value={1}>dash / two dots</option>
-        <option value={2}>dashes</option>
-      </select>
-      <span className="game-wheel-word">{wheelWord(runeA, runeB, wheelPath)}</span>
-      <button onClick={() => sendWord(wheelWord(runeA, runeB, wheelPath))} disabled={busy}>Type code word</button>
-    </div>
+    <CodewheelPicker screenRef={screenRef} inputRevision={inputRevision} running={Boolean(status?.running)} runKey={status?.run_name} busy={busy} onSend={sendWord} />
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
       <div className="game-chat-log" ref={chatLogRef}>
