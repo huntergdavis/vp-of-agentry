@@ -23,6 +23,13 @@ The primary checkout is the VP/PM view in `../poolrad-decomp`. Claude Fable work
 
 The owner reports monthly fixed subscriptions of Claude $200, Codex $200, and OpenCode Go $10, recorded privately in the operations database. OpenCode's local session model-cost estimate is read from its SQLite session totals; it is account-wide and **not** confirmed extra billing. Keep it separate from fixed subscriptions and C-attributed spend. Do not present a candidate C body, PR count, or pane presence as verified full-C credit.
 
+## Pane safety (learned the hard way, 2026-10-18)
+
+- **Never close a herdr tab, workspace, or pane you did not create for that purpose.** Spawning an agent without `--workspace`/`--tab` splits it into your own tab; closing that tab then kills you mid-turn. See [docs/INCIDENT_20261018_VP_TAB_CLOSE.md](docs/INCIDENT_20261018_VP_TAB_CLOSE.md).
+- **Always pass `--workspace` and `--tab` when starting an agent,** and give free/open models a dedicated sandbox workspace.
+- **Free/open models are untrusted.** Run them headless (`tools/free_verify.sh`), give them inbox and task access only, and never let them drive `herdr`/pane control or credit/accounting files.
+- Until Dunking Sheep ships superuser gating for `close`, the installed herdr guard covers only `pane run`, `pane send-text`, `pane send-keys`, and `agent send` — it does **not** stop a `close`.
+
 ## Privacy and continuity
 
 Never commit or paste secrets, private bot tokens, API tokens, credentials, owner media, raw agent transcripts, or private LAN addresses into the repository. `data/`, `channels.json`, and local agent state are ignored and stay on this machine. Use source-controlled documentation for procedures and private files for credentials and machine-specific mappings. Check `git status` and staged diffs before committing.
