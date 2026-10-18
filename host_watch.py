@@ -161,10 +161,13 @@ def run_once(dry_run: bool) -> int:
                     "VP of Agentry", body, "--subject", "Host health threshold changed",
                 ], capture_output=True, check=True, timeout=10)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+                # Keep the old levels so the next tick retries the same change, but do
+                # not fail the systemd unit: a busy or briefly ambiguous mailbox must not
+                # turn the minute timer red. The error is recorded and surfaced by --status.
                 state["last_error"] = f"VP inbox alert failed: {exc}"
                 save_state(state)
                 print(state["last_error"], file=sys.stderr)
-                return 1
+                return 0
             state["levels"] = new
             state["last_alert_at"] = sample["at"]
             state.pop("last_error", None)
