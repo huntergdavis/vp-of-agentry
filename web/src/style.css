@@ -162,6 +162,13 @@
 .game-type input{flex:1;min-width:160px;padding:7px 10px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:13px}
 .game-type button{padding:7px 12px;border-radius:6px;border:1px solid #3d8a6c;background:#2f6f57;color:#eafff5;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .game-type button:disabled{opacity:.5;cursor:default}
+.game-wheel{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#101d2c;border-top:1px solid #24404f;flex-wrap:wrap}
+.game-wheel label{font-size:11px;color:#8fa6b2;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.game-wheel input{width:64px;padding:6px 8px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:13px}
+.game-wheel select{padding:6px 8px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:12px}
+.game-wheel-word{font-weight:800;letter-spacing:.08em;color:#f8f3cb;min-width:74px}
+.game-wheel button{padding:7px 12px;border-radius:6px;border:1px solid #3d8a6c;background:#2f6f57;color:#eafff5;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.game-wheel button:disabled{opacity:.5;cursor:default}
 .game-placeholder{color:#9eafb9;font-size:14px;text-align:center;padding:24px}
 .game-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 14px;background:#182b3a;color:#c0d3db;font-size:10.5px}
 .game-footer audio{width:200px;max-width:40vw;height:28px}

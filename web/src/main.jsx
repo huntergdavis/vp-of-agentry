@@ -400,6 +400,12 @@ function PoolradDashboard() {
   </section>;
 }
 
+const WHEEL_WORDS = ['AXEIAX','BEWARE','COPPER','DRAGON','EFREET','FRIEND','GOOGLE','HARASH','IXYVSI','JUNGLE','KNIGHT','LQLGMT','MLSSXS','NOTNOW','OTTAWA','POOLRD','QUOHOG','RHUDIA','SAVIOR','TEMPLE','UICDRH','VULCAN','WYVERN','XRSEHK','YUFSTA','ZOMBIE','1GKKRY','2IOLCD','3MASAI','4NINER','5GUNGA','6BROWN','7GNATS','80ASIS','9TROUT','0SOMAS'];
+function wheelWord(a, b, path) {
+  const w = WHEEL_WORDS[(a + b - 1 + path * 12) % WHEEL_WORDS.length];
+  return /^[0-9]/.test(w) ? w.slice(1) : w;
+}
+
 function PoolradPlay({ vpChannel }) {
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -410,6 +416,9 @@ function PoolradPlay({ vpChannel }) {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
   const [code, setCode] = useState(() => { try { return localStorage.getItem('vp-codeword') || ''; } catch { return ''; } });
+  const [runeA, setRuneA] = useState(1);
+  const [runeB, setRuneB] = useState(1);
+  const [wheelPath, setWheelPath] = useState(0);
   const screenRef = useRef(null);
   const chatLogRef = useRef(null);
   useEffect(() => {
@@ -461,6 +470,11 @@ function PoolradPlay({ vpChannel }) {
     try { localStorage.setItem('vp-codeword', text); } catch {}
     action('type', { text, submit });
   }
+  function sendWord(word) {
+    setCode(word);
+    try { localStorage.setItem('vp-codeword', word); } catch {}
+    action('type', { text: word, submit: true });
+  }
   return <section className="game-view" aria-label="Play Poolrad">
     <div className="game-tools"><div><strong>Pool of Radiance</strong><small>{status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}</small></div>
       <div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div></div>
@@ -475,6 +489,18 @@ function PoolradPlay({ vpChannel }) {
       <button onClick={() => sendText(true)} disabled={busy || !code.trim()}>Send + Enter</button>
       <button onClick={() => sendText(false)} disabled={busy || !code.trim()}>Send only</button>
       <button onClick={() => { setCode(''); try { localStorage.removeItem('vp-codeword'); } catch {} }} disabled={!code}>Clear</button>
+    </div>
+    <div className="game-wheel">
+      <label>Code wheel</label>
+      <input type="number" min="1" max="36" value={runeA} onChange={e => setRuneA(Math.min(36, Math.max(1, Number(e.target.value) || 1)))} aria-label="Espruar rune 1-36" title="Espruar rune (1-36)" />
+      <input type="number" min="1" max="36" value={runeB} onChange={e => setRuneB(Math.min(36, Math.max(1, Number(e.target.value) || 1)))} aria-label="Dethek rune 1-36" title="Dethek rune (1-36)" />
+      <select value={wheelPath} onChange={e => setWheelPath(Number(e.target.value))} aria-label="Wheel path">
+        <option value={0}>dots</option>
+        <option value={1}>dash / two dots</option>
+        <option value={2}>dashes</option>
+      </select>
+      <span className="game-wheel-word">{wheelWord(runeA, runeB, wheelPath)}</span>
+      <button onClick={() => sendWord(wheelWord(runeA, runeB, wheelPath))} disabled={busy}>Type code word</button>
     </div>
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
