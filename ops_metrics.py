@@ -32,7 +32,6 @@ DUNK_EVENTS_DB = Path(os.environ.get("DUNK_EVENTS_DB", Path.home() / ".config/du
 POOLRAD_REPO = Path(os.environ.get("POOLRAD_REPO", ROOT.parent / "poolrad-decomp"))
 OPENCODE_DB = Path(os.environ.get("OPENCODE_DB", Path.home() / ".local/share/opencode/opencode.db"))
 HOST_WATCH_STATE = Path(os.environ.get("VP_HOST_WATCH_STATE", DATA / "host-watch-state.json"))
-DEJA_HEALTH_STATE = Path(os.environ.get("VP_DEJA_HEALTH_STATE", DATA / "deja-health.json"))
 PROJECT = "poolrad"
 POLL_INTERVAL_S = 60
 EXTERNAL_INTERVAL_S = 300
@@ -838,29 +837,6 @@ def host_health(now: datetime, *, path: Path | None = None) -> dict | None:
         return None
 
 
-def deja_health(now: datetime, *, path: Path | None = None) -> dict | None:
-    """Return the latest deja-health report without exposing the raw file."""
-    path = path or DEJA_HEALTH_STATE
-    try:
-        report = json.loads(path.read_text())
-        checked = float(report["checked_at"])
-        age = max(0, int(now.timestamp() - checked))
-        return {
-            "observed_at": iso(datetime.fromtimestamp(checked, timezone.utc)),
-            "age_s": age,
-            "stale": age > 1800,
-            "healthy": bool(report.get("healthy")),
-            "problems": report.get("problems") or [],
-            "rebuild_pid": report.get("rebuild_pid"),
-            "index_bytes": (report.get("index") or {}).get("bytes"),
-            "staging": report.get("staging"),
-            "recall_probe": report.get("recall_probe"),
-            "repair": report.get("repair"),
-        }
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
-
-
 def opencode_usage(now: datetime, *, path: Path | None = None) -> dict | None:
     """Read aggregate session estimates without copying OpenCode prompts or account data."""
     path = path or OPENCODE_DB
@@ -1036,7 +1012,6 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "usage_cost_usd": None,
         "opencode_usage": opencode_usage(now),
         "host_health": host_health(now),
-        "deja_health": deja_health(now),
         "goals": goals,
         "function_progress": function_progress,
         "completion_rate": completion_rate,

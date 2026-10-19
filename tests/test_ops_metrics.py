@@ -25,9 +25,6 @@ class OpsMetricsTests(unittest.TestCase):
         host_source = patch.object(ops_metrics, "HOST_WATCH_STATE", Path(self.temporary.name) / "missing-host-state.json")
         host_source.start()
         self.addCleanup(host_source.stop)
-        deja_source = patch.object(ops_metrics, "DEJA_HEALTH_STATE", Path(self.temporary.name) / "missing-deja-health.json")
-        deja_source.start()
-        self.addCleanup(deja_source.stop)
         self.conn = ops_metrics.connect(Path(self.temporary.name) / "ops.sqlite3")
         self.addCleanup(self.conn.close)
 
@@ -294,28 +291,6 @@ class OpsMetricsTests(unittest.TestCase):
                          ("warning", 60, 2))
         self.assertFalse(health["stale"])
         self.assertTrue(ops_metrics.host_health(now.replace(minute=4), path=path)["stale"])
-
-    def test_deja_health_preserves_age_and_warning(self):
-        path = Path(self.temporary.name) / "deja-health.json"
-        now = datetime(2026, 10, 17, 17, 0, tzinfo=timezone.utc)
-        path.write_text(json.dumps({
-            "healthy": False,
-            "checked_at": now.timestamp() - 60,
-            "problems": ["stale staging dir /x (age 600s, no active rebuild)"],
-            "index": {"bytes": 123},
-            "staging": {"exists": True, "stale": True},
-            "recall_probe": {"ok": False, "error": "append: EOF"},
-        }))
-        with patch.object(ops_metrics, "DEJA_HEALTH_STATE", path):
-            health = ops_metrics.summary(self.conn, now=now)["deja_health"]
-        self.assertFalse(health["healthy"])
-        self.assertEqual((health["age_s"], health["index_bytes"]), (60, 123))
-        self.assertFalse(health["stale"])
-        self.assertIn("stale staging dir", health["problems"][0])
-        later = datetime(2026, 10, 17, 17, 31, tzinfo=timezone.utc)
-        self.assertTrue(ops_metrics.deja_health(later, path=path)["stale"])
-        self.assertIsNone(ops_metrics.deja_health(
-            now, path=Path(self.temporary.name) / "missing.json"))
 
     def test_agent_delivery_ingestion_is_append_only_and_content_free(self):
         source = Path(self.temporary.name) / "events.db"
