@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -1109,16 +1110,43 @@ def poolrad_dashboard_report(filename: str, _: Annotated[str, Depends(require_au
     })
 
 
+def _host_agnostic_url(configured: str, hostname: str | None) -> str:
+    """Point the frame at the host the owner actually signed in on.
+
+    The Herdr web UI proxy validates the desk's own session cookie, and that
+    cookie is bound to the hostname the owner used. A frame pointed at a
+    different host would not carry the cookie and would answer 401, so the
+    configured host is replaced with the hostname of this request while the
+    port and path stay as configured.
+    """
+    if not configured or not hostname:
+        return configured
+    try:
+        parsed = urlsplit(configured)
+        port = parsed.port
+    except ValueError:
+        return configured
+    if not parsed.scheme or not parsed.netloc:
+        return configured
+    host = hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = f"{host}:{port}" if port else host
+    return urlunsplit((parsed.scheme, netloc, parsed.path or "/", parsed.query, ""))
+
+
 @app.get("/api/herdr-webui")
-def herdr_webui(_: Annotated[str, Depends(require_auth)]):
+def herdr_webui(request: Request, _: Annotated[str, Depends(require_auth)]):
     """Where the full Herdr web UI lives, if it is configured.
 
     The desk used to carry a read-only 'Herdr panes' grid; the live terminal
     UI is a separate service (herdr-webui). This endpoint only names it, so
     the desk can show the right frame or a link without guessing.
     """
-    url = os.getenv("VP_HERDR_WEBUI_URL", "").strip()
-    return {"url": url, "available": bool(url), "label": os.getenv("VP_HERDR_WEBUI_LABEL", "Herdr web UI").strip()}
+    configured = os.getenv("VP_HERDR_WEBUI_URL", "").strip()
+    url = _host_agnostic_url(configured, request.url.hostname)
+    return {"url": url, "available": bool(url),
+            "label": os.getenv("VP_HERDR_WEBUI_LABEL", "Herdr web UI").strip()}
 
 
 @app.get("/api/health")
