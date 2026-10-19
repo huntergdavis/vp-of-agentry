@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import TurndownService from 'turndown';
 import './style.css';
 import './dash.css';
+import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 
