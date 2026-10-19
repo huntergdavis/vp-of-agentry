@@ -158,6 +158,9 @@ class GameSession:
                 self._run(["tmux", "-L", "vp-poolrad", "new-session", "-d", "-s", session, "-x", "140", "-y", "40", command])
                 self.tmux_session = session
                 self.active_slot = self.SAVE_SLOT_DEFAULT
+                # Identify this emulator session. DOSBox-X segfaults when a save state
+                # created by an earlier session is loaded, so loadstate refuses those.
+                self._session_started = time.time()
                 self._run(["tmux", "-L", "vp-poolrad", "pipe-pane", "-o", "-t", session, f"cat >> {shlex.quote(str(run_dir / 'vp-dosbox-terminal.log'))}"])
                 time.sleep(1)
                 if not self._game_running():
@@ -362,6 +365,7 @@ class GameSession:
                 raise GameError("DOSBox-X did not finish writing the save state")
             entry = {"slot": actual, "tag": tag or f"slot {actual}",
                      "created": datetime.now(timezone.utc).isoformat(),
+                     "session": getattr(self, "_session_started", None),
                      "size": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
             states = [s for s in states if s["slot"] != actual] + [entry]
             states.sort(key=lambda s: s["slot"])
@@ -393,6 +397,14 @@ class GameSession:
                 raise GameError("That save state is not available")
             if entry.get("sha256") and hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
                 raise GameError("The save state file changed since it was recorded")
+            # DOSBox-X segfaults when loading a state saved by a different emulator
+            # session (verified in the kernel log). Refuse instead of crashing the game.
+            if entry.get("session") != getattr(self, "_session_started", None):
+                raise GameError(
+                    "This save state was created in an earlier game session. This "
+                    "DOSBox-X build crashes when loading a cross-session state, so it "
+                    "is blocked. Use the game's own Save/Load menu, or save a new state now."
+                )
             self._focus_game()
             self._goto_slot(slot)
             log_offset = self._log_size()
