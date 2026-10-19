@@ -120,6 +120,15 @@ def read_json(path: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
+def percent(count: int, ceiling: int, bound_kind: str) -> float:
+    """Share of the reviewed bound. An upper bound is reported at one decimal."""
+    if ceiling <= 0:
+        return 0.0
+    if bound_kind == "upper_bound":
+        return (count * 1000 // ceiling) / 10
+    return round(100 * count / ceiling, 1)
+
+
 def write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -181,6 +190,61 @@ def function_progress(repo: Path) -> dict:
     return progress
 
 
+def progress(repo: Path) -> dict:
+    """The compact completion view: two percentages and one evidence line.
+
+    The numbers come from the PM-reviewed accounting checkpoint and the
+    reviewed ceiling census in the same checkout. Nothing is inferred from
+    candidate rows, PR counts, or local drafts.
+    """
+    return compact_view(repo, function_progress(repo), commit=head(repo),
+                        source="dashboard checkout")
+
+
+def compact_view(repo: Path, accounting: dict, *, commit: str, source: str) -> dict:
+    """Build the compact view from an already reviewed accounting record.
+
+    ``accounting`` is the reviewed pair (checkpoint plus census) in the shape
+    ``function_progress`` returns, so the published main commit and the local
+    checkout produce the same compact view.
+    """
+    strict = accounting["strict_full_c"]
+    identities = accounting["verified_identities"]
+    ceiling = accounting["ceiling"]
+    bound_kind = accounting["bound_kind"]
+    reviewed = accounting["status"] == "reviewed" and ceiling is not None
+    comparisons = cited_evidence(repo)
+    evidence = [f"{item['matched']}/{item['compared']} px" for item in comparisons
+                if item.get("matched") is not None]
+    if reviewed:
+        line = (f"PM-reviewed checkpoint {commit[:8]} · {strict} strict / {identities} identities"
+                f" · ceiling {ceiling} ({bound_kind.replace('_', ' ')})"
+                f" · {len(comparisons)} published scoped comparison(s)"
+                + (f" ({', '.join(evidence)})" if evidence else "")
+                + " · not whole-game completion")
+    else:
+        line = ("PM-reviewed accounting checkpoint unavailable in this checkout;"
+                " completion percentages are unknown")
+    return {
+        "generated": timestamp(),
+        "commit": commit,
+        "source": source,
+        "status": accounting["status"],
+        "strict_full_c": strict,
+        "identities": identities,
+        "ceiling": ceiling,
+        "bound_kind": bound_kind,
+        "strict_percent": percent(strict, ceiling, bound_kind) if reviewed else None,
+        "identity_percent": percent(identities, ceiling, bound_kind) if reviewed else None,
+        "remaining": (ceiling - strict) if reviewed else None,
+        "accounting_source": accounting["accounting_source"],
+        "evidence_doc": accounting["evidence_doc"],
+        "evidence_line": line,
+        "comparisons": comparisons,
+        "stale": False,
+    }
+
+
 def verify(repo: Path) -> dict:
     STATE.mkdir(exist_ok=True)
     build = Path("/tmp/poolrad-dashboard-build")
@@ -232,8 +296,14 @@ def compare(dos: Path, portable_c: Path, width: int, height: int, label: str) ->
 
 
 def render(repo: Path) -> Path:
+    """Write the compact owner view: two percentages and one evidence line.
+
+    The research snapshot keeps the full candidate list; the page the owner
+    sees does not. Long prose was removed on purpose: the numbers and one
+    cited evidence line carry the truth, and the detail stays in the JSON
+    payload and the cited source reports.
+    """
     q, counts = queue(repo)
-    progress = function_progress(repo)
     rev = head(repo)
     marks = read_json(STATE / "queue_marks.json") or {}
     for item in q:
@@ -250,40 +320,48 @@ def render(repo: Path) -> Path:
         source = repo / item["source"]
         (reports_dir / source.name).write_bytes(source.read_bytes())
     local_diff = read_json(STATE / "local_diff.json")
+    compact = progress(repo)
     data = {"generated": timestamp(), "commit": rev, "summary": counts, "queue": q,
-            "function_progress": progress,
+            "function_progress": function_progress(repo),
             "verification": verification, "published_comparisons": evidence, "local_diff": local_diff}
     write_json(STATE / "snapshot.json", data)
     owner_data = {key: data[key] for key in (
         "generated", "commit", "function_progress", "verification",
         "published_comparisons", "local_diff")}
+    owner_data["progress"] = compact
     payload = json.dumps(owner_data).replace("<", "\\u003c").replace(">", "\\u003e")
     page = """<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Poolrad original C bodies</title>
-<style>body{font:18px/1.5 system-ui;margin:0 auto;padding:1.5rem;max-width:980px;background:#101924;color:#f0f5f8}
-h1,h2{color:#faf2bb}h1{font-size:2.2rem}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.card{background:#203141;border:1px solid #48617a;border-radius:8px;padding:1.2rem}
-.num{font-size:2.6rem;font-weight:750}.label{font-weight:700}small,.muted{color:#b9cbd8}.track{height:12px;background:#0d1721;border-radius:8px;overflow:hidden;margin:.8rem 0}.fill{height:100%;background:#a9db7d}
-a{color:#92d5ff}details{margin-top:1.4rem}summary{cursor:pointer;font-weight:700;color:#faf2bb}.warning{color:#ffda86}</style>
-<h1>POOLRAD // ORIGINAL C BODIES</h1><p id="meta" class="muted"></p>
-<p>Primary goal: recreate substantive C source bodies for the audited original-function candidates. Count only PM-reviewed strict whole-function acceptances as completed.</p>
-<div class="cards" id="cards"></div><p id="ceiling_note" class="muted"></p>
-<h2>Next C-body gate</h2><div class="card"><div class="label">First newly accepted original C body since this checkpoint</div><p>PM review must confirm whole-function state parity on one exact source head, with its focused test and CI evidence. Authored local drafts do not raise the accepted count. ETA is not evidenced.</p><p>Accepted bodies per wall hour and per dollar require comparable sourced trial time and usage cost; these rates are unmeasured on this public dashboard.</p></div>
-<details><summary>Playable C demo</summary><div class="card"><div class="label">First playable C demo: unverified</div><p>Next visual evidence gate: one reached game route with a same-state DOS/C full-frame comparison. Published row and crop comparisons do not establish that gate.</p></div></details>
-<details><summary>Evidence and limits</summary><h2>Build verification</h2><div class="card" id="verification"></div>
-<h2>DOS and C comparisons</h2><p>Each comparison has its own run and scope; they cannot be added into frame coverage.</p><div class="cards" id="comparisons"></div></details>
-<p class="muted">The long function candidate list is retained in the research snapshot. It is not the PM assignment queue and does not determine the percentages above.</p>
-<script id="data" type="application/json">""" + payload + """</script><script>
-const d=JSON.parse(document.getElementById('data').textContent);const esc=s=>String(s).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
-document.getElementById('meta').textContent=`Generated ${d.generated} | dashboard checkout ${d.commit.slice(0,12)}`;
-const p=d.function_progress,ready=p.status==='reviewed',upper=ready&&p.bound_kind==='upper_bound';
-const card=(value,label,detail)=>`<div class="card"><div class="num">${esc(value)}</div><div class="label">${esc(label)}</div><small>${esc(detail)}</small></div>`;
-document.getElementById('cards').innerHTML=card(p.strict_full_c,'PM-reviewed strict C bodies','Published exact-head accounting checkpoint')+card(ready?p.ceiling:'Unknown',upper?'Audited candidate ceiling':'Reviewed candidate count',ready?'PM-reviewed '+p.bound_kind+(upper?'; includes unresolved ownership':''):'Same-binary reviewed census pending')+card(ready?p.ceiling_gap:'Unknown',upper?'Ceiling minus accepted':'Candidate count minus accepted',upper?'Upper-bound gap, not a verified backlog':'Reviewed count gap');
-document.getElementById('ceiling_note').textContent=ready?(upper?'The '+p.ceiling+' original-function candidate count is a PM-reviewed upper bound, not a proven whole-game total or completion percentage. ':'The reviewed candidate count is exact for its documented scope; whole-game completion remains unproven. ')+'Strict count: '+p.accounting_source+'. Census: '+p.evidence_doc+'.':'The original-function count awaits a PM-reviewed census of the same binaries. Whole-game completion is unknown.';
-const v=d.verification;document.getElementById('verification').innerHTML=v?`<b>${esc(v.status)}</b> at ${esc(v.time)} on ${esc(v.commit.slice(0,12))}<br>`+v.steps.map(s=>`${esc(s.name)}: exit ${s.exit}`+(s.tests_total!==null?`, ${s.tests_total-s.tests_failed}/${s.tests_total} CTests`:'')).join('<br>'):'Not run on this dashboard. Use <code>python3 tools/dashboard/dashboard.py verify</code>.';
-let evidence=d.published_comparisons.map(x=>`<div class="card"><b>${esc(x.label)}</b><br>${esc(x.scope)}<br>${x.matched===null?'Source claim changed; re-review':`${x.matched}/${x.compared} matched`}<br><small>${esc(x.method)}</small><br><a href="${esc('state/reports/'+x.source.split('/').pop())}">source report</a></div>`);
-if(d.local_diff){let x=d.local_diff;evidence.push(`<div class="card"><b>${esc(x.label)}</b><br>${esc(x.scope)}<br>${x.matched}/${x.compared} matched; ${x.mismatched} mismatched<br><small>${esc(x.method)} at ${esc(x.time)}</small></div>`)}
-document.getElementById('comparisons').innerHTML=evidence.join('');
-</script></html>"""
+<style>body{font:17px/1.45 system-ui;margin:0 auto;padding:1.6rem;max-width:900px;background:#101924;color:#f0f5f8}
+h1{color:#faf2bb;font-size:1.5rem;margin:0 0 1.1rem}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}
+.card{background:#203141;border:1px solid #48617a;border-radius:10px;padding:1.1rem 1.2rem}.num{font-size:3rem;font-weight:750;line-height:1;color:#faf2bb}
+.label{font-weight:700;letter-spacing:.06em;margin-top:.5rem}.sub{color:#b9cbd8;font-size:.85rem;margin-top:.25rem}
+.track{height:10px;background:#0d1721;border-radius:6px;overflow:hidden;margin-top:.8rem}.fill{height:100%;background:#a9db7d}
+.evidence{color:#b9cbd8;font-size:.9rem;border-top:1px solid #35505f;margin-top:1.2rem;padding-top:.9rem}
+.evidence a{color:#92d5ff}.meta{color:#7f97a4;font-size:.75rem;margin-top:.7rem}</style>
+<h1>POOLRAD &middot; ORIGINAL C BODIES</h1>
+<div class="cards">__CARDS__</div>
+<p class="evidence">__EVIDENCE__</p>
+<p class="meta">__META__</p>
+<script id="data" type="application/json">""" + payload + """</script></html>"""
+    cards = []
+    for label, share, count in (("STRICT C", compact["strict_percent"], compact["strict_full_c"]),
+                                ("IDENTITIES", compact["identity_percent"], compact["identities"])):
+        if share is None:
+            cards.append(f"<div class=\"card\"><div class=\"num\">—</div><div class=\"label\">{label}</div>"
+                         "<div class=\"sub\">reviewed checkpoint unavailable</div></div>")
+            continue
+        width = max(0.0, min(100.0, float(share)))
+        cards.append(f"<div class=\"card\"><div class=\"num\">{share}%</div><div class=\"label\">{label}</div>"
+                     f"<div class=\"sub\">{count} / {compact['ceiling']} {compact['bound_kind'].replace('_', ' ')}</div>"
+                     f"<div class=\"track\"><div class=\"fill\" style=\"width:{width}%\"></div></div></div>")
+    links = " &middot; ".join(
+        f"<a href=\"state/reports/{item['source'].split('/')[-1]}\">{item['label']}</a>"
+        for item in compact["comparisons"])
+    evidence_html = compact["evidence_line"] + (f" &middot; reports: {links}" if links else "")
+    page = (page.replace("__CARDS__", "".join(cards))
+                .replace("__EVIDENCE__", evidence_html)
+                .replace("__META__", f"generated {compact['generated']} &middot; checkout {compact['commit'][:12]}"))
     output = HERE / "dashboard.html"
     output.write_text(page, encoding="utf-8")
     return output
@@ -295,6 +373,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("render")
     sub.add_parser("verify")
+    sub.add_parser("progress", help="print the compact completion view as JSON")
     diff = sub.add_parser("compare")
     diff.add_argument("--dos", type=Path, required=True)
     diff.add_argument("--c", type=Path, required=True)
@@ -310,6 +389,8 @@ def main() -> None:
     repo = args.repo.resolve()
     if args.action == "verify":
         print(json.dumps(verify(repo), indent=2))
+    elif args.action == "progress":
+        print(json.dumps(progress(repo), indent=2))
     elif args.action == "compare":
         print(json.dumps(compare(args.dos, args.c, args.width, args.height, args.label), indent=2))
     elif args.action == "mark":

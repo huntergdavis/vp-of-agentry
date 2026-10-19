@@ -32,9 +32,11 @@ The UI reuses MIT licensed [ChatScope](https://github.com/chatscope/chat-ui-kit-
 
 ## Poolrad dashboard
 
-Choose **Poolrad dashboard** in the desk sidebar to see bounded function coverage, the playable demo gate, and collapsed evidence. **Refresh snapshot** regenerates the view from the configured local Poolrad checkout; it does not rerun verification. The source commit and generation time appear inside the view, and a verification from a different commit is marked stale.
+Choose **Poolrad dashboard** in the desk sidebar to see two completion numbers and one evidence line: **strict C** and **verified identities**, each as a percentage of the PM-reviewed 815 upper bound, plus a single line naming the published checkpoint, the scoped pixel comparisons behind it, and the fact that this is not whole-game completion. The long prose was removed on purpose; the research snapshot keeps the full candidate list.
 
-The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the default sibling `poolrad-decomp/tools/dashboard` location. Only the generated page and cited public report copies are served through authenticated routes. The embedded view runs in a sandboxed frame. The full candidate list remains in the ignored research snapshot; PM assignments come from separate workstream and source-gate queues. The list does not award strict C credit.
+The numbers come from the PM-reviewed accounting checkpoint published on `main`, read through the private operations database, and fall back to the configured local checkout when no published snapshot is stored yet. **Refresh snapshot** re-reads the published checkpoint, records it, and regenerates the standalone HTML page; it does not rerun verification. `GET /api/poolrad-dashboard/progress` returns the same compact view as JSON (cached for a minute); `GET /api/poolrad-dashboard/dashboard.html` still serves the standalone page and `state/reports/{file}` serves the cited public report copies, both behind owner auth.
+
+The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the default sibling `poolrad-decomp/tools/dashboard` location. PM assignments come from separate workstream and source-gate queues. The candidate list does not award strict C credit.
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
@@ -90,15 +92,23 @@ ambiguity, scale, ring order, and the lookup formula. The optional private regre
 uses Playwright and ffmpeg to reproduce the desk's crop/scale, checks reference-frame
 abstention and manual selection on desktop/mobile, and mocks **all** typing requests.
 
-## Herdr panes
+## Herdr web UI
 
-Choose **Herdr panes** in the desk sidebar for a read-only grid of all live Herdr panes, including plain terminals. Each card shows its workspace, tab label, agent, presence, and roughly 40 recent output lines. **Focus pane** enlarges a card in the browser; **Show all panes** or Escape returns to the grid. These controls do not send input or change the native Herdr selection.
+The desk used to carry a read-only **Herdr panes** grid. That section is gone: the live terminal UI is a separate service (herdr-webui), and the desk only frames it. Choose **Herdr web UI** in the sidebar; the frame's address comes from `GET /api/herdr-webui`, which reads the `VP_HERDR_WEBUI_URL` environment variable (`VP_HERDR_WEBUI_LABEL` names the item). With the variable unset the view says the UI is not configured on this host yet, and nothing is framed.
 
-The authenticated `GET /api/panes/activity` endpoint shares a four-second in-memory snapshot across browsers, bounds output per pane, and uses at most four concurrent socket reads. Errors are cached too; individual failed panes remain visible. The view refreshes about every four seconds while visible, stops polling when closed, and labels retained output as stale after a failed refresh. Output is volatile and responses use `Cache-Control: no-store`.
+The authenticated `GET /api/panes/activity` endpoint stays in the backend: it shares a four-second in-memory snapshot across browsers, bounds output per pane, and uses at most four concurrent socket reads. Errors are cached too; individual failed panes remain visible. Output is volatile and responses use `Cache-Control: no-store`.
 
 After deploying this branch, run `npm run build --prefix web`, restart `vp-of-agentry.service`, refresh the signed-in desk, and select **Herdr panes**. To validate without touching the running desk, build with `npm run build --prefix web -- --outDir /tmp/vp-herdr-build`, then run `.venv/bin/python tests/browser_herdr_panes.py /tmp/vp-herdr-build`. This optional Playwright check uses synthetic APIs and no owner credentials, covering desktop/mobile layout, polling, stale output, focus, and read-only requests. Backend coverage is included in the normal Python suite.
 
-## Operations metrics
+## Operations dashboard
+
+The **Operations dashboard** is a deterministic board. Every number is read from Dunking Sheep's daemon API (task queue, agent inboxes, scheduled dunks, live panes, daemon health) and from the private operations database (PM-reviewed accounting, quota readings, owner subscriptions, host samples). **No model is consulted**: `ops_board.py` is a projection, not a written summary, and a source that cannot be read stays `unavailable` with its age instead of turning into a zero.
+
+`ops_board.py` refreshes the board on a timer (30 seconds by default, `VP_OPS_BOARD_INTERVAL_S`) in a background thread, so the desk never waits on a refresh and the numbers move as operations happen. `GET /api/ops-board` returns the cached snapshot and `POST /api/ops-board/refresh` forces a fresh read. The view polls every 15 seconds and shows the age of the snapshot it is displaying, plus one chip per source so a failed read is visible.
+
+The previous metrics view (credit history charts, quota cards, cost planning) still works behind **Detailed reference** in the same page and behind `GET /api/ops-metrics`, `GET /api/ops-metrics/history`, and `POST /api/ops-metrics/refresh`.
+
+### Private collector
 
 The private collector stores timestamped observations in ignored `data/operations.sqlite3` (mode `0600`). Run `./install-ops-metrics-service.sh` to collect pane presence every minute; recent GitHub PR states and Dunking Sheep aggregate telemetry are polled at most every five minutes. Open **Operations dashboard** below Poolrad in the sidebar, or read `./opsctl summary` or authenticated `GET /api/ops-metrics`. Its **Refresh data** button calls authenticated `POST /api/ops-metrics/refresh` for a fresh sample, including external sources. The summary gives source ages and leaves unavailable sources unavailable. Pane presence is not verified coding output; recent PRs are not a whole-game denominator.
 

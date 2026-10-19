@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -88,6 +89,9 @@ READ_STATUS_WINDOW_S = 8 * 24 * 3600  # Inbox retains read messages for seven da
 PANES_ACTIVITY_TTL_S = 4
 PANES_ACTIVITY_LOCK = threading.Lock()
 PANES_ACTIVITY_CACHE = {"expires": 0.0, "data": None}
+POOLRAD_PROGRESS_TTL_S = 60
+POOLRAD_PROGRESS_CACHE = {"expires": 0.0, "data": None}
+DASHBOARD_MODULES: dict[str, object] = {}
 
 
 @contextmanager
@@ -383,6 +387,32 @@ def refresh_operations_metrics(_: Annotated[str, Depends(require_auth)]):
         raise HTTPException(503, f"Operations metrics unavailable: {type(exc).__name__}") from exc
 
 
+@app.get("/api/ops-board")
+def operations_board(_: Annotated[str, Depends(require_auth)]):
+    """The deterministic operations board.
+
+    Every value is read from Dunking Sheep or the private operations
+    database; no model is consulted. The response is a cached snapshot that a
+    background timer keeps current, so the desk never waits on a refresh.
+    """
+    import ops_board
+
+    try:
+        return ops_board.CACHE.snapshot()
+    except Exception as exc:  # noqa: BLE001 - the desk shows the error, not a stack trace
+        raise HTTPException(503, f"Operations board unavailable: {type(exc).__name__}") from exc
+
+
+@app.post("/api/ops-board/refresh")
+def refresh_operations_board(_: Annotated[str, Depends(require_auth)]):
+    import ops_board
+
+    try:
+        return ops_board.CACHE.refresh()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"Operations board unavailable: {type(exc).__name__}") from exc
+
+
 def _message(row, conn):
     item = dict(row)
     item["attachments"] = [dict(r) for r in conn.execute(
@@ -523,16 +553,23 @@ def _delivery_watch():
 
 @app.on_event("startup")
 def start_delivery_watch():
+    import ops_board
+
     GAME.recover_orphans()
     DELIVERY_STOP.clear()
     app.state.delivery_thread = threading.Thread(target=_delivery_watch, name="vp-delivery-watch", daemon=True)
     app.state.delivery_thread.start()
+    # The operations board refreshes itself on a timer; no model is involved.
+    ops_board.CACHE.start()
 
 
 @app.on_event("shutdown")
 def stop_delivery_watch():
+    import ops_board
+
     DELIVERY_STOP.set()
     app.state.delivery_thread.join(timeout=6)
+    ops_board.CACHE.stop()
     GAME.stop()
 
 
@@ -942,11 +979,102 @@ def activity(channel: str, _: Annotated[str, Depends(require_auth)]):
     return {"channel": channel, **_read_pane_activity(pane)}
 
 
+def _dashboard_module():
+    """Load the standalone Poolrad dashboard script as a module (cached)."""
+    script = DASHBOARD_DIR / "dashboard.py"
+    key = str(script)
+    module = DASHBOARD_MODULES.get(key)
+    if module is None:
+        if not script.is_file():
+            return None
+        spec = importlib.util.spec_from_file_location("vp_poolrad_dashboard", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        DASHBOARD_MODULES[key] = module
+    return module
+
+
+def _published_accounting():
+    """The latest PM-reviewed accounting snapshot (published main) in the ops DB."""
+    from ops_metrics import PROJECT, connect
+
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT commit_oid,strict_full_c,verified_game_identities,ceiling,bound_kind,"
+            "observed_at,evidence_ref FROM accounting_snapshots WHERE project=? "
+            "ORDER BY observed_at DESC,id DESC LIMIT 1", (PROJECT,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return {
+        "commit_oid": row["commit_oid"],
+        "observed_at": row["observed_at"],
+        "evidence_ref": row["evidence_ref"],
+        "accounting": {
+            "status": "reviewed",
+            "strict_full_c": row["strict_full_c"],
+            "verified_identities": row["verified_game_identities"],
+            "ceiling": row["ceiling"],
+            "bound_kind": row["bound_kind"],
+            "accounting_source": "docs/re/function_accounting_checkpoint.json",
+            "evidence_doc": row["evidence_ref"],
+        },
+    }
+
+
+@app.get("/api/poolrad-dashboard/progress")
+def poolrad_dashboard_progress(_: Annotated[str, Depends(require_auth)]):
+    """The compact Poolrad completion view: two percentages and one evidence line.
+
+    The numbers prefer the PM-reviewed checkpoint published on main (read from
+    the private operations database) and fall back to the configured checkout.
+    A source that cannot be read stays unavailable; it never becomes a zero.
+    """
+    module = _dashboard_module()
+    if module is None:
+        raise HTTPException(404, "Poolrad dashboard unavailable")
+    now = time.monotonic()
+    if now >= POOLRAD_PROGRESS_CACHE["expires"]:
+        try:
+            published = _published_accounting()
+            if published:
+                view = module.compact_view(
+                    DASHBOARD_REPO, published["accounting"],
+                    commit=published["commit_oid"], source="published main")
+                view["observed_at"] = published["observed_at"]
+            else:
+                view = module.progress(DASHBOARD_REPO)
+                view["observed_at"] = view.get("generated")
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - keep the error generic
+            raise HTTPException(503, "Poolrad dashboard progress unavailable") from exc
+        POOLRAD_PROGRESS_CACHE.update(data=view, expires=now + POOLRAD_PROGRESS_TTL_S)
+    view = dict(POOLRAD_PROGRESS_CACHE["data"] or {})
+    view["refresh_after_seconds"] = POOLRAD_PROGRESS_TTL_S
+    return view
+
+
 @app.post("/api/poolrad-dashboard/refresh")
 def refresh_poolrad_dashboard(_: Annotated[str, Depends(require_auth)]):
     script = DASHBOARD_DIR / "dashboard.py"
     if not script.is_file():
         raise HTTPException(404, "Poolrad dashboard unavailable")
+    published = None
+    try:
+        from ops_metrics import connect, published_accounting, record_accounting
+
+        published = published_accounting()
+        conn = connect()
+        try:
+            record_accounting(conn, published)
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - a stale published checkpoint still renders
+        published = None
     try:
         result = subprocess.run([sys.executable, str(script), "--repo", str(DASHBOARD_REPO), "render"], cwd=ROOT,
                                 capture_output=True, text=True, timeout=20, check=False)
@@ -954,7 +1082,8 @@ def refresh_poolrad_dashboard(_: Annotated[str, Depends(require_auth)]):
         raise HTTPException(503, "Poolrad dashboard refresh failed") from None
     if result.returncode or not (DASHBOARD_DIR / "dashboard.html").is_file():
         raise HTTPException(503, "Poolrad dashboard refresh failed")
-    return {"refreshed": True}
+    POOLRAD_PROGRESS_CACHE["expires"] = 0.0
+    return {"refreshed": True, "published_checkpoint": published["commit_oid"] if published else None}
 
 
 @app.get("/api/poolrad-dashboard/dashboard.html")
@@ -978,6 +1107,18 @@ def poolrad_dashboard_report(filename: str, _: Annotated[str, Depends(require_au
     return FileResponse(report, media_type="text/plain", headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     })
+
+
+@app.get("/api/herdr-webui")
+def herdr_webui(_: Annotated[str, Depends(require_auth)]):
+    """Where the full Herdr web UI lives, if it is configured.
+
+    The desk used to carry a read-only 'Herdr panes' grid; the live terminal
+    UI is a separate service (herdr-webui). This endpoint only names it, so
+    the desk can show the right frame or a link without guessing.
+    """
+    url = os.getenv("VP_HERDR_WEBUI_URL", "").strip()
+    return {"url": url, "available": bool(url), "label": os.getenv("VP_HERDR_WEBUI_LABEL", "Herdr web UI").strip()}
 
 
 @app.get("/api/health")

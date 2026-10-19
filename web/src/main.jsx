@@ -8,7 +8,6 @@ import ReactMarkdown from 'react-markdown';
 import TurndownService from 'turndown';
 import './style.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
-import { HerdrPanes } from './herdr-panes.jsx';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
@@ -316,7 +315,7 @@ function CoverageEconomics({ snapshot, history }) {
   </section>;
 }
 
-function OpsSummary() {
+function OpsSummary({ auto = true }) {
   const [snapshot, setSnapshot] = useState(null);
   const [history, setHistory] = useState(null);
   const [weekHistory, setWeekHistory] = useState(null);
@@ -333,6 +332,7 @@ function OpsSummary() {
     finally { setBusy(false); }
   }
   useEffect(() => {
+    if (!auto) return undefined;
     let active = true;
     const load = () => Promise.all([api('/ops-metrics'), api('/ops-metrics/history'), api('/ops-metrics/history?hours=168')])
       .then(([data, timeline, week]) => { if (active) { setSnapshot(data); setHistory(timeline); setWeekHistory(week); setError(''); } })
@@ -340,7 +340,7 @@ function OpsSummary() {
     load();
     const timer = setInterval(load, 60000);
     return () => { active = false; clearInterval(timer); };
-  }, []);
+  }, [auto]);
   const coderStates = snapshot?.staff?.coder || {};
   const coders = Object.values(coderStates).reduce((sum, count) => sum + count, 0);
   const progress = snapshot?.function_progress;
@@ -381,23 +381,159 @@ function OpsSummary() {
   </section>;
 }
 
-function PoolradDashboard() {
-  const [version, setVersion] = useState(0);
-  const [busy, setBusy] = useState(true);
+function HerdrWebUi() {
+  const [config, setConfig] = useState(null);
   const [error, setError] = useState('');
+  useEffect(() => {
+    api('/herdr-webui').then(data => setConfig(data)).catch(e => setError(e.message));
+  }, []);
+  return <section className="dashboard-view herdr-webui-view" aria-label="Herdr web UI">
+    <div className="dashboard-tools"><span>The live Herdr terminal UI runs as its own service; the desk only frames it.</span></div>
+    {error && <div className="dashboard-error" role="alert">{error}</div>}
+    {config && !config.available && <div className="dashboard-loading" role="status">The Herdr web UI is not configured on this host yet.</div>}
+    {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
+  </section>;
+}
+
+function OpsBoard() {
+  const [board, setBoard] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [legacyOpen, setLegacyOpen] = useState(false);
+  const [, setTick] = useState(0);
+
+  async function load() {
+    try { const data = await api('/ops-board'); setBoard(data); setError(''); }
+    catch (e) { setError(e.message); }
+  }
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 15000);
+    const age = setInterval(() => setTick(value => value + 1), 1000);
+    return () => { clearInterval(timer); clearInterval(age); };
+  }, []);
+  async function refresh() {
+    setBusy(true);
+    try { const data = await api('/ops-board/refresh', { method: 'POST' }); setBoard(data); setError(''); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  const head = board?.headline || {};
+  const boardAge = board?.generated_at
+    ? Math.max(0, Math.round((Date.now() - Date.parse(board.generated_at)) / 1000))
+    : null;
+  const tasks = board?.tasks || {};
+  const inbox = board?.inbox || {};
+  const dunks = board?.dunks || {};
+  const panes = board?.panes || {};
+  const daemon = board?.daemon || {};
+  const health = board?.health || {};
+  const opsDb = board?.ops_db || {};
+  const poolrad = board?.poolrad || {};
+  const sources = board?.sources || {};
+  const ago = seconds => {
+    if (seconds == null) return 'age unknown';
+    if (seconds < 90) return `${Math.max(0, Math.round(seconds))}s ago`;
+    if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
+    return `${(seconds / 3600).toFixed(1)}h ago`;
+  };
+  const share = value => value == null ? '—' : `${value}%`;
+  const duration = seconds => {
+    if (seconds == null) return 'unknown';
+    if (seconds < 90) return `${Math.max(0, Math.round(seconds))}s`;
+    if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
+    return `${(seconds / 3600).toFixed(1)}h`;
+  };
+  const unavailable = state => state !== 'ok';
+  return <section className="dashboard-view ops-view" aria-label="Operations board">
+    <div className="dashboard-tools"><span>Deterministic operations board · read from Dunking Sheep and the ops database · no model in the loop</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh now'}</button></div>
+    {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
+    {board && <div className="ops-board">
+      <div className="ops-board-head"><div><span className="ops-kicker">OPERATIONS BOARD</span><strong>Updated {ago(boardAge)}</strong></div>
+        <div className="ops-sources">{Object.entries(sources).map(([name, state]) => <span key={name} className={`ops-source ${unavailable(state) ? 'bad' : ''}`}>{name}</span>)}</div></div>
+      <div className="ops-stats">
+        <div><b>STRICT C</b><strong>{share(head.strict_percent)}</strong><small>{head.strict_full_c ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
+        <div><b>IDENTITIES</b><strong>{share(head.identity_percent)}</strong><small>{head.identities ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
+        <div><b>TASK QUEUE</b><strong>{head.task_depth ?? '—'}</strong><small>{head.task_open ?? '—'} open · {head.task_in_progress ?? '—'} active · {head.task_blocked ?? '—'} blocked</small></div>
+        <div><b>INBOX</b><strong>{head.inbox_unread ?? '—'}</strong><small>unread · oldest {ago(head.inbox_oldest_s)}</small></div>
+        <div><b>DUNKS</b><strong>{head.dunks_running ?? '—'}/{head.dunks_total ?? '—'}</strong><small>schedules running</small></div>
+        <div><b>AGENT PANES</b><strong>{head.panes_total ?? '—'}</strong><small>{head.panes_working ?? '—'} working</small></div>
+        <div><b>HOST /TMP</b><strong>{head.tmp_used_fraction == null ? '—' : `${Math.round(head.tmp_used_fraction * 100)}%`}</strong><small>{head.tmp_free_gib == null ? 'host sample unavailable' : `${head.tmp_free_gib} GiB free · load ${(head.load1 ?? 0).toFixed(1)} on ${head.cpus ?? '—'} CPUs`}</small></div>
+        <div><b>DAEMON</b><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available === false ? 'herdr unavailable' : `up ${duration(daemon.uptime_s)}`} · {daemon.queued_messages ?? 0} queued</small></div>
+      </div>
+      <div className="ops-board-grid">
+        <div className="ops-panel"><div className="ops-panel-head"><h3>Task queue</h3><span>{tasks.depth ?? '—'} active</span></div>
+          {tasks.state !== 'ok' ? <p className="ops-muted">Task queue unavailable ({tasks.error || 'unknown error'}).</p>
+            : <div className="ops-table-wrap"><table><thead><tr><th>ID</th><th>Task</th><th>Status</th><th>Assignee</th><th>Age</th></tr></thead><tbody>
+              {tasks.items.map(task => <tr key={task.id}><td>{task.id}</td><td>{task.title}<small>{task.priority} · {task.scope}{task.blocked_by?.length ? ` · blocked by ${task.blocked_by.join(', ')}` : ''}</small></td><td>{task.status}{task.lease_expires_in_s != null ? <small>lease in {duration(task.lease_expires_in_s)}</small> : null}</td><td>{task.assignees.join(', ') || '—'}</td><td>{ago(task.age_s)}</td></tr>)}
+              {!tasks.items.length && <tr><td colSpan="5">No open tasks.</td></tr>}
+            </tbody></table></div>}
+          {tasks.by_assignee?.length ? <small>Load: {tasks.by_assignee.map(row => `${row.assignee} ${row.count}`).join(' · ')}</small> : null}
+        </div>
+        <div className="ops-panel"><div className="ops-panel-head"><h3>Agent inboxes</h3><span>{inbox.unread_total ?? '—'} unread</span></div>
+          {inbox.state !== 'ok' ? <p className="ops-muted">Inbox statistics unavailable ({inbox.error || 'unknown error'}).</p>
+            : <div className="ops-table-wrap"><table><thead><tr><th>Mailbox</th><th>Unread</th><th>Total</th><th>Oldest</th></tr></thead><tbody>
+              {inbox.mailboxes.slice(0, 12).map(row => <tr key={row.mailbox}><td>{row.destination || row.mailbox}</td><td>{row.unread}</td><td>{row.total}</td><td>{row.unread ? ago(row.oldest_unread_s) : '—'}</td></tr>)}
+            </tbody></table></div>}
+        </div>
+        <div className="ops-panel"><div className="ops-panel-head"><h3>Scheduled dunks</h3><span>{dunks.running ?? '—'}/{dunks.total ?? '—'} running</span></div>
+          {dunks.state !== 'ok' ? <p className="ops-muted">Dunk schedule unavailable ({dunks.error || 'unknown error'}).</p>
+            : <div className="ops-table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Every</th><th>Next</th></tr></thead><tbody>
+              {dunks.items.map(dunk => <tr key={dunk.id}><td>{dunk.id}</td><td>{dunk.name}<small>{dunk.status}{dunk.skip_count ? ` · ${dunk.skip_count} skipped` : ''}{dunk.last_error ? ` · ${dunk.last_error}` : ''}</small></td><td>{dunk.target_label || dunk.target}</td><td>{dunk.interval_minutes}m</td><td>{dunk.running && dunk.next_send_in_s != null ? `in ${Math.round(dunk.next_send_in_s / 60)}m` : 'stopped'}</td></tr>)}
+              {!dunks.items.length && <tr><td colSpan="5">No schedules.</td></tr>}
+            </tbody></table></div>}
+        </div>
+        <div className="ops-panel"><div className="ops-panel-head"><h3>Host and daemon health</h3><span>{health.state === 'ok' ? (health.ok ? 'healthy' : 'problems') : 'unavailable'}</span></div>
+          <ul className="ops-health">
+            <li><span>Daemon</span><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available ? 'herdr connected' : `herdr unavailable: ${daemon.herdr_hint || 'unknown'}`}</small></li>
+            <li><span>Memory index</span><strong>{health.memory_chunks ?? '—'} chunks</strong><small>{health.memory_sources ?? '—'} sources · queue depth {health.queue_depth ?? '—'}</small></li>
+            <li><span>Host sample</span><strong>{head.tmp_used_fraction == null ? 'unavailable' : `${Math.round(head.tmp_used_fraction * 100)}% /tmp`}</strong><small>{head.tmp_free_gib == null ? 'no saved sample' : `${head.tmp_free_gib} GiB free · inodes and CPU pressure in the reference view`}</small></li>
+            <li><span>Published checkpoint</span><strong>{poolrad.commit_oid ? poolrad.commit_oid.slice(0, 8) : 'unavailable'}</strong><small>{poolrad.observed_at ? `observed ${ago(poolrad.age_s)}` : 'no reviewed accounting snapshot'}</small></li>
+          </ul>
+          {health.problems?.length ? <p className="ops-warn">Health problems: {health.problems.join('; ')}</p> : null}
+        </div>
+      </div>
+      <details className="ops-reference" onToggle={event => setLegacyOpen(event.target.open)}><summary>Detailed reference: credit history, quotas, and cost planning</summary>
+        {legacyOpen && <OpsSummary auto={legacyOpen} />}</details>
+      <p className="ops-limits">{(board?.limits || []).join(' ')}</p>
+    </div>}
+  </section>;
+}
+
+function PoolradProgress() {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function load(force) {
+    if (force) setBusy(true);
+    try {
+      const result = await api('/poolrad-dashboard/progress');
+      setData(result); setError('');
+    } catch (e) { if (force) setError(e.message); } finally { if (force) setBusy(false); }
+  }
+  useEffect(() => {
+    load(false);
+    const timer = setInterval(() => load(false), 60000);
+    return () => clearInterval(timer);
+  }, []);
   async function refresh() {
     setBusy(true); setError('');
-    try {
-      await api('/poolrad-dashboard/refresh', { method: 'POST' });
-      setVersion(current => current + 1);
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
+    try { await api('/poolrad-dashboard/refresh', { method: 'POST' }); await load(false); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-  useEffect(() => { refresh(); }, []);
-  return <section className="dashboard-view" aria-label="Poolrad progress dashboard">
-    <div className="dashboard-tools"><span>Function coverage and demo gate · dashboard checkout shown inside</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
-    {error ? <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>
-      : busy ? <div className="dashboard-loading" role="status">Building Poolrad evidence snapshot…</div>
-        : <iframe key={version} title="Poolrad function progress and evidence" src={`/api/poolrad-dashboard/dashboard.html?v=${version}`} sandbox="allow-scripts" />}
+  const share = value => value == null ? '—' : `${value}%`;
+  const width = value => value == null ? 0 : Math.max(0, Math.min(100, value));
+  const ready = data && data.status === 'reviewed' && data.ceiling;
+  return <section className="dashboard-view poolrad-view" aria-label="Poolrad completion">
+    <div className="dashboard-tools"><span>Completion against the PM-reviewed {data?.ceiling ?? 815} upper bound · published checkpoint</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
+    {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
+    {!data && !error && <div className="dashboard-loading" role="status">Reading the published checkpoint…</div>}
+    {data && <div className="poolrad-hero">
+      <div className="poolrad-stat"><div className="num">{share(data.strict_percent)}</div><div className="label">STRICT C</div><div className="sub">{data.strict_full_c} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="track"><i style={{ width: `${width(data.strict_percent)}%` }} /></div></div>
+      <div className="poolrad-stat"><div className="num">{share(data.identity_percent)}</div><div className="label">IDENTITIES</div><div className="sub">{data.identities} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="track"><i style={{ width: `${width(data.identity_percent)}%` }} /></div></div>
+    </div>}
+    {data && <p className="poolrad-evidence">{data.evidence_line}</p>}
+    {data && <p className="poolrad-meta">generated {new Date(data.generated).toLocaleString()} · source {data.source} · commit {(data.commit || '').slice(0, 8) || '—'} · {ready ? `${data.remaining} candidate targets still uncredited` : 'reviewed checkpoint unavailable'}</p>}
   </section>;
 }
 
@@ -665,14 +801,14 @@ function Desk({ onLogout }) {
       <div className="sidebar-section">PROJECT VIEW · {new Set(channels.filter(c => c.online && c.workspace).map(c => c.workspace)).size} live spaces</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'ops' ? 'selected' : ''}`} onClick={() => setDashboardView('ops')}><span aria-hidden="true">▤</span><span>Operations dashboard</span><small>metrics</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'play' ? 'selected' : ''}`} onClick={() => setDashboardView('play')}><span aria-hidden="true">▶</span><span>Play Poolrad</span><small>live game</small></button>
-      <button className={`channel dashboard-nav ${dashboardView === 'panes' ? 'selected' : ''}`} onClick={() => setDashboardView('panes')}><span aria-hidden="true">▦</span><span>Herdr panes</span><small>live output</small></button>
+      <button className={`channel dashboard-nav ${dashboardView === 'herdr' ? 'selected' : ''}`} onClick={() => setDashboardView('herdr')}><span aria-hidden="true">▦</span><span>Herdr web UI</span><small>live terminals</small></button>
       <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.activity_group === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.activity_group !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : dashboardView === 'panes' ? 'PROJECT VIEW / HERDR' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad evidence dashboard' : dashboardView === 'ops' ? 'Operations dashboard' : dashboardView === 'play' ? 'Play Pool of Radiance' : dashboardView === 'panes' ? 'Herdr panes' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
+    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : dashboardView === 'herdr' ? 'PROJECT VIEW / HERDR' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad completion' : dashboardView === 'ops' ? 'Operations dashboard' : dashboardView === 'play' ? 'Play Pool of Radiance' : dashboardView === 'herdr' ? 'Herdr web UI' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      {dashboardView === 'panes' ? <HerdrPanes api={api} /> : dashboardView === 'poolrad' ? <PoolradDashboard /> : dashboardView === 'ops' ? <OpsSummary /> : dashboardView === 'play' ? <PoolradPlay vpChannel={channels.find(c => c.id === 'vp')} /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
+      {dashboardView === 'herdr' ? <HerdrWebUi /> : dashboardView === 'poolrad' ? <PoolradProgress /> : dashboardView === 'ops' ? <OpsBoard /> : dashboardView === 'play' ? <PoolradPlay vpChannel={channels.find(c => c.id === 'vp')} /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
         <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
       </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>

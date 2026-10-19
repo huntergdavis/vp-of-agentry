@@ -522,15 +522,23 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
                  json.dumps(metrics, separators=(",", ":"), sort_keys=True)),
             )
         if accounting is not None:
-            conn.execute(
-                "INSERT OR IGNORE INTO accounting_snapshots"
-                "(project,observed_at,commit_oid,strict_full_c,verified_game_identities,ceiling,bound_kind,source_signature,evidence_ref) "
-                "VALUES(?,?,?,?,?,?,?,?,?)",
-                (PROJECT, observed_at, accounting["commit_oid"], accounting["strict_full_c"],
-                 accounting["verified_game_identities"], accounting["ceiling"],
-                 accounting["bound_kind"], accounting["source_signature"], accounting["evidence_ref"]),
-            )
+            record_accounting(conn, accounting, observed_at=observed_at)
     return summary(conn, now=now)
+
+
+def record_accounting(conn: sqlite3.Connection, accounting: dict,
+                      *, observed_at: str | None = None) -> None:
+    """Store one PM-reviewed accounting snapshot (published main)."""
+    when = iso(parse_time(observed_at)) if observed_at else iso(utc_now())
+    with conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO accounting_snapshots"
+            "(project,observed_at,commit_oid,strict_full_c,verified_game_identities,ceiling,bound_kind,source_signature,evidence_ref) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (PROJECT, when, accounting["commit_oid"], accounting["strict_full_c"],
+             accounting["verified_game_identities"], accounting["ceiling"],
+             accounting["bound_kind"], accounting["source_signature"], accounting["evidence_ref"]),
+        )
 
 
 def record_quota(
