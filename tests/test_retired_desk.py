@@ -72,7 +72,7 @@ class RetiredDeskTests(unittest.TestCase):
 
     def test_every_retired_path_redirects_to_the_shell(self):
         for path in ("/conversation", "/search", "/activity", "/editor", "/roster",
-                     "/nonsense", "/api-unknown", "/dashboards"):
+                     "/nonsense", "/api-unknown", "/dashboards", "/index.html"):
             response = self.redirect_for(path)
             self.assertEqual(308, response.status_code, f"{path} did not redirect")
             self.assertEqual("http://cell:8789/", response.headers["location"], path)
@@ -112,6 +112,13 @@ class RetiredDeskTests(unittest.TestCase):
                      "/api", "/api/health", "/api/login", "/api/ops-board", "/assets/index-x.js"):
             response = self.redirect_for(path)
             self.assertEqual(200, response.status_code, f"{path} was redirected away")
+
+    def test_the_bundle_file_itself_is_retired(self):
+        # The bundle is reachable at "/" (the password page) and at the /dash/*
+        # documents; a direct hit on the file is retired like everything else.
+        response = self.redirect_for("/index.html")
+        self.assertEqual(308, response.status_code)
+        self.assertEqual("http://cell:8789/", response.headers["location"])
 
     def test_no_redirect_can_bounce_back_to_the_desk(self):
         for path in ("/", "/conversation", "/session/default", "/nonsense", "/poolrad"):

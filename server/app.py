@@ -1279,9 +1279,11 @@ def _desk_keeps(path: str) -> bool:
 
     The middleware runs before routing, so the retired aliases below are
     listed here: they are answered by the shell redirect, not by the routes
-    below them.
+    below them. /index.html is not kept: the bundle is reachable at "/" (the
+    password page) and at the /dash/* documents, so a direct hit on the
+    bundle file is retired with everything else.
     """
-    if path in ("/api", "/dash", "/assets", "/index.html"):
+    if path in ("/api", "/dash", "/assets"):
         return True
     return any(path.startswith(prefix + "/") for prefix in DESK_KEPT_PREFIXES)
 
