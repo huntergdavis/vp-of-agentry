@@ -30,9 +30,39 @@ Host health monitoring: `./install-host-watch-service.sh` installs a separate us
 
 The UI reuses MIT licensed [ChatScope](https://github.com/chatscope/chat-ui-kit-react), [Tiptap](https://github.com/ueberdosis/tiptap), [Turndown](https://github.com/mixmark-io/turndown), and [react-markdown](https://github.com/remarkjs/react-markdown). Open WebUI and LibreChat were evaluated, but their model-provider paths need an adapter to target a running Herdr pane and local guarded queue.
 
+## Dashboard routes
+
+Each dashboard has one clean standalone route that renders without the desk
+sidebar or nav chrome, so the herdr web UI can frame it:
+
+| Route | Dashboard |
+| --- | --- |
+| `/dash/poolrad` | Poolrad completion: two percentages and one evidence line |
+| `/dash/operations` | Operations board: deterministic, refreshed on a timer |
+| `/dash/play` | Play Poolrad: the live private DOS run |
+| `/dash/vp` | VP of Agentry: the agent conversation |
+
+`/dash` redirects to `/dash/poolrad`, and the older paths `/poolrad`,
+`/operations`, `/play` and `/vp` redirect to the new routes, so no bookmark
+404s. A trailing slash (`/dash/poolrad/`) redirects to the canonical path.
+
+The routes use the same `vp_session` cookie as the desk, so a framed dashboard
+needs no second login. **Without a live session a dashboard route never serves
+dashboard content**: the request is redirected (302) to the password UI with a
+return target, `/?next=<path>`, and after a successful sign-in the desk goes
+straight back to that dashboard. The return target is validated on the server:
+a path is always accepted, and an absolute URL only when it names this host
+and a port the desk owns (its own port, or the Herdr web UI port that proxies
+to it). Anything else falls back to the desk.
+
+Frame the routes with the host the owner signed in on, not a hard-coded
+address: `http://<request host>:8787/dash/<name>`. The session cookie is bound
+to that hostname, so a frame pointed elsewhere gets no cookie and shows the
+password UI instead of the dashboard.
+
 ## Poolrad dashboard
 
-Choose **Poolrad dashboard** in the desk sidebar to see two completion numbers and one evidence line: **strict C** and **verified identities**, each as a percentage of the PM-reviewed 815 upper bound, plus a single line naming the published checkpoint, the scoped pixel comparisons behind it, and the fact that this is not whole-game completion. The long prose was removed on purpose; the research snapshot keeps the full candidate list.
+Choose **Poolrad dashboard** in the desk sidebar, or open `/dash/poolrad` on its own, to see two completion numbers and one evidence line: **strict C** and **verified identities**, each as a percentage of the PM-reviewed 815 upper bound, plus a single line naming the published checkpoint, the scoped pixel comparisons behind it, and the fact that this is not whole-game completion. The long prose was removed on purpose; the research snapshot keeps the full candidate list.
 
 The numbers come from the PM-reviewed accounting checkpoint published on `main`, read through the private operations database, and fall back to the configured local checkout when no published snapshot is stored yet. **Refresh snapshot** re-reads the published checkpoint, records it, and regenerates the standalone HTML page; it does not rerun verification. `GET /api/poolrad-dashboard/progress` returns the same compact view as JSON (cached for a minute); `GET /api/poolrad-dashboard/dashboard.html` still serves the standalone page and `state/reports/{file}` serves the cited public report copies, both behind owner auth.
 
@@ -104,7 +134,7 @@ After deploying this branch, run `npm run build --prefix web`, restart `vp-of-ag
 
 ## Operations dashboard
 
-The **Operations dashboard** is a deterministic board. Every number is read from Dunking Sheep's daemon API (task queue, agent inboxes, scheduled dunks, live panes, daemon health) and from the private operations database (PM-reviewed accounting, quota readings, owner subscriptions, host samples). **No model is consulted**: `ops_board.py` is a projection, not a written summary, and a source that cannot be read stays `unavailable` with its age instead of turning into a zero.
+The **Operations dashboard** is a deterministic board, also served on its own at `/dash/operations`. Every number is read from Dunking Sheep's daemon API (task queue, agent inboxes, scheduled dunks, live panes, daemon health) and from the private operations database (PM-reviewed accounting, quota readings, owner subscriptions, host samples). **No model is consulted**: `ops_board.py` is a projection, not a written summary, and a source that cannot be read stays `unavailable` with its age instead of turning into a zero.
 
 `ops_board.py` refreshes the board on a timer (30 seconds by default, `VP_OPS_BOARD_INTERVAL_S`) in a background thread, so the desk never waits on a refresh and the numbers move as operations happen. `GET /api/ops-board` returns the cached snapshot and `POST /api/ops-board/refresh` forces a fresh read. The view polls every 15 seconds and shows the age of the snapshot it is displaying, plus one chip per source so a failed read is visible.
 

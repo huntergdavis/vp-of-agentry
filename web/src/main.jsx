@@ -7,6 +7,7 @@ import StarterKit from '@tiptap/starter-kit';
 import ReactMarkdown from 'react-markdown';
 import TurndownService from 'turndown';
 import './style.css';
+import './dash.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 
@@ -23,14 +24,62 @@ const api = async (path, options = {}) => {
   return response.json();
 };
 
+const DASH_ROUTES = {
+  poolrad: { eyebrow: 'POOLRAD', title: 'Original C bodies', subtitle: 'Completion against the PM-reviewed 815 upper bound' },
+  operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
+  play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
+  vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
+};
+
+function useDashRoute() {
+  const [path, setPath] = useState(() => window.location.pathname);
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  const match = /^\/dash\/([a-z]+)\/?$/.exec(path);
+  const view = match ? match[1] : 'poolrad';
+  return { standalone: path === '/dash' || path.startsWith('/dash/'), view, known: view in DASH_ROUTES };
+}
+
+function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
+  return <header className="dash-header">
+    <div><span className="dash-eyebrow">{eyebrow}</span><h1>{title}</h1>{subtitle && <p className="dash-subtitle">{subtitle}</p>}</div>
+    <div className="dash-side">
+      {side}
+      {view && !standalone && <a className="dash-link" href={`/dash/${view}`} title="Open this dashboard on its own route">Standalone ↗</a>}
+    </div>
+  </header>;
+}
+
+function DashNav({ view }) {
+  return <nav className="dash-nav" aria-label="Dashboards">
+    <span className="dash-nav-brand"><span className="dash-nav-mark">VA</span>VP OF AGENTRY</span>
+    <span className="dash-nav-links">
+      {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
+    </span>
+    <span className="dash-nav-right"><a className="dash-link" href="/">Open the desk ↗</a></span>
+  </nav>;
+}
+
+function DashShell({ standalone, view, children }) {
+  return <div className={`dash-root ${standalone ? 'dash-standalone' : 'dash-embedded'}`}>
+    {standalone && <DashNav view={view} />}
+    {children}
+  </div>;
+}
+
 function Login({ onSuccess }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [next] = useState(() => new URLSearchParams(window.location.search).get('next') || '');
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      await api('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+      const result = await api('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password, next }) });
+      if (result.next) { window.location.assign(result.next); return; }
       onSuccess();
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -387,15 +436,17 @@ function HerdrWebUi() {
   useEffect(() => {
     api('/herdr-webui').then(data => setConfig(data)).catch(e => setError(e.message));
   }, []);
-  return <section className="dashboard-view herdr-webui-view" aria-label="Herdr web UI">
-    <div className="dashboard-tools"><span>The live Herdr terminal UI runs as its own service; the desk only frames it.</span></div>
-    {error && <div className="dashboard-error" role="alert">{error}</div>}
-    {config && !config.available && <div className="dashboard-loading" role="status">The Herdr web UI is not configured on this host yet.</div>}
-    {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
-  </section>;
+  return <DashShell standalone={false} view="herdr">
+    <DashHeader eyebrow="LIVE TERMINALS" title="Herdr web UI" subtitle="The live terminal shell runs as its own service; the desk only frames it" />
+    <div className="dash-body" style={{ padding: 0, display: 'flex' }}>
+      {error && <div className="dash-error" role="alert">{error}</div>}
+      {config && !config.available && <div className="dash-empty" style={{ margin: 20 }}>The Herdr web UI is not configured on this host yet.</div>}
+      {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
+    </div>
+  </DashShell>;
 }
 
-function OpsBoard() {
+function OpsBoard({ standalone = false }) {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -445,62 +496,68 @@ function OpsBoard() {
     return `${(seconds / 3600).toFixed(1)}h`;
   };
   const unavailable = state => state !== 'ok';
-  return <section className="dashboard-view ops-view" aria-label="Operations board">
-    <div className="dashboard-tools"><span>Deterministic operations board · read from Dunking Sheep and the ops database · no model in the loop</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh now'}</button></div>
-    {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
-    {board && <div className="ops-board">
-      <div className="ops-board-head"><div><span className="ops-kicker">OPERATIONS BOARD</span><strong>Updated {ago(boardAge)}</strong></div>
-        <div className="ops-sources">{Object.entries(sources).map(([name, state]) => <span key={name} className={`ops-source ${unavailable(state) ? 'bad' : ''}`}>{name}</span>)}</div></div>
-      <div className="ops-stats">
-        <div><b>STRICT C</b><strong>{share(head.strict_percent)}</strong><small>{head.strict_full_c ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
-        <div><b>IDENTITIES</b><strong>{share(head.identity_percent)}</strong><small>{head.identities ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
-        <div><b>TASK QUEUE</b><strong>{head.task_depth ?? '—'}</strong><small>{head.task_open ?? '—'} open · {head.task_in_progress ?? '—'} active · {head.task_blocked ?? '—'} blocked</small></div>
-        <div><b>INBOX</b><strong>{head.inbox_unread ?? '—'}</strong><small>unread · oldest {ago(head.inbox_oldest_s)}</small></div>
-        <div><b>DUNKS</b><strong>{head.dunks_running ?? '—'}/{head.dunks_total ?? '—'}</strong><small>schedules running</small></div>
-        <div><b>AGENT PANES</b><strong>{head.panes_total ?? '—'}</strong><small>{head.panes_working ?? '—'} working</small></div>
-        <div><b>HOST /TMP</b><strong>{head.tmp_used_fraction == null ? '—' : `${Math.round(head.tmp_used_fraction * 100)}%`}</strong><small>{head.tmp_free_gib == null ? 'host sample unavailable' : `${head.tmp_free_gib} GiB free · load ${(head.load1 ?? 0).toFixed(1)} on ${head.cpus ?? '—'} CPUs`}</small></div>
-        <div><b>DAEMON</b><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available === false ? 'herdr unavailable' : `up ${duration(daemon.uptime_s)}`} · {daemon.queued_messages ?? 0} queued</small></div>
-      </div>
-      <div className="ops-board-grid">
-        <div className="ops-panel"><div className="ops-panel-head"><h3>Task queue</h3><span>{tasks.depth ?? '—'} active</span></div>
-          {tasks.state !== 'ok' ? <p className="ops-muted">Task queue unavailable ({tasks.error || 'unknown error'}).</p>
-            : <div className="ops-table-wrap"><table><thead><tr><th>ID</th><th>Task</th><th>Status</th><th>Assignee</th><th>Age</th></tr></thead><tbody>
-              {tasks.items.map(task => <tr key={task.id}><td>{task.id}</td><td>{task.title}<small>{task.priority} · {task.scope}{task.blocked_by?.length ? ` · blocked by ${task.blocked_by.join(', ')}` : ''}</small></td><td>{task.status}{task.lease_expires_in_s != null ? <small>lease in {duration(task.lease_expires_in_s)}</small> : null}</td><td>{task.assignees.join(', ') || '—'}</td><td>{ago(task.age_s)}</td></tr>)}
-              {!tasks.items.length && <tr><td colSpan="5">No open tasks.</td></tr>}
-            </tbody></table></div>}
-          {tasks.by_assignee?.length ? <small>Load: {tasks.by_assignee.map(row => `${row.assignee} ${row.count}`).join(' · ')}</small> : null}
+  const route = DASH_ROUTES.operations;
+  return <DashShell standalone={standalone} view="operations">
+    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="operations" standalone={standalone} side={<>
+      <span className="dash-meta">updated {ago(boardAge)}</span>
+      <button className="dash-primary" onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh now'}</button>
+    </>} />
+    <div className="dash-body">
+      {error && <div className="dash-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
+      {!board && !error && <div className="dash-empty" role="status">Reading the board…</div>}
+      {board && <>
+        <div className="dash-chips" style={{ marginBottom: 12 }}>{Object.entries(sources).map(([name, state]) => <span key={name} className={`dash-chip ${unavailable(state) ? 'bad' : 'ok'}`}>{name}</span>)}</div>
+        <div className="dash-stats">
+          <div className="dash-stat accent"><b>STRICT C</b><strong>{share(head.strict_percent)}</strong><small>{head.strict_full_c ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
+          <div className="dash-stat accent"><b>IDENTITIES</b><strong>{share(head.identity_percent)}</strong><small>{head.identities ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
+          <div className="dash-stat"><b>TASK QUEUE</b><strong>{head.task_depth ?? '—'}</strong><small>{head.task_open ?? '—'} open · {head.task_in_progress ?? '—'} active · {head.task_blocked ?? '—'} blocked</small></div>
+          <div className="dash-stat"><b>INBOX</b><strong>{head.inbox_unread ?? '—'}</strong><small>unread · oldest {ago(head.inbox_oldest_s)}</small></div>
+          <div className="dash-stat"><b>DUNKS</b><strong>{head.dunks_running ?? '—'}/{head.dunks_total ?? '—'}</strong><small>schedules running</small></div>
+          <div className="dash-stat"><b>AGENT PANES</b><strong>{head.panes_total ?? '—'}</strong><small>{head.panes_working ?? '—'} working</small></div>
+          <div className="dash-stat"><b>HOST /TMP</b><strong>{head.tmp_used_fraction == null ? '—' : `${Math.round(head.tmp_used_fraction * 100)}%`}</strong><small>{head.tmp_free_gib == null ? 'host sample unavailable' : `${head.tmp_free_gib} GiB free · load ${(head.load1 ?? 0).toFixed(1)} on ${head.cpus ?? '—'} CPUs`}</small></div>
+          <div className="dash-stat"><b>DAEMON</b><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available === false ? 'herdr unavailable' : `up ${duration(daemon.uptime_s)}`} · {daemon.queued_messages ?? 0} queued</small></div>
         </div>
-        <div className="ops-panel"><div className="ops-panel-head"><h3>Agent inboxes</h3><span>{inbox.unread_total ?? '—'} unread</span></div>
-          {inbox.state !== 'ok' ? <p className="ops-muted">Inbox statistics unavailable ({inbox.error || 'unknown error'}).</p>
-            : <div className="ops-table-wrap"><table><thead><tr><th>Mailbox</th><th>Unread</th><th>Total</th><th>Oldest</th></tr></thead><tbody>
-              {inbox.mailboxes.slice(0, 12).map(row => <tr key={row.mailbox}><td>{row.destination || row.mailbox}</td><td>{row.unread}</td><td>{row.total}</td><td>{row.unread ? ago(row.oldest_unread_s) : '—'}</td></tr>)}
-            </tbody></table></div>}
+        <div className="dash-grid">
+          <div className="dash-panel"><div className="dash-panel-head"><h3>Task queue</h3><span>{tasks.depth ?? '—'} active</span></div>
+            {tasks.state !== 'ok' ? <p className="dash-empty">Task queue unavailable ({tasks.error || 'unknown error'}).</p>
+              : <div className="dash-table-wrap"><table><thead><tr><th>ID</th><th>Task</th><th>Status</th><th>Assignee</th><th>Age</th></tr></thead><tbody>
+                {tasks.items.map(task => <tr key={task.id}><td>{task.id}</td><td>{task.title}<small>{task.priority} · {task.scope}{task.blocked_by?.length ? ` · blocked by ${task.blocked_by.join(', ')}` : ''}</small></td><td>{task.status}{task.lease_expires_in_s != null ? <small>lease in {duration(task.lease_expires_in_s)}</small> : null}</td><td>{task.assignees.join(', ') || '—'}</td><td>{ago(task.age_s)}</td></tr>)}
+                {!tasks.items.length && <tr><td colSpan="5">No open tasks.</td></tr>}
+              </tbody></table></div>}
+            {tasks.by_assignee?.length ? <small className="dash-meta-line">Load: {tasks.by_assignee.map(row => `${row.assignee} ${row.count}`).join(' · ')}</small> : null}
+          </div>
+          <div className="dash-panel"><div className="dash-panel-head"><h3>Agent inboxes</h3><span>{inbox.unread_total ?? '—'} unread</span></div>
+            {inbox.state !== 'ok' ? <p className="dash-empty">Inbox statistics unavailable ({inbox.error || 'unknown error'}).</p>
+              : <div className="dash-table-wrap"><table><thead><tr><th>Mailbox</th><th>Unread</th><th>Total</th><th>Oldest</th></tr></thead><tbody>
+                {inbox.mailboxes.slice(0, 12).map(row => <tr key={row.mailbox}><td>{row.destination || row.mailbox}</td><td>{row.unread}</td><td>{row.total}</td><td>{row.unread ? ago(row.oldest_unread_s) : '—'}</td></tr>)}
+              </tbody></table></div>}
+          </div>
+          <div className="dash-panel"><div className="dash-panel-head"><h3>Scheduled dunks</h3><span>{dunks.running ?? '—'}/{dunks.total ?? '—'} running{dunks.failed ? ` · ${dunks.failed} with a last error` : ''}</span></div>
+            {dunks.state !== 'ok' ? <p className="dash-empty">Dunk schedule unavailable ({dunks.error || 'unknown error'}).</p>
+              : <div className="dash-table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Every</th><th>Next</th></tr></thead><tbody>
+                {dunks.items.map(dunk => <tr key={dunk.id}><td>{dunk.id}</td><td>{dunk.name}<small>{dunk.status}{dunk.send_count != null ? ` · ${dunk.send_count} sent` : ''}{dunk.skip_count ? ` · ${dunk.skip_count} skipped` : ''}{dunk.last_error ? ` · last error: ${dunk.last_error}` : ''}{dunk.last_sent_age_s != null ? ` · last send ${ago(dunk.last_sent_age_s)}` : ''}</small></td><td>{dunk.target_label || dunk.target}</td><td>{dunk.interval_minutes}m</td><td>{dunk.running && dunk.next_send_in_s != null ? `in ${Math.round(dunk.next_send_in_s / 60)}m` : 'stopped'}</td></tr>)}
+                {!dunks.items.length && <tr><td colSpan="5">No schedules.</td></tr>}
+              </tbody></table></div>}
+          </div>
+          <div className="dash-panel"><div className="dash-panel-head"><h3>Host and daemon health</h3><span>{health.state === 'ok' ? (health.ok ? 'healthy' : 'problems') : 'unavailable'}</span></div>
+            <ul className="dash-health">
+              <li><span>Daemon</span><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available ? 'herdr connected' : `herdr unavailable: ${daemon.herdr_hint || 'unknown'}`}</small></li>
+              <li><span>Memory index</span><strong>{health.memory_chunks ?? '—'} chunks</strong><small>{health.memory_sources ?? '—'} sources · queue depth {health.queue_depth ?? '—'}</small></li>
+              <li><span>Host sample</span><strong>{head.tmp_used_fraction == null ? 'unavailable' : `${Math.round(head.tmp_used_fraction * 100)}% /tmp`}</strong><small>{head.tmp_free_gib == null ? 'no saved sample' : `${head.tmp_free_gib} GiB free · inodes and CPU pressure in the reference view`}</small></li>
+              <li><span>Published checkpoint</span><strong>{poolrad.commit_oid ? poolrad.commit_oid.slice(0, 8) : 'unavailable'}</strong><small>{poolrad.observed_at ? `observed ${ago(poolrad.age_s)}` : 'no reviewed accounting snapshot'}</small></li>
+            </ul>
+            {health.problems?.length ? <p className="dash-error">Health problems: {health.problems.join('; ')}</p> : null}
+          </div>
         </div>
-        <div className="ops-panel"><div className="ops-panel-head"><h3>Scheduled dunks</h3><span>{dunks.running ?? '—'}/{dunks.total ?? '—'} running{dunks.failed ? ` · ${dunks.failed} with a last error` : ''}</span></div>
-          {dunks.state !== 'ok' ? <p className="ops-muted">Dunk schedule unavailable ({dunks.error || 'unknown error'}).</p>
-            : <div className="ops-table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Every</th><th>Next</th></tr></thead><tbody>
-              {dunks.items.map(dunk => <tr key={dunk.id}><td>{dunk.id}</td><td>{dunk.name}<small>{dunk.status}{dunk.send_count != null ? ` · ${dunk.send_count} sent` : ''}{dunk.skip_count ? ` · ${dunk.skip_count} skipped` : ''}{dunk.last_error ? ` · last error: ${dunk.last_error}` : ''}{dunk.last_sent_age_s != null ? ` · last send ${ago(dunk.last_sent_age_s)}` : ''}</small></td><td>{dunk.target_label || dunk.target}</td><td>{dunk.interval_minutes}m</td><td>{dunk.running && dunk.next_send_in_s != null ? `in ${Math.round(dunk.next_send_in_s / 60)}m` : 'stopped'}</td></tr>)}
-              {!dunks.items.length && <tr><td colSpan="5">No schedules.</td></tr>}
-            </tbody></table></div>}
-        </div>
-        <div className="ops-panel"><div className="ops-panel-head"><h3>Host and daemon health</h3><span>{health.state === 'ok' ? (health.ok ? 'healthy' : 'problems') : 'unavailable'}</span></div>
-          <ul className="ops-health">
-            <li><span>Daemon</span><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available ? 'herdr connected' : `herdr unavailable: ${daemon.herdr_hint || 'unknown'}`}</small></li>
-            <li><span>Memory index</span><strong>{health.memory_chunks ?? '—'} chunks</strong><small>{health.memory_sources ?? '—'} sources · queue depth {health.queue_depth ?? '—'}</small></li>
-            <li><span>Host sample</span><strong>{head.tmp_used_fraction == null ? 'unavailable' : `${Math.round(head.tmp_used_fraction * 100)}% /tmp`}</strong><small>{head.tmp_free_gib == null ? 'no saved sample' : `${head.tmp_free_gib} GiB free · inodes and CPU pressure in the reference view`}</small></li>
-            <li><span>Published checkpoint</span><strong>{poolrad.commit_oid ? poolrad.commit_oid.slice(0, 8) : 'unavailable'}</strong><small>{poolrad.observed_at ? `observed ${ago(poolrad.age_s)}` : 'no reviewed accounting snapshot'}</small></li>
-          </ul>
-          {health.problems?.length ? <p className="ops-warn">Health problems: {health.problems.join('; ')}</p> : null}
-        </div>
-      </div>
-      <details className="ops-reference" onToggle={event => setLegacyOpen(event.target.open)}><summary>Detailed reference: credit history, quotas, and cost planning</summary>
-        {legacyOpen && <OpsSummary auto={legacyOpen} />}</details>
-      <p className="ops-limits">{(board?.limits || []).join(' ')}</p>
-    </div>}
-  </section>;
+        <details className="dash-reference" onToggle={event => setLegacyOpen(event.target.open)}><summary>Detailed reference: credit history, quotas, and cost planning</summary>
+          {legacyOpen && <OpsSummary auto={legacyOpen} />}</details>
+        <p className="dash-limits">{(board?.limits || []).join(' ')}</p>
+      </>}
+    </div>
+  </DashShell>;
 }
 
-function PoolradProgress() {
+function PoolradProgress({ standalone = false }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -523,22 +580,29 @@ function PoolradProgress() {
   }
   const share = value => value == null ? '—' : `${value}%`;
   const width = value => value == null ? 0 : Math.max(0, Math.min(100, value));
-  const ready = data && data.status === 'reviewed' && data.ceiling;
-  return <section className="dashboard-view poolrad-view" aria-label="Poolrad completion">
-    <div className="dashboard-tools"><span>Completion against the PM-reviewed {data?.ceiling ?? 815} upper bound · published checkpoint</span><button onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button></div>
-    {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
-    {!data && !error && <div className="dashboard-loading" role="status">Reading the published checkpoint…</div>}
-    {data && <div className="poolrad-hero">
-      <div className="poolrad-stat"><div className="num">{share(data.strict_percent)}</div><div className="label">STRICT C</div><div className="sub">{data.strict_full_c} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="track"><i style={{ width: `${width(data.strict_percent)}%` }} /></div></div>
-      <div className="poolrad-stat"><div className="num">{share(data.identity_percent)}</div><div className="label">IDENTITIES</div><div className="sub">{data.identities} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="track"><i style={{ width: `${width(data.identity_percent)}%` }} /></div></div>
-    </div>}
-    {data && <p className="poolrad-evidence">{data.evidence_line}</p>}
-    {data && <p className="poolrad-meta">generated {new Date(data.generated).toLocaleString()} · source {data.source} · commit {(data.commit || '').slice(0, 8) || '—'} · {ready ? `${data.remaining} candidate targets still uncredited` : 'reviewed checkpoint unavailable'}</p>}
-  </section>;
+  const route = DASH_ROUTES.poolrad;
+  return <DashShell standalone={standalone} view="poolrad">
+    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="poolrad" standalone={standalone} side={<>
+      <span className="dash-meta">{data ? `updated ${new Date(data.generated).toLocaleTimeString()}` : 'loading'}</span>
+      <button className="dash-primary" onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button>
+    </>} />
+    <div className="dash-body">
+      {error && <div className="dash-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
+      {!data && !error && <div className="dash-empty" role="status">Reading the published checkpoint…</div>}
+      {data && <div className="dash-figures">
+        <div className="dash-figure"><div className="num">{share(data.strict_percent)}</div><div className="label">STRICT C</div><div className="sub">{data.strict_full_c} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="dash-track"><i style={{ width: `${width(data.strict_percent)}%` }} /></div></div>
+        <div className="dash-figure"><div className="num">{share(data.identity_percent)}</div><div className="label">IDENTITIES</div><div className="sub">{data.identities} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="dash-track"><i style={{ width: `${width(data.identity_percent)}%` }} /></div></div>
+      </div>}
+      {data && <p className="dash-evidence">{data.evidence_line}</p>}
+      {data && <p className="dash-meta-line">generated {new Date(data.generated).toLocaleString()} · source {data.source} · commit {(data.commit || '').slice(0, 8) || '—'}{data.ceiling ? ` · ${data.remaining} candidate targets still uncredited` : ''}</p>}
+    </div>
+  </DashShell>;
 }
 
-function PoolradPlay({ vpChannel }) {
+function PoolradPlay({ vpChannel, standalone = false }) {
   const [status, setStatus] = useState(null);
+  const [ownChannel, setOwnChannel] = useState(null);
+  const channel = vpChannel || ownChannel;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [stream, setStream] = useState(0);
@@ -564,13 +628,17 @@ function PoolradPlay({ vpChannel }) {
   useEffect(() => {
     if (!vpChannel) return;
     let live = true;
-    const load = () => api(`/messages?channel=${encodeURIComponent(vpChannel.id)}&limit=15`)
+    const load = () => api(`/messages?channel=${encodeURIComponent(channel.id)}&limit=15`)
       .then(data => { if (live) setChat(data.items || []); })
       .catch(e => { if (live) setChatError(e.message); });
     load(); const timer = setInterval(load, 4000);
     return () => { live = false; clearInterval(timer); };
-  }, [vpChannel]);
+  }, [channel]);
   useEffect(() => { const pane = chatLogRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [chat]);
+  useEffect(() => {
+    if (vpChannel) return;
+    api('/channels').then(data => setOwnChannel((data.channels || []).find(c => c.id === 'vp') || null)).catch(() => {});
+  }, [vpChannel]);
   async function refreshStates() {
     try {
       const data = await api('/game/states');
@@ -607,12 +675,12 @@ function PoolradPlay({ vpChannel }) {
   }
   async function sendChat(text) {
     const body = (text ?? draft).trim();
-    if (!body || !vpChannel) return;
+    if (!body || !channel) return;
     setChatBusy(true); setChatError('');
     try {
-      await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: vpChannel.id, body }) });
+      await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: channel.id, body }) });
       setDraft('');
-      const data = await api(`/messages?channel=${encodeURIComponent(vpChannel.id)}&limit=15`);
+      const data = await api(`/messages?channel=${encodeURIComponent(channel.id)}&limit=15`);
       setChat(data.items || []);
     } catch (e) { setChatError(e.message); } finally { setChatBusy(false); }
   }
@@ -648,9 +716,11 @@ function PoolradPlay({ vpChannel }) {
     try { localStorage.setItem('vp-codeword', word); } catch {}
     return action('type', { text: word, submit: true });
   }
-  return <section className="game-view" aria-label="Play Poolrad">
-    <div className="game-tools"><div><strong>Pool of Radiance</strong><small>{status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}</small></div>
-      <div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div></div>
+  return <DashShell standalone={standalone} view="play">
+    <DashHeader eyebrow={DASH_ROUTES.play.eyebrow} title={DASH_ROUTES.play.title}
+      subtitle={status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}
+      side={<div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div>} />
+    <div className="game-view" aria-label="Play Poolrad">
     {error && <div className="game-error" role="alert">{error}</div>}
     <div className="game-stage" ref={screenRef} tabIndex={0} onKeyDown={keyDown} onClick={() => screenRef.current?.focus()} aria-label="Poolrad game screen; click here to control with keyboard">
       {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game to play here.</div>}
@@ -680,18 +750,19 @@ function PoolradPlay({ vpChannel }) {
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
       <div className="game-chat-log" ref={chatLogRef}>
-        {chat.length === 0 && <div className="game-chat-empty">{vpChannel ? 'No messages yet. Say where you are, or hit Quicksave.' : 'VP channel unavailable.'}</div>}
+        {chat.length === 0 && <div className="game-chat-empty">{channel ? 'No messages yet. Say where you are, or hit Quicksave.' : 'VP channel unavailable.'}</div>}
         {chat.map(m => <div key={m.id} className={`game-chat-item ${m.role === 'owner' ? 'owner' : 'agent'}`}><span className="game-chat-role">{m.role === 'owner' ? 'You' : 'VP'}</span><span className="game-chat-body">{m.body}</span></div>)}
       </div>
       {chatError && <div className="game-error" role="alert">{chatError}</div>}
       <div className="game-chat-input">
         <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="e.g. I am on Sokal Keep first floor, quicksave" rows={2} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }} aria-label="Message the VP" />
         <div className="game-chat-actions">
-          <button className="primary send" onClick={() => sendChat()} disabled={chatBusy || !draft.trim() || !vpChannel}>{chatBusy ? 'Sending…' : 'Send to VP'}</button>
+          <button className="primary send" onClick={() => sendChat()} disabled={chatBusy || !draft.trim() || !channel}>{chatBusy ? 'Sending…' : 'Send to VP'}</button>
         </div>
       </div>
     </div>
-  </section>;
+    </div>
+  </DashShell>;
 }
 
 function Desk({ onLogout }) {
@@ -806,7 +877,7 @@ function Desk({ onLogout }) {
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.activity_group !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
     </aside>
-    <main className="center"><header className="topbar"><div><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : dashboardView === 'herdr' ? 'PROJECT VIEW / HERDR' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{dashboardView === 'poolrad' ? 'Poolrad completion' : dashboardView === 'ops' ? 'Operations dashboard' : dashboardView === 'play' ? 'Play Pool of Radiance' : dashboardView === 'herdr' ? 'Herdr web UI' : selected?.name || 'VP of Agentry'}</h1></div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
+    <main className="center"><header className="topbar"><div>{dashboardOpen ? <div className="eyebrow">VP OF AGENTRY · DASHBOARD</div> : <><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{selected?.name || 'VP of Agentry'}</h1></>}</div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
       {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
       {dashboardView === 'herdr' ? <HerdrWebUi /> : dashboardView === 'poolrad' ? <PoolradProgress /> : dashboardView === 'ops' ? <OpsBoard /> : dashboardView === 'play' ? <PoolradPlay vpChannel={channels.find(c => c.id === 'vp')} /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
         {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
@@ -821,7 +892,71 @@ function Desk({ onLogout }) {
   </div>;
 }
 
+function VpStandalone() {
+  const [channels, setChannels] = useState([]);
+  const [items, setItems] = useState([]);
+  const [pending, setPending] = useState([]);
+  const [error, setError] = useState('');
+  const [updated, setUpdated] = useState(null);
+  const listRef = useRef(null);
+  const selected = channels.find(c => c.id === 'vp');
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      try {
+        const [roster, messages] = await Promise.all([api('/channels'), api('/messages?channel=vp&limit=50')]);
+        if (!live) return;
+        setChannels(roster.channels || []);
+        setItems(messages.items || []);
+        setUpdated(new Date());
+        setError('');
+      } catch (e) { if (live) setError(e.message); }
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => { live = false; clearInterval(timer); };
+  }, []);
+  useEffect(() => { const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [items]);
+  async function send(data) {
+    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'vp', ...data }) });
+    setItems(old => [...old, item]);
+  }
+  const route = DASH_ROUTES.vp;
+  return <DashShell standalone view="vp">
+    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="vp" standalone side={<>
+      {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
+      <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
+    </>} />
+    <div className="dash-body dash-conversation">
+      {error && <div className="dash-error" role="alert">{error}</div>}
+      <div className="conversation" ref={listRef}>
+        <div className="conversation-inner">
+          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here.</p></div>}
+          <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
+        </div>
+      </div>
+      <Composer channel="vp" onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
+    </div>
+  </DashShell>;
+}
+
+function StandaloneDesk({ view, known }) {
+  if (!known) {
+    return <DashShell standalone view={view}>
+      <DashHeader eyebrow="DASHBOARDS" title="Unknown dashboard" subtitle={`No dashboard is registered at /dash/${view}`} />
+      <div className="dash-body"><div className="dash-empty">Pick one of the four dashboards
+        <div className="dash-nav-links" style={{ marginTop: 10 }}>{Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`}>{route.title}</a>)}</div>
+      </div></div>
+    </DashShell>;
+  }
+  if (view === 'poolrad') return <PoolradProgress standalone />;
+  if (view === 'operations') return <OpsBoard standalone />;
+  if (view === 'play') return <PoolradPlay standalone />;
+  return <VpStandalone />;
+}
+
 function App() {
+  const route = useDashRoute();
   const [authorized, setAuthorized] = useState(null);
   useEffect(() => { api('/channels').then(() => setAuthorized(true)).catch(() => setAuthorized(false)); }, []);
   useEffect(() => { const expired = () => setAuthorized(false); window.addEventListener('vp-auth-expired', expired); return () => window.removeEventListener('vp-auth-expired', expired); }, []);
@@ -833,7 +968,12 @@ function App() {
     return () => { clearInterval(timer); window.removeEventListener('focus', check); };
   }, []);
   if (authorized === null) return <div className="splash">VP OF AGENTRY</div>;
-  return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{authorized ? <Desk onLogout={() => setAuthorized(false)} /> : <Login onSuccess={() => setAuthorized(true)} />}</>;
+  const content = authorized
+    ? (route.standalone
+      ? <StandaloneDesk view={route.view} known={route.known} />
+      : <Desk onLogout={() => setAuthorized(false)} />)
+    : <Login onSuccess={() => setAuthorized(true)} />;
+  return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

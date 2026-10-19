@@ -25,10 +25,10 @@ from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -239,6 +239,63 @@ def require_auth(request: Request):
 
 class Login(BaseModel):
     password: str
+    next: str | None = None
+
+
+def _session_valid(request: Request) -> bool:
+    """True when the request carries a live owner session (cookie or token)."""
+    bearer = request.headers.get("authorization", "")
+    if bearer.startswith("Bearer ") and hmac.compare_digest(bearer[7:], _auth_record()["token"]):
+        return True
+    cookie = request.cookies.get("vp_session", "")
+    if not cookie:
+        return False
+    with _db() as conn:
+        row = conn.execute("SELECT expires_at FROM sessions WHERE token_hash=?", (_session_key(cookie),)).fetchone()
+    return bool(row and row["expires_at"] > time.time())
+
+
+def _herdr_webui_port() -> int | None:
+    configured = os.getenv("VP_HERDR_WEBUI_URL", "").strip()
+    if not configured:
+        return None
+    try:
+        return urlsplit(configured).port
+    except ValueError:
+        return None
+
+
+def _safe_next(value: str | None, request: Request) -> str | None:
+    """A return target for the login, limited to this host.
+
+    A path is always safe. An absolute URL is accepted only when it names
+    this host and a port the desk owns: the desk's own port, or the Herdr
+    web UI port that proxies to it. Anything else falls back to the desk.
+    """
+    if not value:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    if candidate.startswith("/") and not candidate.startswith("//"):
+        return candidate
+    try:
+        parsed = urlsplit(candidate)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError:
+        return None
+    if not parsed.scheme or not host or not port:
+        return None
+    if host != (request.url.hostname or "").lower():
+        return None
+    allowed = {request.url.port}
+    herdr_port = _herdr_webui_port()
+    if herdr_port:
+        allowed.add(herdr_port)
+    if port not in allowed:
+        return None
+    return candidate
 
 
 @app.post("/api/login")
@@ -260,7 +317,7 @@ def login(body: Login, request: Request, response: Response):
         conn.execute("DELETE FROM sessions WHERE expires_at<=?", (now,))
         conn.execute("INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)", (_session_key(session), now + 7 * 24 * 3600))
     response.set_cookie("vp_session", session, httponly=True, samesite="strict", max_age=7 * 24 * 3600)
-    return {"ok": True}
+    return {"ok": True, "next": _safe_next(body.next, request)}
 
 
 @app.post("/api/logout")
@@ -1164,5 +1221,59 @@ def version():
 
 
 DIST = ROOT / "web" / "dist"
+DASH_VIEWS = ("poolrad", "operations", "play", "vp")
+
+
+@app.get("/dash", include_in_schema=False)
+@app.get("/dash/", include_in_schema=False)
+def dash_root():
+    """The standalone dashboard routes start here; the poolrad view is the default."""
+    return RedirectResponse("/dash/poolrad", status_code=307)
+
+
+@app.get("/dash/{path:path}", include_in_schema=False)
+def dash_route(path: str, request: Request):
+    """Serve the desk bundle for a standalone dashboard route.
+
+    The bundle reads the path and renders that dashboard without the desk
+    chrome, so the herdr web UI can frame it. The session cookie is the same
+    one the desk uses, so there is no second login. Without a session the
+    request goes to the password UI with a return target, and no dashboard
+    content is ever served.
+    """
+    name = path.strip("/")
+    if name != path and name in DASH_VIEWS:
+        return RedirectResponse(f"/dash/{name}", status_code=307)
+    if not _session_valid(request):
+        target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        return RedirectResponse(f"/?next={quote(target, safe='')}", status_code=302)
+    index = DIST / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "Desk UI is not built")
+    return FileResponse(index, media_type="text/html", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@app.get("/poolrad", include_in_schema=False)
+def legacy_poolrad_route():
+    """The old bookmarked paths still work; they redirect to the new routes."""
+    return RedirectResponse("/dash/poolrad", status_code=307)
+
+
+@app.get("/operations", include_in_schema=False)
+def legacy_operations_route():
+    return RedirectResponse("/dash/operations", status_code=307)
+
+
+@app.get("/play", include_in_schema=False)
+def legacy_play_route():
+    return RedirectResponse("/dash/play", status_code=307)
+
+
+@app.get("/vp", include_in_schema=False)
+def legacy_vp_route():
+    return RedirectResponse("/dash/vp", status_code=307)
+
+
 if DIST.exists():
     app.mount("/", StaticFiles(directory=DIST, html=True), name="web")

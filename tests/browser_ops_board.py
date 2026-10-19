@@ -56,16 +56,46 @@ with sync_playwright() as playwright:
         page.screenshot(path=str(ROOT / "data" / f"ops-board-{width}x{height}.png"))
 
         page.get_by_role("button", name="Poolrad dashboard").click()
-        page.locator(".poolrad-hero").wait_for(timeout=20000)
+        page.locator(".poolrad-hero, .dash-figures").first.wait_for(timeout=20000)
         page.wait_for_timeout(800)
-        numbers = page.locator(".poolrad-stat .num")
+        numbers = page.locator(".dash-figure .num")
         assert numbers.count() == 2, "the Poolrad view must show exactly two completion numbers"
-        text = page.locator(".poolrad-hero").inner_text()
+        text = page.locator(".dash-figures").inner_text()
         assert "%" in text, f"no percentage in the Poolrad view: {text}"
-        evidence = page.locator(".poolrad-evidence").inner_text()
+        evidence = page.locator(".dash-evidence").inner_text()
         assert len(evidence.splitlines()) == 1, "the evidence line must be one line"
         assert not errors, errors
         page.screenshot(path=str(ROOT / "data" / f"poolrad-progress-{width}x{height}.png"))
         print(f"{width}x{height}: ops board and Poolrad view render; Poolrad numbers={text!r}")
+
+    # The four standalone routes the herdr web UI frames.
+    for name, marker in (("poolrad", ".dash-figures"), ("operations", ".dash-stats"),
+                         ("play", ".game-view"), ("vp", ".dash-conversation")):
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(BASE, wait_until="networkidle")
+        page.locator("#password").fill(PASSWORD)
+        page.get_by_role("button", name="Open desk").click()
+        page.locator(".composer").wait_for()
+        page.goto(f"{BASE}/dash/{name}", wait_until="networkidle")
+        page.locator(marker).first.wait_for(timeout=20000)
+        page.wait_for_timeout(600)
+        assert page.locator(".dash-root").count() == 1, f"/dash/{name} did not render the dashboard shell"
+        assert page.locator(".sidebar").count() == 0, f"/dash/{name} still shows the desk sidebar"
+        assert page.locator(".dash-nav").count() == 1, f"/dash/{name} is missing the dashboard nav"
+        assert not errors, errors
+        page.screenshot(path=str(ROOT / "data" / f"dash-{name}.png"))
+        print(f"/dash/{name}: standalone view renders without desk chrome")
+
+    # Without a session the route must show the password UI, never content.
+    fresh = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = fresh.new_page()
+    page.goto(f"{BASE}/dash/poolrad", wait_until="networkidle")
+    assert "/?next=" in page.url, f"the unauthenticated route did not return to the login: {page.url}"
+    assert page.locator("#password").count() == 1, "the password UI is missing"
+    assert page.locator(".dash-figures").count() == 0, "dashboard content leaked to an unauthenticated caller"
+    fresh.close()
+    print("unauthenticated /dash/poolrad returns to the password UI")
     browser.close()
 print("browser check passed")
