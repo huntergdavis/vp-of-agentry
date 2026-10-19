@@ -1,33 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { bitmap, normalize, PATH_NAMES, recognizeWheel, RINGS, templateUrl, wheelWord } from './codewheel.js';
-
-function capture(screen) {
-  const image = screen?.querySelector('img');
-  if (!image?.naturalWidth || !image.naturalHeight) throw new Error('Wait for the live game picture.');
-  if (Math.abs(image.naturalWidth / image.naturalHeight - 1.6) > .02) throw new Error('The game picture has an unsupported size. Use the manual picker.');
-  const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 400;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  context.imageSmoothingEnabled = false;
-  context.drawImage(image, 0, 0, 640, 400);
-  return context.getImageData(0, 0, 640, 400);
-}
-
-async function loadTemplates(signal) {
-  const result = [], names = RINGS.flatMap(ring => Array.from({ length: 36 }, (_, i) => ({ ring, number: i + 1 })));
-  for (let i = 0; i < names.length; i += 6) {
-    result.push(...await Promise.all(names.slice(i, i + 6).map(async item => {
-      const response = await fetch(templateUrl(item.ring, item.number), { credentials: 'same-origin', signal });
-      if (!response.ok) throw new Error('Rune images are unavailable. Use the numbered lookup or known-word entry.');
-      const image = await createImageBitmap(await response.blob());
-      try {
-        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
-        const context = canvas.getContext('2d', { willReadFrequently: true }); context.drawImage(image, 0, 0);
-        return { ...item, normalized: normalize(bitmap(context.getImageData(0, 0, image.width, image.height), 'template')) };
-      } finally { image.close(); }
-    })));
-  }
-  return result;
-}
+import React, { useRef, useState } from 'react';
+import { PATH_NAMES, RINGS, templateUrl, wheelWord } from './codewheel.js';
 
 function RuneChoice({ ring, number, selected, onSelect }) {
   const [missing, setMissing] = useState(false);
@@ -38,47 +10,27 @@ function RuneChoice({ ring, number, selected, onSelect }) {
   </button>;
 }
 
-export function CodewheelPicker({ screenRef, inputRevision, running, runKey, busy, onSend }) {
+export function CodewheelPicker({ running, runKey, busy, onSend, onAuto }) {
   const [a, setA] = useState(null), [b, setB] = useState(null), [path, setPath] = useState(null);
   const [open, setOpen] = useState(false), [analyzing, setAnalyzing] = useState(false), [message, setMessage] = useState('');
-  const templates = useRef(null), generation = useRef(0), controller = useRef(null), inFlight = useRef(false), sent = useRef(null);
+  const inFlight = useRef(false);
   const word = wheelWord(a, b, path), locked = busy || analyzing;
-  useEffect(() => {
-    generation.current++; sent.current = null; controller.current?.abort();
-    return () => { generation.current++; controller.current?.abort(); };
-  }, [runKey, running]);
 
   async function auto() {
     if (inFlight.current || busy || !running) return;
-    inFlight.current = true; setAnalyzing(true); setMessage('Reading the two runes and path…');
-    const ticket = ++generation.current, revision = inputRevision.current;
-    controller.current = new AbortController();
+    inFlight.current = true; setAnalyzing(true); setMessage('Reading the runes on the server…');
     try {
-      capture(screenRef.current); // Fail early if the stream has no decoded frame.
-      if (!templates.current) templates.current = await loadTemplates(controller.current.signal);
-      if (ticket !== generation.current) return;
-      const first = recognizeWheel(capture(screenRef.current), templates.current);
-      if (!first.confident) {
-        setOpen(true);
-        setMessage(`No typing: ${first.reason}${first.path !== null ? ` Visible path: ${PATH_NAMES[first.path]}.` : ''} Choose both runes and the path manually, or enter a known word above.`);
+      const result = await onAuto();
+      if (!result?.ok) { setOpen(true); setMessage(`No typing: ${result?.error || 'detection failed'}. Choose both runes and the path manually, or enter a known word above.`); return; }
+      if (result.typed && result.word) {
+        setA(result.a); setB(result.b); setPath(result.path);
+        setMessage(`Typed ${result.word} + Enter.`);
         return;
       }
-      // Check again after assets have loaded and a second video frame can arrive.
-      await new Promise(resolve => setTimeout(resolve, 180));
-      if (ticket !== generation.current || revision !== inputRevision.current) {
-        if (ticket === generation.current) setMessage('No typing: game input changed during recognition.');
-        return;
-      }
-      const current = recognizeWheel(capture(screenRef.current), templates.current);
-      if (!current.confident || current.signature !== first.signature) { setMessage('No typing: the rune prompt changed. Try again or use the picker.'); setOpen(true); return; }
-      if (sent.current === current.signature) { setMessage('No typing: this code word was already sent for this prompt.'); return; }
-      setA(current.a); setB(current.b); setPath(current.path);
-      // Set before dispatch: uncertain delivery must not cause automatic retries.
-      sent.current = current.signature;
-      const ok = await onSend(current.word);
-      if (ticket === generation.current) setMessage(ok ? `Typed ${current.word} + Enter.` : 'Delivery was not confirmed. Inspect the game before sending again.');
+      setOpen(true);
+      setMessage(`No typing: ${result.reason || 'the runes did not match clearly enough.'}${result.path !== null && result.path !== undefined ? ` Visible path: ${PATH_NAMES[result.path]}.` : ''} Choose both runes and the path manually, or enter a known word above.`);
     } catch (error) {
-      if (ticket === generation.current) { setMessage(`No typing: ${error.message}`); setOpen(true); }
+      setOpen(true); setMessage(`No typing: ${error.message}`);
     } finally { inFlight.current = false; setAnalyzing(false); }
   }
 

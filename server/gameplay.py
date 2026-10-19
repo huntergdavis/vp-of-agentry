@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -20,6 +21,9 @@ class GameError(Exception):
 
 
 class GameSession:
+    SAVE_SLOT_DEFAULT = 1
+    SAVE_SLOT_MAX = 99
+    FRAME_INSET = 16
     KEYS = {"Up", "Down", "Left", "Right", "Return", "Escape", "space", "BackSpace", "Tab", "Delete", "Home", "End", "Page_Up", "Page_Down"}
     KEYS.update(chr(n) for n in range(ord("a"), ord("z") + 1))
     KEYS.update(str(n) for n in range(10))
@@ -37,6 +41,7 @@ class GameSession:
         self.tmux_session: str | None = None
         self.sink_module: str | None = None
         self.sink_name: str | None = None
+        self.active_slot = self.SAVE_SLOT_DEFAULT
         self.log_files = []
 
     def _run(self, cmd: list[str], **kwargs):
@@ -140,6 +145,9 @@ class GameSession:
                        "--bind", str(run_dir), str(run_dir), "--chdir", str(run_dir),
                        "dosbox-x", "-defaultconf", "-defaultmapper", "-nogui", "-nomenu", "-fastlaunch",
                        "-set", "sdl windowresolution=640x480",
+                       "-set", f"dosbox saveslot={self.SAVE_SLOT_DEFAULT}",
+                       "-set", "dosbox saveremark=false",
+                       "-set", "dosbox forceloadstate=true",
                        "-savedir", str(run_dir / ".dosbox-saves"),
                        "-c", f"mount c {run_dir}", "-c", "c:", "-c", "cd \\POOLRAD", "-c", "START"]
                 session = "oracle"
@@ -149,6 +157,7 @@ class GameSession:
                 command = "exec " + shlex.join(["env", *env_args, *cmd])
                 self._run(["tmux", "-L", "vp-poolrad", "new-session", "-d", "-s", session, "-x", "140", "-y", "40", command])
                 self.tmux_session = session
+                self.active_slot = self.SAVE_SLOT_DEFAULT
                 self._run(["tmux", "-L", "vp-poolrad", "pipe-pane", "-o", "-t", session, f"cat >> {shlex.quote(str(run_dir / 'vp-dosbox-terminal.log'))}"])
                 time.sleep(1)
                 if not self._game_running():
@@ -202,6 +211,243 @@ class GameSession:
             self._stop_locked()
             return self.status()
 
+    # --- Save states --------------------------------------------------------
+
+    @staticmethod
+    def _saves_dir(run_dir: Path) -> Path:
+        return run_dir / ".dosbox-saves"
+
+    @staticmethod
+    def _states_path(run_dir: Path) -> Path:
+        return run_dir / "vp-savestates.json"
+
+    def _read_states(self, run_dir: Path) -> list[dict]:
+        path = self._states_path(run_dir)
+        if not path.is_file():
+            return []
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return []
+        states = payload.get("states") if isinstance(payload, dict) else None
+        if not isinstance(states, list):
+            return []
+        return [s for s in states if isinstance(s, dict) and isinstance(s.get("slot"), int)]
+
+    def _write_states(self, run_dir: Path, states: list[dict]):
+        path = self._states_path(run_dir)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps({"version": 1, "run": run_dir.name, "states": states}, indent=2) + "\n")
+        tmp.chmod(0o600)
+        tmp.replace(path)
+
+    def _last_run_dir(self) -> Path | None:
+        if self.run_dir:
+            return self.run_dir
+        if self.last_file.exists():
+            try:
+                return self._valid_run(self.last_file.read_text().strip())
+            except GameError:
+                return None
+        return None
+
+    def _env(self) -> dict:
+        return {**os.environ, "DISPLAY": self.display or "", "XAUTHORITY": str(self.run_dir / ".vp-xauthority")}
+
+    def _require_running(self):
+        if not self._game_running() or not self.display or not self.run_dir:
+            raise GameError("Poolrad is not running")
+
+    def _focus_game(self):
+        found = self._run(["xdotool", "search", "--onlyvisible", "--name", "DOSBox"], env=self._env())
+        windows = found.stdout.split()
+        if windows:
+            self._run(["xdotool", "windowfocus", "--sync", windows[0]], env=self._env())
+
+    def _chord(self, combo: str):
+        self._run(["xdotool", "key", "--clearmodifiers", "--delay", "70", combo], env=self._env())
+
+    def _record(self, action: str, **fields):
+        with (self.run_dir / "vp-input.jsonl").open("a") as output:
+            output.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "action": action, **fields}) + "\n")
+
+    def _goto_slot(self, target: int):
+        """Move DOSBox-X's selected save slot with the mapper F12-[/F12-] chords."""
+        target = max(1, min(self.SAVE_SLOT_MAX, target))
+        if target == self.active_slot:
+            return
+        forward = (target - self.active_slot) % self.SAVE_SLOT_MAX
+        backward = (self.active_slot - target) % self.SAVE_SLOT_MAX
+        key = "F12+period" if forward <= backward else "F12+comma"
+        for _ in range(min(forward, backward)):
+            self._chord(key)
+            time.sleep(0.08)
+        self.active_slot = target
+
+    def _log_size(self) -> int:
+        log = self.run_dir / "vp-dosbox-terminal.log"
+        try:
+            return log.stat().st_size if log.is_file() else 0
+        except OSError:
+            return 0
+
+    def _wait_for_saved_slot(self, offset: int, timeout: float = 8.0) -> int | None:
+        """Read the slot DOSBox-X actually saved to from its terminal log."""
+        log = self.run_dir / "vp-dosbox-terminal.log"
+        pattern = re.compile(rb"Saved\. \(Slot (\d+)\)")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                fresh = log.read_bytes()[offset:] if log.is_file() else b""
+            except OSError:
+                fresh = b""
+            hits = pattern.findall(fresh)
+            if hits:
+                return int(hits[-1])
+            time.sleep(0.1)
+        return None
+
+    def _wait_for_stable(self, path: Path, timeout: float = 8.0) -> bool:
+        # DOSBox-X creates the file before it finishes writing; wait for a stable size.
+        deadline = time.monotonic() + timeout
+        stable = -1
+        while time.monotonic() < deadline:
+            size = path.stat().st_size if path.is_file() else 0
+            if size > 0 and size == stable:
+                return True
+            stable = size
+            time.sleep(0.2)
+        return False
+
+    def list_states(self) -> dict:
+        with self.lock:
+            run_dir = self._last_run_dir()
+            if run_dir is None:
+                return {"run_name": None, "states": []}
+            states = self._read_states(run_dir)
+            known = {s["slot"] for s in states}
+            saves = self._saves_dir(run_dir)
+            if saves.is_dir():
+                for path in sorted(saves.glob("*.sav")):
+                    if path.stem.isdigit() and int(path.stem) not in known:
+                        stamp = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+                        states.append({"slot": int(path.stem), "tag": f"slot {path.stem}",
+                                       "created": stamp, "size": path.stat().st_size})
+                        known.add(int(path.stem))
+            present = [s for s in states if (saves / f"{s['slot']}.sav").is_file()]
+            present.sort(key=lambda s: s["slot"])
+            return {"run_name": run_dir.name, "states": present}
+
+    def savestate(self, tag: str) -> dict:
+        tag = (tag or "").strip()[:80]
+        with self.lock:
+            self._require_running()
+            run_dir = self.run_dir
+            saves = self._saves_dir(run_dir)
+            saves.mkdir(exist_ok=True)
+            states = self._read_states(run_dir)
+            used = {s["slot"] for s in states}
+            used.update(int(p.stem) for p in saves.glob("*.sav") if p.stem.isdigit())
+            slot = next((n for n in range(1, self.SAVE_SLOT_MAX + 1) if n not in used), None)
+            if slot is None:
+                raise GameError("All save-state slots are in use")
+            self._focus_game()
+            self._goto_slot(slot)
+            log_offset = self._log_size()
+            self._chord("F12+s")
+            actual = self._wait_for_saved_slot(log_offset) or slot
+            self.active_slot = actual
+            path = saves / f"{actual}.sav"
+            if not self._wait_for_stable(path):
+                raise GameError("DOSBox-X did not finish writing the save state")
+            entry = {"slot": actual, "tag": tag or f"slot {actual}",
+                     "created": datetime.now(timezone.utc).isoformat(),
+                     "size": path.stat().st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            states = [s for s in states if s["slot"] != actual] + [entry]
+            states.sort(key=lambda s: s["slot"])
+            self._write_states(run_dir, states)
+            self._record("savestate", slot=actual, tag=entry["tag"])
+            return entry
+
+    def _wait_for_load(self, slot: int, offset: int, timeout: float = 4.0) -> bool:
+        log = self.run_dir / "vp-dosbox-terminal.log"
+        pattern = re.compile(rb"Loaded\. \(Slot (\d+)\)")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                fresh = log.read_bytes()[offset:] if log.is_file() else b""
+            except OSError:
+                fresh = b""
+            if any(int(hit) == slot for hit in pattern.findall(fresh)):
+                return True
+            time.sleep(0.1)
+        return False
+
+    def loadstate(self, slot: int) -> dict:
+        with self.lock:
+            self._require_running()
+            run_dir = self.run_dir
+            entry = next((s for s in self._read_states(run_dir) if s["slot"] == slot), None)
+            path = self._saves_dir(run_dir) / f"{slot}.sav"
+            if entry is None or not path.is_file():
+                raise GameError("That save state is not available")
+            if entry.get("sha256") and hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+                raise GameError("The save state file changed since it was recorded")
+            self._focus_game()
+            self._goto_slot(slot)
+            log_offset = self._log_size()
+            self._chord("F12+l")
+            self._record("loadstate", slot=slot, tag=entry.get("tag", ""))
+            return {**entry, "loaded": True, "verified": self._wait_for_load(slot, log_offset)}
+
+    # --- Frame capture and code-word recognition ----------------------------
+
+    def capture_frame(self, inset: int = FRAME_INSET) -> tuple[bytes, int, int]:
+        """Grab the live game window as RGB24, dropping the decorative border."""
+        with self.lock:
+            self._require_running()
+            env = self._env()
+            found = self._run(["xdotool", "search", "--onlyvisible", "--name", "DOSBox"], env=env)
+            windows = found.stdout.split()
+            if not windows:
+                raise GameError("The game window is unavailable")
+            geometry = self._run(["xdotool", "getwindowgeometry", "--shell", windows[0]], env=env).stdout
+            values = dict(line.split("=", 1) for line in geometry.splitlines() if "=" in line)
+            try:
+                x, y, width, height = (int(values[key]) for key in ("X", "Y", "WIDTH", "HEIGHT"))
+            except (KeyError, ValueError) as exc:
+                raise GameError("Could not read the game window geometry") from exc
+            crop_width = max(1, width - 2 * inset)
+            crop_height = max(1, height - 2 * inset)
+            command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-draw_mouse", "0",
+                       "-video_size", f"{width}x{height}", "-i", f"{self.display}+{x},{y}",
+                       "-vf", f"crop={crop_width}:{crop_height}:{inset}:{inset}",
+                       "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]
+            result = subprocess.run(command, env=env, capture_output=True, timeout=30)
+            if result.returncode != 0 or len(result.stdout) != crop_width * crop_height * 3:
+                raise GameError("Could not capture the game frame")
+            return result.stdout, crop_width, crop_height
+
+    def _recognize_once(self, templates: list, inset: int) -> dict:
+        from server import codeword
+        rgb, width, height = self.capture_frame(inset)
+        return codeword.recognize_wheel(codeword.bitmap_rgb(rgb, width, height, "rune"), templates)
+
+    def recognize_codeword(self, templates: list, inset: int = FRAME_INSET) -> dict:
+        """Capture, recognize, and auto-type only when two frames agree confidently."""
+        first = self._recognize_once(templates, inset)
+        if not first.get("confident"):
+            return {**first, "typed": False}
+        time.sleep(0.18)
+        second = self._recognize_once(templates, inset)
+        if not second.get("confident") or second.get("signature") != first.get("signature"):
+            return {"confident": False, "typed": False, "path": second.get("path"),
+                    "glyph_count": second.get("glyph_count"),
+                    "reason": "The rune prompt changed during recognition."}
+        self.type_text(first["word"], submit=True)
+        self._record("autocodeword", word=first["word"], a=first["a"], b=first["b"], path=first["path"])
+        return {**first, "typed": True}
+
     def key(self, key: str):
         if key not in self.KEYS:
             raise GameError("Unsupported game key")
@@ -238,7 +484,7 @@ class GameSession:
                 # crop (previously crop=640:400:80:100) clipped the frame in some modes and
                 # looked offset. Capture the whole private display and integer-upscale 2x so
                 # nothing can ever be cut; the browser contains it with object-fit.
-                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-framerate", "15",
+                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-draw_mouse", "0", "-framerate", "15",
                        "-video_size", "800x600", "-i", self.display or "",
                        "-vf", "scale=1600:1200:flags=neighbor",
                        "-q:v", "6", "-fflags", "nobuffer", "-flush_packets", "1", "-f", "mpjpeg", "pipe:1"]

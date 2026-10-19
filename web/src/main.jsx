@@ -411,6 +411,11 @@ function PoolradPlay({ vpChannel }) {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
   const [code, setCode] = useState(() => { try { return localStorage.getItem('vp-codeword') || ''; } catch { return ''; } });
+  const [states, setStates] = useState([]);
+  const [saveTag, setSaveTag] = useState('');
+  const [stateSlot, setStateSlot] = useState('');
+  const [statesBusy, setStatesBusy] = useState(false);
+  const [statesError, setStatesError] = useState('');
   const screenRef = useRef(null);
   const inputRevision = useRef(0), actionBusy = useRef(false);
   const chatLogRef = useRef(null);
@@ -430,6 +435,40 @@ function PoolradPlay({ vpChannel }) {
     return () => { live = false; clearInterval(timer); };
   }, [vpChannel]);
   useEffect(() => { const pane = chatLogRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [chat]);
+  async function refreshStates() {
+    try {
+      const data = await api('/game/states');
+      setStates(data.states || []);
+      setStatesError('');
+    } catch (e) { setStatesError(e.message); }
+  }
+  useEffect(() => { refreshStates(); }, [status?.run_name, status?.running]);
+  async function saveState() {
+    if (statesBusy) return;
+    setStatesBusy(true); setStatesError('');
+    try {
+      await api('/game/savestate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag: saveTag.trim() }) });
+      setSaveTag('');
+      await refreshStates();
+    } catch (e) { setStatesError(e.message); } finally { setStatesBusy(false); }
+  }
+  async function loadState() {
+    if (statesBusy || !stateSlot) return;
+    setStatesBusy(true); setStatesError('');
+    try {
+      await api('/game/loadstate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: Number(stateSlot) }) });
+      setStream(n => n + 1);
+    } catch (e) { setStatesError(e.message); } finally { setStatesBusy(false); }
+  }
+  async function autoCodeWord() {
+    if (actionBusy.current) return { ok: false, error: 'Another game action is in progress.' };
+    actionBusy.current = true; setBusy(true); setError('');
+    try {
+      const data = await api('/game/autocodeword', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      return { ok: true, ...data };
+    } catch (e) { setError(e.message); return { ok: false, error: e.message }; }
+    finally { actionBusy.current = false; setBusy(false); }
+  }
   async function sendChat(text) {
     const body = (text ?? draft).trim();
     if (!body || !vpChannel) return;
@@ -488,7 +527,20 @@ function PoolradPlay({ vpChannel }) {
       <button onClick={() => sendText(false)} disabled={busy || !code.trim()}>Send only</button>
       <button onClick={() => { setCode(''); try { localStorage.removeItem('vp-codeword'); } catch {} }} disabled={!code}>Clear</button>
     </div>
-    <CodewheelPicker screenRef={screenRef} inputRevision={inputRevision} running={Boolean(status?.running)} runKey={status?.run_name} busy={busy} onSend={sendWord} />
+    <div className="game-saves" aria-label="Save states">
+      <strong>Save states</strong>
+      <input value={saveTag} onChange={e => setSaveTag(e.target.value)} placeholder="Tag this save (e.g. Sokal Keep first floor)" maxLength={80} aria-label="Save state tag" disabled={!status?.running || statesBusy} />
+      <button onClick={saveState} disabled={!status?.running || statesBusy}>{statesBusy ? 'Working…' : 'Save state'}</button>
+      <label>Quick load
+        <select value={stateSlot} onChange={e => setStateSlot(e.target.value)} disabled={!status?.running || statesBusy || states.length === 0} aria-label="Save state to load">
+          <option value="">{states.length ? 'Choose a save…' : 'No save states yet'}</option>
+          {states.map(s => <option key={s.slot} value={s.slot}>{`${s.slot}. ${s.tag} — ${new Date(s.created).toLocaleString()}`}</option>)}
+        </select>
+      </label>
+      <button onClick={loadState} disabled={!status?.running || statesBusy || !stateSlot}>Load state</button>
+      {statesError && <span className="game-error" role="alert">{statesError}</span>}
+    </div>
+    <CodewheelPicker screenRef={screenRef} inputRevision={inputRevision} running={Boolean(status?.running)} runKey={status?.run_name} busy={busy} onSend={sendWord} onAuto={autoCodeWord} />
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
       <div className="game-chat-log" ref={chatLogRef}>
@@ -499,8 +551,6 @@ function PoolradPlay({ vpChannel }) {
       <div className="game-chat-input">
         <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="e.g. I am on Sokal Keep first floor, quicksave" rows={2} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }} aria-label="Message the VP" />
         <div className="game-chat-actions">
-          <button onClick={() => sendChat('Quicksave now')} disabled={chatBusy || !vpChannel}>Quicksave</button>
-          <button onClick={() => sendChat('Load the last quicksave')} disabled={chatBusy || !vpChannel}>Load save</button>
           <button className="primary send" onClick={() => sendChat()} disabled={chatBusy || !draft.trim() || !vpChannel}>{chatBusy ? 'Sending…' : 'Send to VP'}</button>
         </div>
       </div>

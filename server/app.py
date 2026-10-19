@@ -77,6 +77,7 @@ def _load_channels():
 CHANNELS = _load_channels()
 CHANNEL_INDEX = {item["id"]: item for item in CHANNELS}
 from server.roster import build_roster, discovered_id, match_pane, presence
+from server import codeword
 from server.gameplay import GameError, GameSession
 GAME = GameSession(Path(os.getenv("POOLRAD_REPO_DIR", ROOT.parent / "poolrad-decomp")).resolve(), DATA)
 MAX_UPLOAD = 25 * 1024 * 1024
@@ -548,6 +549,14 @@ class GameType(BaseModel):
     submit: bool = True
 
 
+class GameSaveState(BaseModel):
+    tag: str = Field(default="", max_length=80)
+
+
+class GameLoadState(BaseModel):
+    slot: int = Field(ge=1, le=99)
+
+
 @app.get("/api/game/status")
 def game_status(_: Annotated[str, Depends(require_auth)]):
     return GAME.status()
@@ -595,6 +604,39 @@ def game_type(body: GameType, _: Annotated[str, Depends(require_auth)]):
     except GameError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True}
+
+
+@app.get("/api/game/states")
+def game_states(_: Annotated[str, Depends(require_auth)]):
+    return GAME.list_states()
+
+
+@app.post("/api/game/savestate")
+def game_savestate(body: GameSaveState, _: Annotated[str, Depends(require_auth)]):
+    try:
+        return GAME.savestate(body.tag)
+    except GameError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/game/loadstate")
+def game_loadstate(body: GameLoadState, _: Annotated[str, Depends(require_auth)]):
+    try:
+        return GAME.loadstate(body.slot)
+    except GameError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/game/autocodeword")
+def game_autocodeword(_: Annotated[str, Depends(require_auth)]):
+    try:
+        templates = codeword.templates_cached(CODEWHEEL_DIR)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        templates = []
+    try:
+        return GAME.recognize_codeword(templates)
+    except GameError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.get("/api/game/video")

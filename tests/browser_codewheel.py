@@ -52,6 +52,10 @@ def main():
                     path = urlsplit(route.request.url).path
                     if route.request.method == 'POST':
                         if path == '/api/game/type': typed.append(route.request.post_data_json)
+                        elif path == '/api/game/autocodeword':
+                            route.fulfill(json={'confident': False, 'typed': False, 'path': 2, 'glyph_count': 9,
+                                                'reason': 'A complete pair of wheel runes was not found.'})
+                            return
                         else: unexpected_posts.append(path)
                         route.fulfill(json={'ok': True}); return
                     if path == '/api/game/video':

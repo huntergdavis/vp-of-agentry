@@ -9,7 +9,9 @@ Use this skill when the owner wants to play Poolrad or an agent needs evidence f
 
 ## Play
 
-In the web desk, choose **Play Poolrad**, then **Start game** or **Resume saved run**. **New run** makes a fresh audited copy. Click the game picture to focus keyboard controls, and click Play in the audio control. The browser may require that gesture before playing audio. The authenticated server streams multipart JPEG frames from a private Xvfb display and Ogg Opus audio from a private PulseAudio sink. It logs allowed browser keys in `vp-input.jsonl` beside the private game copy.
+In the web desk, choose **Play Poolrad**, then **Start game** or **Resume saved run**. **New run** makes a fresh audited copy. Click the game picture to focus keyboard controls, and click Play in the audio control. The browser may require that gesture before playing audio. The authenticated server streams multipart JPEG frames from a private Xvfb display and Ogg Opus audio from a private PulseAudio sink. It logs allowed browser keys in `vp-input.jsonl` beside the private game copy. The video stream hides the host X cursor (`draw_mouse=0`).
+
+The **Save states** row calls DOSBox-X's own save-state feature through server endpoints (`POST /api/game/savestate`, `GET /api/game/states`, `POST /api/game/loadstate`): tag and save to the next free slot, then quick-load any tagged state. The list is stored privately in `vp-savestates.json` inside the run. **Auto code word** calls `POST /api/game/autocodeword`, which captures the live frame server-side and reuses the model-free rune solver; it types only when two captures agree confidently and otherwise abstains. No button routes through the VP chat or a model.
 
 The server calls `../poolrad-decomp/tools/oracle/prepare_run.sh` to verify DOS v1.3 hashes and copy the private installation into ignored `../poolrad-decomp/resources/oracle-runs/<run-name>`. DOSBox-X runs under Bubblewrap with the copied run as its only writable game tree. `data/poolrad-last-run.txt` records the selected run locally. **Stop game** terminates the emulator, Xvfb, and audio sink while retaining saves for resumption; service shutdown also stops the session.
 

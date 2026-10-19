@@ -162,6 +162,13 @@
 .game-type input{flex:1;min-width:160px;padding:7px 10px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:13px}
 .game-type button{padding:7px 12px;border-radius:6px;border:1px solid #3d8a6c;background:#2f6f57;color:#eafff5;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .game-type button:disabled{opacity:.5;cursor:default}
+.game-saves{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#0f2130;border-top:1px solid #24404f;flex-wrap:wrap}
+.game-saves strong{font-size:12px;color:#f8f3cb;letter-spacing:.04em}
+.game-saves input{flex:1;min-width:170px;padding:7px 10px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:13px}
+.game-saves select{max-width:44vw;padding:6px 8px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:12px}
+.game-saves label{display:flex;align-items:center;gap:6px;font-size:11px;color:#8fa6b2;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.game-saves button{padding:7px 12px;border-radius:6px;border:1px solid #3d8a6c;background:#2f6f57;color:#eafff5;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.game-saves button:disabled{opacity:.5;cursor:default}
 .game-wheel{display:flex;align-items:center;gap:8px;padding:8px 14px;background:#101d2c;border-top:1px solid #24404f;flex-wrap:wrap}
 .game-wheel label{font-size:11px;color:#8fa6b2;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .game-wheel input{width:64px;padding:6px 8px;border-radius:6px;border:1px solid #2c4b5c;background:#0a141c;color:#e9f2f4;font:inherit;font-size:13px}

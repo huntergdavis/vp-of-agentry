@@ -38,6 +38,21 @@ The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the defau
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
+## Play: save states
+
+While a private run is live, the **Save states** row in **Play Poolrad** drives
+DOSBox-X's own save-state feature. **Save state** focuses the emulator window and
+sends the mapper save chord to the next free slot (the run starts with
+`saveslot=1`, `saveremark=false`, and `forceloadstate=true`), then records the tag,
+slot, timestamp, size, and SHA-256 in ignored `vp-savestates.json` inside the run.
+**Quick load** lists tagged states and loads one with the mapper load chord. Every
+button calls an authenticated server endpoint (`POST /api/game/savestate`,
+`GET /api/game/states`, `POST /api/game/loadstate`); none route through the VP chat.
+States and the list stay in the private run tree and are never committed.
+
+The live video stream passes `draw_mouse=0`, so the host X cursor is not drawn into
+the frame; an emulated pointer that the game itself draws is unaffected.
+
 ## Play: code word helper
 
 In **Play Poolrad**, open **Visual rune picker**, choose Espruar (outer) and Dethek
@@ -45,15 +60,17 @@ In **Play Poolrad**, open **Visual rune picker**, choose Espruar (outer) and Det
 inputs and the existing known-word text entry remain available. This is the
 supported manual route for the DOS Decimer screen; the wheel formula is unchanged.
 
-**Auto code word** captures the currently displayed game frame in browser memory.
-It segments red marks, classifies the repeated path, preserves each rune's aspect
-ratio, and compares both possible ring assignments. It types only when both runes
-score at least 0.90, each exceeds its next candidate by 0.08, and the ring assignment
-is unambiguous. A second capture must agree, with no intervening local game input.
-Missing/ambiguous marks, unsupported frames, missing images, or changed prompts
-produce **No typing** and expose the picker. Nothing is typed just by opening the
-view or selecting a rune. These conservative thresholds are not a claim of DOS/Mac
-artwork parity or validation across every game prompt.
+**Auto code word** calls authenticated `POST /api/game/autocodeword`. The server
+captures the live game window with ffmpeg, drops the decorative chain border, and
+runs the same model-free solver the desk previously ran in the browser: it segments
+red marks, classifies the repeated path, preserves each rune's aspect ratio, and
+compares both possible ring assignments. It types into the game only when two
+captures agree, both runes score at least 0.90, each exceeds its next candidate by
+0.08, and the ring assignment is unambiguous. Missing/ambiguous marks, unsupported
+frames, missing templates, or changed prompts produce **No typing** and expose the
+picker. Nothing is typed just by opening the view or selecting a rune. The private
+GIFs are decoded on the host and no model is involved. These conservative thresholds
+are not a claim of DOS/Mac artwork parity or validation across every game prompt.
 
 The owner's private 800×600 DOS Decimer reference contains only one identifiable
 red glyph and five dashes; its upper prompt is clipped. It **abstains**, rather than
