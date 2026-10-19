@@ -46,12 +46,12 @@ with sync_playwright() as playwright:
         assert page.get_by_role("button", name="Herdr web UI").count() == 1, "the Herdr web UI slot is missing"
 
         page.get_by_role("button", name="Operations dashboard").click()
-        page.locator(".ops-board").wait_for(timeout=20000)
+        page.locator(".dash-stats").wait_for(timeout=20000)
         page.wait_for_timeout(1200)
-        stats = page.locator(".ops-stats > div")
+        stats = page.locator(".dash-stats > .dash-stat")
         assert stats.count() >= 8, f"expected the headline cards, saw {stats.count()}"
-        assert page.locator(".ops-panel").count() >= 4, "the task, inbox, dunk, and health panels are missing"
-        assert page.locator(".ops-stats").inner_text().strip(), "the ops board rendered empty"
+        assert page.locator(".dash-panel").count() >= 4, "the task, inbox, dunk, and health panels are missing"
+        assert page.locator(".dash-stats").inner_text().strip(), "the ops board rendered empty"
         assert not errors, errors
         page.screenshot(path=str(ROOT / "data" / f"ops-board-{width}x{height}.png"))
 
@@ -93,6 +93,7 @@ with sync_playwright() as playwright:
     page = fresh.new_page()
     page.goto(f"{BASE}/dash/poolrad", wait_until="networkidle")
     assert "/?next=" in page.url, f"the unauthenticated route did not return to the login: {page.url}"
+    page.locator("#password").wait_for(timeout=15000)
     assert page.locator("#password").count() == 1, "the password UI is missing"
     assert page.locator(".dash-figures").count() == 0, "dashboard content leaked to an unauthenticated caller"
     fresh.close()
