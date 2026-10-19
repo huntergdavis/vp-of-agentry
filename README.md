@@ -30,6 +30,33 @@ Host health monitoring: `./install-host-watch-service.sh` installs a separate us
 
 The UI reuses MIT licensed [ChatScope](https://github.com/chatscope/chat-ui-kit-react), [Tiptap](https://github.com/ueberdosis/tiptap), [Turndown](https://github.com/mixmark-io/turndown), and [react-markdown](https://github.com/remarkjs/react-markdown). Open WebUI and LibreChat were evaluated, but their model-provider paths need an adapter to target a running Herdr pane and local guarded queue.
 
+## What :8787 serves now
+
+The herdr web UI on **:8789** is the front door (owner #956). The desk on
+**:8787** is now a service behind it, not a place to arrive:
+
+| Served by :8787 | What it is |
+| --- | --- |
+| `/dash/poolrad`, `/dash/operations`, `/dash/play`, `/dash/vp` | the four standalone dashboard documents the shell frames |
+| `/assets/…` | the bundle those documents load |
+| `/api/…` | dashboard data, login/logout, health |
+| `/` | the password page (and the `?next=` handoff target) |
+
+**Every other path is a permanent redirect (308) to the shell**, built from
+the host the visitor used: `http://<request host>:8789/`. A path the shell
+owns keeps its path and query (`/session/...`), everything else goes to the
+shell root. The redirect target is always on the shell's port, so a redirect
+can never bounce back to the desk.
+
+Two consequences worth knowing:
+
+- Opening `http://<host>:8787/` while signed in lands on the herdr web UI;
+  while signed out it shows the password page, because that is where the
+  shell sends a visitor who needs to sign in (`/?next=…`).
+- The old aliases `/poolrad`, `/operations`, `/play` and `/vp` now redirect to
+  the shell as well. The dashboards themselves are still reachable directly at
+  their `/dash/…` routes, and the shell's **Dashboards** pane opens all four.
+
 ## Dashboard routes
 
 Each dashboard has one clean standalone route that renders without the desk
@@ -42,9 +69,8 @@ sidebar or nav chrome, so the herdr web UI can frame it:
 | `/dash/play` | Play Poolrad: the live private DOS run |
 | `/dash/vp` | VP of Agentry: the agent conversation |
 
-`/dash` redirects to `/dash/poolrad`, and the older paths `/poolrad`,
-`/operations`, `/play` and `/vp` redirect to the new routes, so no bookmark
-404s. A trailing slash (`/dash/poolrad/`) redirects to the canonical path.
+`/dash` redirects to `/dash/poolrad`. A trailing slash (`/dash/poolrad/`)
+redirects to the canonical path.
 
 The routes use the same `vp_session` cookie as the desk, so a framed dashboard
 needs no second login. **Without a live session a dashboard route never serves

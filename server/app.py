@@ -317,7 +317,9 @@ def login(body: Login, request: Request, response: Response):
         conn.execute("DELETE FROM sessions WHERE expires_at<=?", (now,))
         conn.execute("INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)", (_session_key(session), now + 7 * 24 * 3600))
     response.set_cookie("vp_session", session, httponly=True, samesite="strict", max_age=7 * 24 * 3600)
-    return {"ok": True, "next": _safe_next(body.next, request)}
+    # Without an explicit return target, sign-in lands on the herdr web UI:
+    # the desk interface is retired (owner #956).
+    return {"ok": True, "next": _safe_next(body.next, request) or _shell_target(request)}
 
 
 @app.post("/api/logout")
@@ -1222,6 +1224,68 @@ def version():
 
 DIST = ROOT / "web" / "dist"
 DASH_VIEWS = ("poolrad", "operations", "play", "vp")
+# The herdr web UI is the front door (owner #956). The desk keeps serving
+# only what that UI needs: the standalone dashboards, their assets, the API
+# and the login page. Every other path is a permanent redirect to the shell.
+SHELL_DEFAULT_PORT = 8789
+SHELL_EQUIVALENT_PREFIXES = ("/session",)
+DESK_KEPT_PREFIXES = ("/api", "/dash", "/assets")
+
+
+def _shell_base(request: Request) -> str:
+    """The herdr web UI address for the host the owner used."""
+    host = request.url.hostname or "127.0.0.1"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = _herdr_webui_port() or SHELL_DEFAULT_PORT
+    return f"http://{host}:{port}"
+
+
+def _shell_target(request: Request) -> str:
+    """Where a retired desk path belongs now.
+
+    The shell owns "/" and the /session/... family, so a path with a real
+    equivalent keeps its path and query. Everything else goes to the shell
+    root. The target is always on the shell's port, never on the desk's, so
+    a redirect can never bounce back here.
+    """
+    base = _shell_base(request)
+    path = request.url.path
+    equivalent = any(path == prefix or path.startswith(prefix + "/")
+                      for prefix in SHELL_EQUIVALENT_PREFIXES)
+    if not equivalent:
+        return f"{base}/"
+    target = f"{base}{path}"
+    if request.url.query:
+        target += f"?{request.url.query}"
+    return target
+
+
+def _desk_keeps(path: str) -> bool:
+    """True when the desk still serves this path itself.
+
+    The middleware runs before routing, so the retired aliases below are
+    listed here: they are answered by the shell redirect, not by the routes
+    below them.
+    """
+    if path in ("/api", "/dash", "/assets", "/index.html"):
+        return True
+    return any(path.startswith(prefix + "/") for prefix in DESK_KEPT_PREFIXES)
+
+
+@app.middleware("http")
+async def retire_the_desk_ui(request: Request, call_next):
+    """Send every retired desk path to the herdr web UI (owner #956)."""
+    path = request.url.path
+    if _desk_keeps(path):
+        return await call_next(request)
+    if path == "/":
+        # The login page stays here for the shell's ?next= handoff. A signed-in
+        # visitor has no business on the retired desk, so it goes to the shell.
+        if _session_valid(request):
+            return RedirectResponse(_shell_target(request), status_code=308)
+        return await call_next(request)
+    return RedirectResponse(_shell_target(request), status_code=308)
 
 
 @app.get("/dash", include_in_schema=False)
@@ -1229,7 +1293,6 @@ DASH_VIEWS = ("poolrad", "operations", "play", "vp")
 def dash_root():
     """The standalone dashboard routes start here; the poolrad view is the default."""
     return RedirectResponse("/dash/poolrad", status_code=307)
-
 
 @app.get("/dash/{path:path}", include_in_schema=False)
 def dash_route(path: str, request: Request):
@@ -1252,27 +1315,6 @@ def dash_route(path: str, request: Request):
         raise HTTPException(404, "Desk UI is not built")
     return FileResponse(index, media_type="text/html", headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
-
-
-@app.get("/poolrad", include_in_schema=False)
-def legacy_poolrad_route():
-    """The old bookmarked paths still work; they redirect to the new routes."""
-    return RedirectResponse("/dash/poolrad", status_code=307)
-
-
-@app.get("/operations", include_in_schema=False)
-def legacy_operations_route():
-    return RedirectResponse("/dash/operations", status_code=307)
-
-
-@app.get("/play", include_in_schema=False)
-def legacy_play_route():
-    return RedirectResponse("/dash/play", status_code=307)
-
-
-@app.get("/vp", include_in_schema=False)
-def legacy_vp_route():
-    return RedirectResponse("/dash/vp", status_code=307)
 
 
 if DIST.exists():

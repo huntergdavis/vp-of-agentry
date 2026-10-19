@@ -224,6 +224,17 @@
 .dash-error { border-color: #6a3b48; background: #241a1f; color: #f5c2e7; }
 .dash-error button { margin-left: 10px; }
 .dash-limits { color: var(--dash-muted); font-size: 11px; line-height: 1.6; margin: 16px 0 0; }
+.dash-primary-link {
+  display: inline-block;
+  background: var(--dash-accent);
+  color: #10131f;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.dash-primary-link:hover { background: #9dc0fb; }
 
 /* Big completion figures (Poolrad). */
 .dash-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }

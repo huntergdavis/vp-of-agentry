@@ -956,6 +956,25 @@ function StandaloneDesk({ view, known }) {
   return <VpStandalone />;
 }
 
+function RetiredNotice() {
+  const [shell, setShell] = useState('');
+  useEffect(() => { api('/herdr-webui').then(data => setShell(data.url || '')).catch(() => {}); }, []);
+  const target = shell || `http://${window.location.hostname}:8789/`;
+  return <div className="dash-root dash-standalone">
+    <DashNav view="" />
+    <DashHeader eyebrow="VP OF AGENTRY" title="The desk moved" subtitle="The Herdr web UI is the front door now" />
+    <div className="dash-body">
+      <div className="dash-empty">
+        The old desk interface is retired. Terminals, workspaces and the four dashboards live in the Herdr web UI.
+        <div style={{ marginTop: 12 }}><a className="dash-primary-link" href={target}>Open the Herdr web UI ↗</a></div>
+        <div className="dash-nav-links" style={{ marginTop: 16 }}>
+          {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`}>{route.title}</a>)}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
 function App() {
   const route = useDashRoute();
   const [authorized, setAuthorized] = useState(null);
@@ -969,11 +988,9 @@ function App() {
     return () => { clearInterval(timer); window.removeEventListener('focus', check); };
   }, []);
   if (authorized === null) return <div className="splash">VP OF AGENTRY</div>;
-  const content = authorized
-    ? (route.standalone
-      ? <StandaloneDesk view={route.view} known={route.known} />
-      : <Desk onLogout={() => setAuthorized(false)} />)
-    : <Login onSuccess={() => setAuthorized(true)} />;
+  const content = route.standalone
+    ? (authorized ? <StandaloneDesk view={route.view} known={route.known} /> : <Login onSuccess={() => setAuthorized(true)} />)
+    : (authorized ? <RetiredNotice /> : <Login onSuccess={() => setAuthorized(true)} />);
   return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</>;
 }
 

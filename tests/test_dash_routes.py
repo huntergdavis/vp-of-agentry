@@ -67,12 +67,12 @@ class DashRouteTests(unittest.TestCase):
         self.assertEqual(307, response.status_code)
         self.assertEqual("/dash/play", response.headers["location"])
 
-    def test_the_old_paths_still_work(self):
-        for legacy, target in (("poolrad", "/dash/poolrad"), ("operations", "/dash/operations"),
-                                ("play", "/dash/play"), ("vp", "/dash/vp")):
-            response = getattr(server, f"legacy_{legacy}_route")()
-            self.assertEqual(307, response.status_code)
-            self.assertEqual(target, response.headers["location"])
+    def test_the_old_paths_are_retired_to_the_shell(self):
+        # Owner #956: the herdr web UI is the front door, so the old aliases
+        # are answered by the redirect middleware, not by these routes.
+        # tests/test_retired_desk.py covers that behaviour.
+        self.assertFalse(hasattr(server, "legacy_poolrad_route"))
+        self.assertTrue(server.DESK_KEPT_PREFIXES)
 
     def test_the_return_target_is_limited_to_this_host(self):
         request = build_request()
@@ -107,7 +107,9 @@ class DashRouteTests(unittest.TestCase):
             refused = server.login(server.Login(password=PASSWORD, next="http://evil.example/"),
                                    request, response)
         self.assertEqual("http://cell:8789/dash/vp", good["next"])
-        self.assertIsNone(refused["next"])
+        # A refused target falls back to the herdr web UI, never to an outside
+        # site and never to a dead end (owner #956 retired the desk UI).
+        self.assertEqual("http://cell:8789/", refused["next"])
 
 
 if __name__ == "__main__":
