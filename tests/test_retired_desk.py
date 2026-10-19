@@ -72,11 +72,28 @@ class RetiredDeskTests(unittest.TestCase):
 
     def test_every_retired_path_redirects_to_the_shell(self):
         for path in ("/conversation", "/search", "/activity", "/editor", "/roster",
-                     "/poolrad", "/operations", "/play", "/vp", "/nonsense",
-                     "/api-unknown", "/dashboards"):
+                     "/nonsense", "/api-unknown", "/dashboards"):
             response = self.redirect_for(path)
             self.assertEqual(308, response.status_code, f"{path} did not redirect")
             self.assertEqual("http://cell:8789/", response.headers["location"], path)
+
+    def test_the_old_aliases_land_on_their_dashboard_in_the_shell(self):
+        for alias, dashboard in (("/poolrad", "poolrad"), ("/operations", "operations"),
+                                 ("/play", "play"), ("/vp", "vp")):
+            response = self.redirect_for(alias)
+            self.assertEqual(308, response.status_code, alias)
+            self.assertEqual(f"http://cell:8789/#dash/{dashboard}",
+                             response.headers["location"], alias)
+            # The deep link is a fragment: the shell reads it, the browser
+            # never sends it, and it can never redirect again.
+            self.assertIn(":8789/", response.headers["location"])
+            self.assertNotIn(":8787", response.headers["location"])
+
+    def test_the_alias_deep_link_follows_the_request_host(self):
+        for host in ("cell", "localhost", "192.168.0.209"):
+            response = self.redirect_for("/poolrad", host=host)
+            self.assertEqual(f"http://{host}:8789/#dash/poolrad",
+                             response.headers["location"])
 
     def test_paths_the_shell_owns_keep_their_path_and_query(self):
         for path in ("/session", "/session/default", "/session/default/workspace/w1",
@@ -103,7 +120,6 @@ class RetiredDeskTests(unittest.TestCase):
                 location = response.headers["location"]
                 self.assertIn(":8789/", location)
                 self.assertNotIn(":8787", location)
-
     def test_signing_in_without_a_target_lands_on_the_shell(self):
         request = build_request("/")
         response = type("Response", (), {"set_cookie": lambda self, *args, **kwargs: None})()

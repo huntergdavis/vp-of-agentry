@@ -53,9 +53,10 @@ Two consequences worth knowing:
 - Opening `http://<host>:8787/` while signed in lands on the herdr web UI;
   while signed out it shows the password page, because that is where the
   shell sends a visitor who needs to sign in (`/?next=…`).
-- The old aliases `/poolrad`, `/operations`, `/play` and `/vp` now redirect to
-  the shell as well. The dashboards themselves are still reachable directly at
-  their `/dash/…` routes, and the shell's **Dashboards** pane opens all four.
+- The old aliases `/poolrad`, `/operations`, `/play` and `/vp` now land on the
+  matching dashboard inside the shell: `http://<host>:8789/#dash/<name>`. The
+  fragment is read by the shell, so the owner's old link brings them to the
+  view they meant rather than to a terminal with no context.
 
 ## Dashboard routes
 

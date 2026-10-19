@@ -1230,6 +1230,15 @@ DASH_VIEWS = ("poolrad", "operations", "play", "vp")
 SHELL_DEFAULT_PORT = 8789
 SHELL_EQUIVALENT_PREFIXES = ("/session",)
 DESK_KEPT_PREFIXES = ("/api", "/dash", "/assets")
+# Old desk links that name a dashboard land on that dashboard inside the
+# shell, so the owner's intent survives instead of dropping them on a
+# terminal with no context (owner #956).
+LEGACY_DASH_ALIASES = {
+    "/poolrad": "poolrad",
+    "/operations": "operations",
+    "/play": "play",
+    "/vp": "vp",
+}
 
 
 def _shell_base(request: Request) -> str:
@@ -1244,13 +1253,17 @@ def _shell_base(request: Request) -> str:
 def _shell_target(request: Request) -> str:
     """Where a retired desk path belongs now.
 
-    The shell owns "/" and the /session/... family, so a path with a real
-    equivalent keeps its path and query. Everything else goes to the shell
-    root. The target is always on the shell's port, never on the desk's, so
-    a redirect can never bounce back here.
+    A legacy alias that names a dashboard goes to that dashboard inside the
+    shell (#dash/<name>). A path the shell owns keeps its path and query.
+    Everything else goes to the shell root. The target is always on the
+    shell's port, never on the desk's, so a redirect can never bounce back
+    here.
     """
     base = _shell_base(request)
     path = request.url.path
+    dashboard = LEGACY_DASH_ALIASES.get(path)
+    if dashboard:
+        return f"{base}/#dash/{dashboard}"
     equivalent = any(path == prefix or path.startswith(prefix + "/")
                       for prefix in SHELL_EQUIVALENT_PREFIXES)
     if not equivalent:
