@@ -138,7 +138,8 @@ class GameSession:
                     (run_dir / key).mkdir(parents=True, exist_ok=True)
                 cmd = ["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
                        "--bind", str(run_dir), str(run_dir), "--chdir", str(run_dir),
-                       "dosbox-x", "-defaultconf", "-defaultmapper", "-nogui", "-nomenu", "-fastlaunch", "-fullscreen",
+                       "dosbox-x", "-defaultconf", "-defaultmapper", "-nogui", "-nomenu", "-fastlaunch",
+                       "-set", "sdl windowresolution=640x480",
                        "-savedir", str(run_dir / ".dosbox-saves"),
                        "-c", f"mount c {run_dir}", "-c", "c:", "-c", "cd \\POOLRAD", "-c", "START"]
                 session = "oracle"
@@ -233,11 +234,13 @@ class GameSession:
                 raise GameError("Audio capture is unavailable")
             env = {**os.environ, "DISPLAY": self.display or "", "XAUTHORITY": str(self.run_dir / ".vp-xauthority")}
             if kind == "video":
-                # DOSBox-X renders the 320x200 game as a 640x400 window centered in the 800x600 display.
-                # Capture just that window and integer-upscale 2x so the desk shows the full game, crisply.
+                # DOSBox-X re-centers and can resize its output per video mode, so a fixed
+                # crop (previously crop=640:400:80:100) clipped the frame in some modes and
+                # looked offset. Capture the whole private display and integer-upscale 2x so
+                # nothing can ever be cut; the browser contains it with object-fit.
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "x11grab", "-framerate", "15",
                        "-video_size", "800x600", "-i", self.display or "",
-                       "-vf", "crop=640:400:80:100,scale=1280:800:flags=neighbor",
+                       "-vf", "scale=1600:1200:flags=neighbor",
                        "-q:v", "6", "-fflags", "nobuffer", "-flush_packets", "1", "-f", "mpjpeg", "pipe:1"]
             else:
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "pulse", "-i", f"{self.sink_name}.monitor",
