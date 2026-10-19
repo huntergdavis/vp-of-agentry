@@ -201,7 +201,7 @@ def _inbox_board(client) -> dict:
             "oldest_unread_s": oldest}
 
 
-def _dunk_board(client) -> dict:
+def _dunk_board(client, now: datetime) -> dict:
     try:
         dunks = client.call("list_dunks")
     except Exception as exc:  # noqa: BLE001
@@ -224,11 +224,18 @@ def _dunk_board(client) -> dict:
         "hold_count": dunk.get("hold_count"),
         "only_when": dunk.get("only_when"),
         "last_error": dunk.get("last_error"),
+        # The daemon clears last_error on a successful send, so an error here
+        # belongs to the most recent attempt. The age of the last successful
+        # send says whether the schedule still delivers.
+        "last_sent_at": dunk.get("last_sent_at"),
+        "last_sent_age_s": _age_seconds(now, dunk.get("last_sent_at")),
+        "last_skipped_age_s": _age_seconds(now, dunk.get("last_skipped_at")),
     } for dunk in rows]
     return {
         "state": "ok",
         "total": len(items),
         "running": sum(1 for dunk in items if dunk["running"]),
+        "failed": sum(1 for dunk in items if dunk["last_error"]),
         "items": items,
     }
 
@@ -374,7 +381,7 @@ def build(client, conn: sqlite3.Connection, *, now: datetime | None = None) -> d
         "tasks": lambda: _task_board(client, now),
         "task_metrics": lambda: _task_metrics(client),
         "inbox": lambda: _inbox_board(client),
-        "dunks": lambda: _dunk_board(client),
+        "dunks": lambda: _dunk_board(client, now),
         "panes": lambda: _pane_board(client),
         "daemon": lambda: _daemon_board(client),
         "health": lambda: _health_board(client),

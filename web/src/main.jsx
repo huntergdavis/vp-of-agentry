@@ -476,10 +476,10 @@ function OpsBoard() {
               {inbox.mailboxes.slice(0, 12).map(row => <tr key={row.mailbox}><td>{row.destination || row.mailbox}</td><td>{row.unread}</td><td>{row.total}</td><td>{row.unread ? ago(row.oldest_unread_s) : '—'}</td></tr>)}
             </tbody></table></div>}
         </div>
-        <div className="ops-panel"><div className="ops-panel-head"><h3>Scheduled dunks</h3><span>{dunks.running ?? '—'}/{dunks.total ?? '—'} running</span></div>
+        <div className="ops-panel"><div className="ops-panel-head"><h3>Scheduled dunks</h3><span>{dunks.running ?? '—'}/{dunks.total ?? '—'} running{dunks.failed ? ` · ${dunks.failed} with a last error` : ''}</span></div>
           {dunks.state !== 'ok' ? <p className="ops-muted">Dunk schedule unavailable ({dunks.error || 'unknown error'}).</p>
             : <div className="ops-table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Every</th><th>Next</th></tr></thead><tbody>
-              {dunks.items.map(dunk => <tr key={dunk.id}><td>{dunk.id}</td><td>{dunk.name}<small>{dunk.status}{dunk.skip_count ? ` · ${dunk.skip_count} skipped` : ''}{dunk.last_error ? ` · ${dunk.last_error}` : ''}</small></td><td>{dunk.target_label || dunk.target}</td><td>{dunk.interval_minutes}m</td><td>{dunk.running && dunk.next_send_in_s != null ? `in ${Math.round(dunk.next_send_in_s / 60)}m` : 'stopped'}</td></tr>)}
+              {dunks.items.map(dunk => <tr key={dunk.id}><td>{dunk.id}</td><td>{dunk.name}<small>{dunk.status}{dunk.send_count != null ? ` · ${dunk.send_count} sent` : ''}{dunk.skip_count ? ` · ${dunk.skip_count} skipped` : ''}{dunk.last_error ? ` · last error: ${dunk.last_error}` : ''}{dunk.last_sent_age_s != null ? ` · last send ${ago(dunk.last_sent_age_s)}` : ''}</small></td><td>{dunk.target_label || dunk.target}</td><td>{dunk.interval_minutes}m</td><td>{dunk.running && dunk.next_send_in_s != null ? `in ${Math.round(dunk.next_send_in_s / 60)}m` : 'stopped'}</td></tr>)}
               {!dunks.items.length && <tr><td colSpan="5">No schedules.</td></tr>}
             </tbody></table></div>}
         </div>
