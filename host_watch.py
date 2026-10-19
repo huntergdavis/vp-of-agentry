@@ -158,12 +158,12 @@ def run_once(dry_run: bool) -> int:
         state.update({"last_sample": sample, "history": history})
         if new != old:
             severity = {"ok": 0, "warning": 1, "critical": 2}
-            escalating = any(severity.get(new[k], 0) > severity.get(old.get(k, "ok"), 0) for k in new)
+            max_new = max(severity.get(v, 0) for v in new.values())
             recent = sample["at"] - state.get("last_alert_at", 0) < ALERT_COOLDOWN_S
-            if recent and not escalating:
+            if recent and max_new < severity["critical"]:
                 # A threshold oscillating around its boundary should not page the VP every
                 # minute. Adopt the new levels (so the same transition is not re-detected)
-                # and record the suppression for --status. Escalations always alert.
+                # and record the suppression for --status. Critical escalations always alert.
                 state["levels"] = new
                 state["last_suppressed_at"] = sample["at"]
                 save_state(state)
