@@ -43,6 +43,7 @@ class GameSession:
         self.sink_module: str | None = None
         self.sink_name: str | None = None
         self.active_slot = self.SAVE_SLOT_DEFAULT
+        self.dosbox_x = os.getenv("VP_DOSBOX_X", "dosbox-x")
         self.log_files = []
 
     def _run(self, cmd: list[str], **kwargs):
@@ -142,14 +143,7 @@ class GameSession:
                     env["PULSE_SINK"] = self.sink_name
                 for key in (".config", ".cache", ".local/share", ".dosbox-saves"):
                     (run_dir / key).mkdir(parents=True, exist_ok=True)
-                cmd = ["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
-                       "--bind", str(run_dir), str(run_dir), "--chdir", str(run_dir),
-                       "dosbox-x", "-defaultconf", "-defaultmapper", "-nogui", "-nomenu", "-fastlaunch",
-                       "-set", "sdl windowresolution=640x480",
-                       "-set", f"dosbox saveslot={self.SAVE_SLOT_DEFAULT}",
-                       "-set", "dosbox saveremark=false",
-                       "-savedir", str(run_dir / ".dosbox-saves"),
-                       "-c", f"mount c {run_dir}", "-c", "c:", "-c", "cd \\POOLRAD", "-c", "START"]
+                cmd = self._dosbox_command(run_dir)
                 session = "oracle"
                 env_args = [f"{key}={env[key]}" for key in ("DISPLAY", "XAUTHORITY", "SDL_AUDIODRIVER", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME")]
                 if self.sink_name:
@@ -171,6 +165,17 @@ class GameSession:
                 if isinstance(exc, GameError):
                     raise
                 raise GameError(f"Could not start Poolrad: {exc}") from exc
+
+    def _dosbox_command(self, run_dir: Path) -> list[str]:
+        """Bubblewrap + DOSBox-X argv. VP_DOSBOX_X selects an alternate binary."""
+        return ["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
+                "--bind", str(run_dir), str(run_dir), "--chdir", str(run_dir),
+                self.dosbox_x, "-defaultconf", "-defaultmapper", "-nogui", "-nomenu", "-fastlaunch",
+                "-set", "sdl windowresolution=640x480",
+                "-set", f"dosbox saveslot={self.SAVE_SLOT_DEFAULT}",
+                "-set", "dosbox saveremark=false",
+                "-savedir", str(run_dir / ".dosbox-saves"),
+                "-c", f"mount c {run_dir}", "-c", "c:", "-c", "cd \\POOLRAD", "-c", "START"]
 
     @staticmethod
     def _x_ready(display: str, auth: Path) -> bool:
@@ -373,19 +378,41 @@ class GameSession:
             self._record("savestate", slot=actual, tag=entry["tag"])
             return entry
 
-    def _wait_for_load(self, slot: int, offset: int, timeout: float = 4.0) -> bool:
+    def _wait_for_load_status(self, slot: int, offset: int, timeout: float = 8.0) -> str | None:
+        """Return 'loaded', 'mismatch' (program-name dialog), or None on timeout."""
         log = self.run_dir / "vp-dosbox-terminal.log"
-        pattern = re.compile(rb"Loaded\. \(Slot (\d+)\)")
+        loaded = re.compile(rb"Loaded\. \(Slot (\d+)\)")
+        aborted = re.compile(rb"Aborted\. Check your program name")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 fresh = log.read_bytes()[offset:] if log.is_file() else b""
             except OSError:
                 fresh = b""
-            if any(int(hit) == slot for hit in pattern.findall(fresh)):
-                return True
+            if any(int(hit) == slot for hit in loaded.findall(fresh)):
+                return "loaded"
+            if aborted.search(fresh):
+                return "mismatch"
             time.sleep(0.1)
-        return False
+        return None
+
+    GAME_START_MARKER = b"Packed file is corrupt"
+
+    def _game_started(self) -> bool:
+        """True once START.EXE has written its startup screen (not just DOS autoexec)."""
+        log = self.run_dir / "vp-dosbox-terminal.log"
+        try:
+            return self.GAME_START_MARKER in log.read_bytes()
+        except OSError:
+            return False
+
+    def _wait_for_game_start(self, timeout: float = 20.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._game_started():
+                return True
+            time.sleep(0.25)
+        return self._game_started()
 
     def loadstate(self, slot: int) -> dict:
         with self.lock:
@@ -397,12 +424,23 @@ class GameSession:
                 raise GameError("That save state is not available")
             if entry.get("sha256") and hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
                 raise GameError("The save state file changed since it was recorded")
+            # DOSBox-X asks "Program name mismatch. Load the state anyway?" while the
+            # guest is still in autoexec (current program MOUNT/COMMAND, not START).
+            # Forcing Yes can abort the emulator (observed: core dumped), so wait for
+            # the game to actually start and refuse with guidance if it never does.
+            if not self._wait_for_game_start():
+                raise GameError("The game is still starting. Wait for the title screen, then load the state.")
             self._focus_game()
             self._goto_slot(slot)
             log_offset = self._log_size()
             self._chord("F12+l")
-            self._record("loadstate", slot=slot, tag=entry.get("tag", ""))
-            return {**entry, "loaded": True, "verified": self._wait_for_load(slot, log_offset)}
+            status = self._wait_for_load_status(slot, log_offset)
+            if status == "mismatch":
+                self._record("loadstate", slot=slot, tag=entry.get("tag", ""), verified=False,
+                             reason="program-name dialog")
+                raise GameError("DOSBox-X is still at its startup prompt. Wait for the title screen, then load the state.")
+            self._record("loadstate", slot=slot, tag=entry.get("tag", ""), verified=status == "loaded")
+            return {**entry, "loaded": True, "verified": status == "loaded"}
 
     # --- Frame capture and code-word recognition ----------------------------
 

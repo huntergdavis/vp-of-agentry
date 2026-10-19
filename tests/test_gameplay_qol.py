@@ -6,7 +6,10 @@ the save/load round trip, tagged listing, endpoint wiring, and the ported
 recognition primitives.
 """
 
+import hashlib
 import importlib
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -139,6 +142,7 @@ class SaveStateTests(unittest.TestCase):
                     log.write(f'Loaded. (Slot {self.session.active_slot})\n')
 
         self.session._chord = fake_chord
+        self.session._wait_for_game_start = lambda timeout=20.0: True
 
     def test_save_list_load_round_trip_with_tags(self):
         first = self.session.savestate('Sokal Keep first floor')
@@ -206,6 +210,96 @@ class SaveStateTests(unittest.TestCase):
 
 
 # --- Endpoint wiring --------------------------------------------------------
+
+class DosboxBinaryTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def test_default_uses_path_name(self):
+        session = GameSession(self.root / 'repo', self.root / 'data')
+        self.assertEqual('dosbox-x', session.dosbox_x)
+        cmd = session._dosbox_command(self.root / 'run')
+        self.assertEqual('dosbox-x', cmd[cmd.index('--chdir') + 2])
+
+    def test_vp_dosbox_x_override_is_used(self):
+        override = '/opt/dbx/dosbox-x-2026.10.01'
+        with patch.dict(os.environ, {'VP_DOSBOX_X': override}):
+            session = GameSession(self.root / 'repo', self.root / 'data')
+        self.assertEqual(override, session.dosbox_x)
+        cmd = session._dosbox_command(self.root / 'run')
+        self.assertEqual(override, cmd[cmd.index('--chdir') + 2])
+        self.assertNotIn('dosbox-x', cmd)
+
+
+class LoadStateDialogTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        run = self.root / 'repo' / 'resources' / 'oracle-runs' / 'testrun'
+        (run / 'POOLRAD').mkdir(parents=True)
+        (run / '.oracle-input-sha256').write_text('x')
+        (run / 'POOLRAD' / 'START.EXE').write_text('x')
+        data = self.root / 'data'
+        data.mkdir()
+        self.session = GameSession(self.root / 'repo', data)
+        self.run = run
+        self.session.run_dir = run
+        self.session.display = ':99'
+        self.session.tmux_session = 'oracle'
+        self.session._game_running = lambda: True
+        self.session._focus_game = lambda: None
+        self.session._goto_slot = lambda slot: None
+        self.session._log_size = lambda: 0
+        self.log = run / 'vp-dosbox-terminal.log'
+        saves = run / '.dosbox-saves'
+        saves.mkdir(exist_ok=True)
+        (saves / '1.sav').write_bytes(b'state')
+        entry = {'slot': 1, 'tag': 't', 'created': '2026', 'session': None,
+                 'size': 5, 'sha256': hashlib.sha256(b'state').hexdigest()}
+        (run / 'vp-savestates.json').write_text(json.dumps({'version': 1, 'states': [entry]}))
+        self.session._wait_for_game_start = lambda timeout=20.0: True
+
+    def test_wait_for_load_status_markers(self):
+        self.log.write_bytes(b'Loaded. (Slot 3)\n')
+        self.assertEqual('loaded', self.session._wait_for_load_status(3, 0, 0.5))
+        self.log.write_bytes(b'Aborted. Check your program name: START\n')
+        self.assertEqual('mismatch', self.session._wait_for_load_status(1, 0, 0.5))
+        self.log.write_bytes(b'Loaded. (Slot 2)\n')
+        self.assertIsNone(self.session._wait_for_load_status(1, 0, 0.3))
+
+    def test_game_started_marker(self):
+        self.assertFalse(self.session._game_started())
+        self.log.write_bytes(b"... Packed file is corrupt ...\n")
+        self.assertTrue(self.session._game_started())
+
+    def test_load_waits_for_game_start_then_loads(self):
+        waited = []
+        self.session._wait_for_game_start = lambda timeout=20.0: waited.append(timeout) or True
+        chords = []
+        self.session._chord = lambda combo: chords.append(combo)
+        self.session._wait_for_load_status = lambda slot, offset, timeout=8.0: 'loaded'
+        result = self.session.loadstate(1)
+        self.assertTrue(result['verified'])
+        self.assertEqual(1, len(waited))
+        self.assertEqual(['F12+l'], chords)
+
+    def test_load_refused_before_game_start(self):
+        self.session._game_started = lambda: False
+        self.session._wait_for_game_start = lambda timeout=20.0: False
+        with self.assertRaises(GameError):
+            self.session.loadstate(1)
+
+    def test_load_mismatch_raises(self):
+        self.session._game_started = lambda: True
+        self.session._wait_for_game_start = lambda timeout=20.0: True
+        self.session._chord = lambda combo: None
+        self.session._wait_for_load_status = lambda slot, offset, timeout=8.0: 'mismatch'
+        with self.assertRaises(GameError):
+            self.session.loadstate(1)
+
 
 class FakeGame:
     def __init__(self, error=None):
