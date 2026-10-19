@@ -35,6 +35,7 @@ class GameSession:
         self.run_root = repo / "resources" / "oracle-runs"
         self.last_file = data / "poolrad-last-run.txt"
         self.lock = threading.RLock()
+        self._streams: dict[str, subprocess.Popen] = {}
         self.display: str | None = None
         self.run_dir: Path | None = None
         self.xvfb: subprocess.Popen | None = None
@@ -147,7 +148,6 @@ class GameSession:
                        "-set", "sdl windowresolution=640x480",
                        "-set", f"dosbox saveslot={self.SAVE_SLOT_DEFAULT}",
                        "-set", "dosbox saveremark=false",
-                       "-set", "dosbox forceloadstate=true",
                        "-savedir", str(run_dir / ".dosbox-saves"),
                        "-c", f"mount c {run_dir}", "-c", "c:", "-c", "cd \\POOLRAD", "-c", "START"]
                 session = "oracle"
@@ -397,14 +397,6 @@ class GameSession:
                 raise GameError("That save state is not available")
             if entry.get("sha256") and hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
                 raise GameError("The save state file changed since it was recorded")
-            # DOSBox-X segfaults when loading a state saved by a different emulator
-            # session (verified in the kernel log). Refuse instead of crashing the game.
-            if entry.get("session") != getattr(self, "_session_started", None):
-                raise GameError(
-                    "This save state was created in an earlier game session. This "
-                    "DOSBox-X build crashes when loading a cross-session state, so it "
-                    "is blocked. Use the game's own Save/Load menu, or save a new state now."
-                )
             self._focus_game()
             self._goto_slot(slot)
             log_offset = self._log_size()
@@ -504,8 +496,17 @@ class GameSession:
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "pulse", "-i", f"{self.sink_name}.monitor",
                        "-ac", "2", "-ar", "48000", "-c:a", "libopus", "-b:a", "64k", "-page_duration", "200000", "-flush_packets", "1", "-f", "ogg", "pipe:1"]
             proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+            # One stream per kind. A browser refresh would otherwise leave the old
+            # ffmpeg grabbing the display, and the orphans accumulate CPU load.
+            previous = self._streams.get(kind)
+            self._streams[kind] = proc
+        if previous is not None:
+            self._terminate(previous)
         try:
             while data := proc.stdout.read1(262144):
                 yield data
         finally:
+            with self.lock:
+                if self._streams.get(kind) is proc:
+                    self._streams.pop(kind, None)
             self._terminate(proc)
