@@ -140,6 +140,9 @@ def save_state(state: dict) -> None:
             os.unlink(temporary)
 
 
+ALERT_COOLDOWN_S = 1200  # suppress non-escalating threshold flaps within 20 minutes
+
+
 def run_once(dry_run: bool) -> int:
     sample = sample_host()
     STATE.parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +157,17 @@ def run_once(dry_run: bool) -> int:
             return 0
         state.update({"last_sample": sample, "history": history})
         if new != old:
+            severity = {"ok": 0, "warning": 1, "critical": 2}
+            escalating = any(severity.get(new[k], 0) > severity.get(old.get(k, "ok"), 0) for k in new)
+            recent = sample["at"] - state.get("last_alert_at", 0) < ALERT_COOLDOWN_S
+            if recent and not escalating:
+                # A threshold oscillating around its boundary should not page the VP every
+                # minute. Adopt the new levels (so the same transition is not re-detected)
+                # and record the suppression for --status. Escalations always alert.
+                state["levels"] = new
+                state["last_suppressed_at"] = sample["at"]
+                save_state(state)
+                return 0
             body = alert_body(sample, old, new)
             try:
                 subprocess.run([
