@@ -90,6 +90,14 @@ class DashRouteTests(unittest.TestCase):
             self.assertEqual("http://cell:8789/", server._safe_next("http://cell:8789/", request))
             self.assertIsNone(server._safe_next("http://cell:8790/", request))
 
+    def test_the_allowed_return_port_follows_the_configured_web_ui_url(self):
+        # The frame address and the allowed return port come from one variable,
+        # so they cannot drift apart: move the proxy and both move together.
+        with patch.dict(os.environ, {"VP_HERDR_WEBUI_URL": "http://cell:8791/"}):
+            request = build_request()
+            self.assertEqual("http://cell:8791/", server._safe_next("http://cell:8791/", request))
+            self.assertIsNone(server._safe_next("http://cell:8789/", request))
+
     def test_login_returns_the_safe_target_only(self):
         request = build_request()
         response = type("Response", (), {"set_cookie": lambda self, *args, **kwargs: None})()

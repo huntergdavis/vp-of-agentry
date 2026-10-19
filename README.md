@@ -60,6 +60,12 @@ address: `http://<request host>:8787/dash/<name>`. The session cookie is bound
 to that hostname, so a frame pointed elsewhere gets no cookie and shows the
 password UI instead of the dashboard.
 
+`VP_HERDR_WEBUI_URL` does double duty: it is the address the desk frames, and
+its port is the only absolute return target the login accepts besides the
+desk's own port. That coupling is deliberate - the frame address and the
+allowed return port cannot drift apart - so if the Herdr web UI proxy ever
+moves to another port, set the variable to that new address and both follow.
+
 ## Poolrad dashboard
 
 Choose **Poolrad dashboard** in the desk sidebar, or open `/dash/poolrad` on its own, to see two completion numbers and one evidence line: **strict C** and **verified identities**, each as a percentage of the PM-reviewed 815 upper bound, plus a single line naming the published checkpoint, the scoped pixel comparisons behind it, and the fact that this is not whole-game completion. The long prose was removed on purpose; the research snapshot keeps the full candidate list.
