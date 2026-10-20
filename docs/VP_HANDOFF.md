@@ -97,3 +97,11 @@ Both of the 2026-10-20 method errors (94 B/row vs 1,714 B/row for `OVL_001C_13D7
 That worked because **re-derivation is cheap**: the pricer is a script, the queue is deterministic, and the extracted media is immutable. Make re-derivation cheap and self-correction becomes routine rather than lucky; make it expensive and the same person defends the same error for weeks. When designing a lane's tooling, the price of re-deriving a published number matters more than the speed of producing one.
 
 The corollary for the VP: **quote the artifact, publish the method, and keep the script next to the result** - then a wrong number is a ten-minute fix instead of an argument.
+
+### The stopping rule generalises (2026-07-20, three stops in one night)
+
+Three targets were declined at three different kinds of obstacle, all in one shift: **cost** (`OVL_0025_0C77`, a 1,672 B lower bound against a 1,500 cap), **identity** (`RES_00BA_16EC`'s dependency set, four bodies with no establishable ownership), and **engineering time** (`OVL_0077_275B`'s native capture, 0-byte `RESULT.BIN` after three fixes, two estimates past its boundary). Each cost a period of work and each avoided a much larger spend on evidence that would not have been accepted.
+
+The same four steps covered all of them: **measure, name the blocker, refuse to ship an unverified claim, and write down where you stopped.** The discipline is not prize-specific - it is a loop that happens to work on cost, on identity, and on your own time.
+
+Corollary for the VP: when a lane reports a stop, the useful questions are *what is the number it stopped on* and *where does the next person start* - not *why did it not finish*.
