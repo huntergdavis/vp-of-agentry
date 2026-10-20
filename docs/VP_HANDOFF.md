@@ -55,3 +55,12 @@ When a lane corrects you, adopt the correction in the document the owner reads -
 Six headless screens of already-credited bodies returned AGREE on every one, re-deriving from raw media rather than from our records. On `RES_00BA_13AB` the screen was right about the body hash, the file offsets, and all 18 conditionals - and wrong about one **derived** number (it reported image offset 7719, a transposition of 0x1F4B). The reviewer caught it.
 
 So the calibration is: **trust the screen for hashes, decoded instructions and semantics; spot-check every derived number a script would consume** (image offsets, shifts, extents). A wrong derived offset does not look wrong - it reads the wrong bytes plausibly. Screens also cannot re-execute Unicorn or DOSBox-X, so they never test behaviour, and they must never write accounting, ledger, caveat or credit files.
+
+### Poolrad selection rules (from the 2026-10-20 night, all enforced in the queue doc)
+
+- **Identity is not readiness.** A row's classification says what the body *is*; readiness says whether its C translation exists. Pricing a candidate against the classification column counts identity-known but untranslated callees as free, which understated one candidate by 18x (94 B/row claimed, 1,714 B/row real). Ready = strict table + runtime-covered endpoints + manifest-full residents.
+- **Cost per unlocked row, not absolute body size.** The two options that look expensive in bytes can be the cheapest per row.
+- **Every unconfirmed row figure is a floor.** The estimates have only ever moved one way; seven rows carried trailing data in one night.
+- **Decode and size before authoring.** Three targets were declined in minutes each because sizing came first; all three would have consumed a night.
+- **A hop into an unready or declined body makes a small item a chain.** A 94 B body whose four calls land in a declined 1.6 KB closure is a chain with a 94 B tail.
+- **Resident declarations are credit-gated**, overlay manifest rows confer nothing, and readiness is re-derived from the products rather than the checkpoint.
