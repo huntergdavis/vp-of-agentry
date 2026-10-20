@@ -64,3 +64,11 @@ So the calibration is: **trust the screen for hashes, decoded instructions and s
 - **Decode and size before authoring.** Three targets were declined in minutes each because sizing came first; all three would have consumed a night.
 - **A hop into an unready or declined body makes a small item a chain.** A 94 B body whose four calls land in a declined 1.6 KB closure is a chain with a 94 B tail.
 - **Resident declarations are credit-gated**, overlay manifest rows confer nothing, and readiness is re-derived from the products rather than the checkpoint.
+
+### Why the lane's numbers can be trusted after two errors in an hour
+
+Both of the 2026-10-20 method errors (94 B/row vs 1,714 B/row for `OVL_001C_13D7`; 580 B vs 49 targets for `OVL_001C_2F2D`) were found by the reviewer **trying to reproduce its own published number**, not by anyone challenging it.
+
+That worked because **re-derivation is cheap**: the pricer is a script, the queue is deterministic, and the extracted media is immutable. Make re-derivation cheap and self-correction becomes routine rather than lucky; make it expensive and the same person defends the same error for weeks. When designing a lane's tooling, the price of re-deriving a published number matters more than the speed of producing one.
+
+The corollary for the VP: **quote the artifact, publish the method, and keep the script next to the result** - then a wrong number is a ten-minute fix instead of an argument.
