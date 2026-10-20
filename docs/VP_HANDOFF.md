@@ -23,14 +23,19 @@ Takeover prompt:
 
 The private data under `data/`, ignored `channels.json`, and local Dunking Sheep/Herdr state are needed for continuity on this host. They are not in Git. Keep their permissions private, do not print their contents into logs, and back them up through an owner-approved private path if moving machines. On a fresh host, run `./run.sh`, then the install scripts described in [README.md](../README.md), set up Telegram locally, and restore private state only through a secure channel.
 
-## Current priorities and checks
+## Current priorities and checks (state at 2026-10-20 06:44 PDT)
 
-- Poolrad Claude Fable: substantive C ports, independently verified evidence, weekly allowance stop at 5% remaining. Ask for the current direct quota reading; do not derive it from dollars.
-- Poolrad OpenCode: independent strict candidate queue lane in its clean checkout; deliver one PR with ranked candidates and regression examples.
-- Dashboard: the live roster refreshes automatically; Operations shows fixed subscriptions and separate OpenCode model-cost estimate. Check source age before quoting a metric.
-- Host: inspect `/tmp`, free space, stuck processes, and old checkouts. Preserve unpublished branches and files before removing a checkout.
+**Poolrad: 244 strict / 290 identities** of an 815 upper bound (`93ff` main line, latest merged `9231b5d5`). Four bodies were credited in one night (`RES_0464_2595`, `U3B9_048F`, `U3CE_014E`, `RES_00BA_1693`). The cheap queue is **closed with evidence**: every remaining candidate costs **>=132 B per unlocked row**, with the sub-100 ones failing for named reasons (identity not establishable for the `0x7F` pair; a hop into the declined `0C77` chain for `13D7`; a BIOS-thunk boundary for `03C6_0105`). The author lane is **on hold with nothing assigned**; more credit is a funding decision with a chain ceiling quoted in advance.
 
-The VP inbox and latest `./opsctl summary` supersede this snapshot when state changes.
+**Two decisions belong to the owner and neither has moved:**
+1. **Crackdown:** accept **~18.5 FPS** at 75% internal and ~19-20 at 50%, or fund a **short feasibility step** (not the multi-week project) to establish what work can actually be removed or parallelised. 30 FPS needs roughly **-39% GPU and -34% CPU simultaneously**; no one has shown that work exists. The 8-page invalidation experiment was **demoted to UNCONFIRMED / NOT ADOPTED** after two pairs came back inside their own drift, under a pass/fail rule pre-registered before the second pair ran.
+2. **Poolrad:** fund a chain (cheapest credited option `16EC` at **~131 B/row**, one-hop ceiling to be re-derived before any body is written) or rest at 244/290.
+
+**Quotas:** Claude is **parked at 5% left** until its reset on the 22nd; `d57` re-enables it. Codex is at **42%** and carries the Poolrad lane.
+
+**Dashboard:** the live roster refreshes automatically; Operations shows fixed subscriptions and separate OpenCode model-cost estimate. Check source age before quoting a metric.
+
+**Host:** inspect `/tmp`, free space, stuck processes, and old checkouts. Preserve unpublished branches and files before removing a checkout.
 
 ## Recurring work in Dunking Sheep
 
