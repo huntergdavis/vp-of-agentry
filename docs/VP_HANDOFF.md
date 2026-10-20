@@ -37,3 +37,15 @@ The VP inbox and latest `./opsctl summary` supersede this snapshot when state ch
 Review the current dunk list at takeover. Keep one recurring VP self-reminder for host health, project state, agent deliverables, quota, and a concise owner brief. Schedule repeated work prompts to other agents through their durable inbox when available, with a cadence and stop condition. Prefer `only_when="idle"` and `skip_if_unconsumed=true`; remove a dunk when its task is complete. The service timers sample health and metrics, while Dunking Sheep turns those observations into agent action across harness restarts.
 
 When sending any agent a durable `inbox_send`, Dunking Sheep also sends its own short direct nudge to check the inbox. Do not add a separate `send_text` or other direct prompt for that same item. Check the inbox message ID and read/ack state instead. This avoids duplicate work and interrupted inputs.
+
+## Evidence discipline (learned 2026-10-20, one-night tally)
+
+These are VP-side failures, not lane failures. Each cost a cycle and each is now a rule.
+
+- **A number is not the quantity in the sentence.** Seven claims had to be withdrawn in one night, all the same move: reading a measurement as if it established the mechanism named in the prose. Examples: scheduled CPU time minus sparse GPU intervals read as critical-path slack; a 606,042 ns aggregate probe gap compared against a ~1 ms/frame effect; per-thread counters read as thread locality when they are attaching-thread lineages; a stack-attributed bucket sum called "optimisable"; a hand-remembered "no family above 1.2 ms" contradicted by the lane's own aggregates. Check the artifact, not the summary - including this file.
+- **Pre-register the decision rule before the result.** For the 8-page invalidation experiment the pass/fail rule (favourable sign in both arms and effect larger than each arm's drift) was written to `PAIR2-DECISION-RULE.json` before the second pair produced numbers, and the second pair then failed it. Run without that, the same data would have been reported as a win.
+- **An operator's own recurring prompt is a source of stale work.** A `dunkingsheep` reminder still carrying a closed priority list made a lane re-derive already-merged PRs twice. Rewrite or retire the prompt when the list closes; a recurring instruction is code and needs the same review.
+- **Your prose about an agent's numbers is less reliable than their artifacts.** After this night the standing rule is: when summarising a lane's result for the owner, quote the artifact's own wording, or say that you are paraphrasing.
+- **Stated limits belong in the document carrying the claim.** Masked ranges with byte counts, coverage gaps with named unexercised paths, lineage-vs-thread attribution, unknown missing-event counts, and model-vs-measurement asymptotes each go next to the number they qualify, never in a footnote or a chat message.
+
+When a lane corrects you, adopt the correction in the document the owner reads - do not defend the version already published.
