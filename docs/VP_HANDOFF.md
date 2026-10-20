@@ -147,3 +147,9 @@ The VP merged ahead of review **twice in one day**: once on a **partially-finish
 The rule: for an **evidence PR** - any PR that changes a body, a checker, or a doc carrying a claim - **a reviewer verdict line must exist before the VP merges.** Green CI proves the tree builds and the gates pass; it says nothing about whether the numbers in the diff were reproduced. The verdict line states ACCEPT or REJECT with the numbers, and the acceptance PR is the reviewer's act, not the VP's.
 
 Corollary: when a PR merges before its verdict, say so in the review record rather than quietly letting the order look correct afterwards.
+
+### Read the rule, do not invent one (2026-10-20)
+
+The most common failure of the day, in four different costumes: a **hand-written list of "unready" states** instead of the code's readiness sets (8 became 9, a ready row became a blocker); an **assumed identity class** from a stale packet doc instead of the CSVs; a **cullable fraction** extrapolated from a mechanically-selected sample; and an **ad-hoc regex filter** standing in for the generator's own definition of `ds_globals`, which nearly produced "5 is wrong, should be 4".
+
+In each case the artefact was right and the reasoning about it was invented. Before asserting what a derived field means, **find the code that computes it and apply that**, not a rule that seems equivalent.
