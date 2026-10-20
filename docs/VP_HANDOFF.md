@@ -74,6 +74,13 @@ Six headless screens of already-credited bodies returned AGREE on every one, re-
 
 So the calibration is: **trust the screen for hashes, decoded instructions and semantics; spot-check every derived number a script would consume** (image offsets, shifts, extents). A wrong derived offset does not look wrong - it reads the wrong bytes plausibly. Screens also cannot re-execute Unicorn or DOSBox-X, so they never test behaviour, and they must never write accounting, ledger, caveat or credit files.
 
+
+### Differential coverage: account on successors, not flags (2026-07-20)
+
+A harness that retires an untaken branch by reading the conditional jump's flags can be wrong in a way no assertion catches — a wrong CF/ZF reading silently marks a path covered. Compute coverage from the **successor**: when a conditional jump executes, the next IP *is* the side taken. That removes the class of error at the source instead of testing for it.
+
+Corollary for exclusions: a branch may be legitimately unreachable, and the honest forms are **unreachable by composition** (a callee clears the state the compare reads — measure it across pre-set values) or **unreachable by contract** (the composed callee cannot return a value in the range the branch needs — record the search, not just the conclusion). State both verbatim in the doc, name the state that would make each feasible, and have the checker assert the exclusion list so a newly reachable path fails loudly rather than leaving a stale exclusion standing.
+
 ### Poolrad selection rules (from the 2026-10-20 night, all enforced in the queue doc)
 
 - **Identity is not readiness.** A row's classification says what the body *is*; readiness says whether its C translation exists. Pricing a candidate against the classification column counts identity-known but untranslated callees as free, which understated one candidate by 18x (94 B/row claimed, 1,714 B/row real). Ready = strict table + runtime-covered endpoints + manifest-full residents.
