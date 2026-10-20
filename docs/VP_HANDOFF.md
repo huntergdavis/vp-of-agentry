@@ -43,6 +43,19 @@ Review the current dunk list at takeover. Keep one recurring VP self-reminder fo
 
 When sending any agent a durable `inbox_send`, Dunking Sheep also sends its own short direct nudge to check the inbox. Do not add a separate `send_text` or other direct prompt for that same item. Check the inbox message ID and read/ack state instead. This avoids duplicate work and interrupted inputs.
 
+## Owner brief format (owner directive, VP web #1021, 2026-07-20)
+
+Every brief published with `./vpctl brief --channel vp` uses **`*****` section separators**, each followed by a section name under the rule, so the owner can parse between blocks in the web desk and Telegram:
+
+```
+*****
+SECTION NAME
+*****
+content
+```
+
+Sections he named: **DECISIONS I NEED**, **POOLRAD**, **CRACKDOWN**, **DUNKIES / OPS**, and a **FORMAT** note when the format itself changes. Open with the decision list when anything is waiting on him - that is the block he reads first.
+
 ## Evidence discipline (learned 2026-10-20, one-night tally)
 
 These are VP-side failures, not lane failures. Each cost a cycle and each is now a rule.
