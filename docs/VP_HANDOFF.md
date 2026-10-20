@@ -105,3 +105,13 @@ Three targets were declined at three different kinds of obstacle, all in one shi
 The same four steps covered all of them: **measure, name the blocker, refuse to ship an unverified claim, and write down where you stopped.** The discipline is not prize-specific - it is a loop that happens to work on cost, on identity, and on your own time.
 
 Corollary for the VP: when a lane reports a stop, the useful questions are *what is the number it stopped on* and *where does the next person start* - not *why did it not finish*.
+
+### Play Poolrad: latency and host contention (2026-07-20)
+
+Owner-visible symptoms and what actually caused them, in the order they were measured:
+
+- **"Typing does nothing for 30 s"** was **not** the input path: keys reached the server and the guest throughout (they are logged with timestamps in the run's `vp-input.jsonl`). Three separate causes: (1) the video stream captured at 15 fps and **upscaled 800×600 to 1600×1200 before JPEG**, costing ~0.9 core — now 4 fps, native size, coarser JPEG (~30× cheaper); (2) DOSBox-X ran **`cycles=auto`**, which ramps down when the guest looks idle and reads as a hang — now `cpu cycles=fixed 16000` (16 MHz, ~2× a 386; 60 000 burned a whole core for nothing); (3) **DOSBox-X pauses when its X window loses focus**, and in the desk the window is never focused because the owner is in a browser elsewhere — now `sdl pauseonfocusloss=false`.
+- **Measure the legs separately before changing anything**: key injection was 138–296 ms; the emulator reported `16000 cycles/ms` in its own window title; the remaining seconds were browser-side multipart-JPEG buffering.
+- **The desk keeps exactly ONE stream per kind.** A second viewer (including a diagnostic `curl`) **terminates the first** — so a test of the video endpoint freezes the owner's page. Never probe that endpoint while someone is playing.
+- **Host contention is the other half.** Four agents plus a census plus the emulator on 8 cores drove load to 27 and CPU pressure to 76%: every lane now wraps heavy work in **`/home/hunter/workspace/poolrad-heavy.sh <command>`**, which allows **one slot while a `dosbox-x` is running and two otherwise**, all at nice 15, and returns **exit 75** so the agent does reading or fixture design instead of piling on. Stale slots expire after 30 minutes; detection reads `/proc/*/exe`, not `pgrep`, which counted itself.
+- Corollary: a blanket "renice everything above X%" rule will eventually **renice the VP's own process and the Dunking Sheep daemon**. Use an explicit allowlist.
