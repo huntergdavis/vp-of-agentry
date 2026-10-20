@@ -8,6 +8,7 @@ import fcntl
 import getpass
 import importlib
 import json
+import os
 import mimetypes
 import re
 import secrets
@@ -234,6 +235,24 @@ def send_briefs(config: dict, bot: Telegram):
         config.pop("outbound_message_id", None)
         config.pop("outbound_part", None)
         save_config(config)
+        _write_status_file(config["last_brief_id"])
+
+
+def _write_status_file(last_brief_id: int) -> None:
+    """Publish the forwarding watermark in a file that holds no secrets.
+
+    The exception watchdog must confirm that an owner page was actually forwarded
+    before it records it as delivered, and it is not allowed to read telegram.json
+    (which holds the bot token). This file carries exactly the two values the
+    watchdog consumes: the last forwarded brief id and when it was written.
+    Written atomically so a reader can never see a partial file.
+    """
+    path = desk.DATA / "telegram-status.json"
+    payload = {"last_brief_id": int(last_brief_id), "updated_at": time.time()}
+    # Atomic replace through the desk's own writer, then relax the mode: the file
+    # holds no secret, and the watchdog (a different process) must be able to read it.
+    desk._private_write(path, json.dumps(payload) + "\n")
+    os.chmod(path, 0o644)
 
 
 def setup():
