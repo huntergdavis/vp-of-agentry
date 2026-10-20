@@ -139,3 +139,11 @@ One day on a subscription allowance, six agents, 244 -> 250 strict credits. What
 **Attribution.** Three times the VP credited a finding to the lane it was writing to rather than the lane that made it. Cite the sender, not the recipient; with five agents the names blur.
 
 **Scratch hygiene.** `/tmp` hit its warning five times in a day, every time from build directories of already-merged bodies. The semaphore wrapper could retire its own scratch on success; until then the VP cleans it, and never touches the session store or a live lane's directories.
+
+### Green CI is not acceptance (2026-07-20, learned twice in one evening)
+
+The VP merged ahead of review **twice in one day**: once on a **partially-finished** check matrix (which then failed), and once on a **green but unreviewed** evidence PR while the reviewer was still reproducing it. Neither caused an accounting error and both were validated afterwards, but both were avoidable and both put the record ahead of the evidence.
+
+The rule: for an **evidence PR** - any PR that changes a body, a checker, or a doc carrying a claim - **a reviewer verdict line must exist before the VP merges.** Green CI proves the tree builds and the gates pass; it says nothing about whether the numbers in the diff were reproduced. The verdict line states ACCEPT or REJECT with the numbers, and the acceptance PR is the reviewer's act, not the VP's.
+
+Corollary: when a PR merges before its verdict, say so in the review record rather than quietly letting the order look correct afterwards.
