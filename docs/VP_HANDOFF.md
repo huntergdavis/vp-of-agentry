@@ -115,3 +115,9 @@ Owner-visible symptoms and what actually caused them, in the order they were mea
 - **The desk keeps exactly ONE stream per kind.** A second viewer (including a diagnostic `curl`) **terminates the first** — so a test of the video endpoint freezes the owner's page. Never probe that endpoint while someone is playing.
 - **Host contention is the other half.** Four agents plus a census plus the emulator on 8 cores drove load to 27 and CPU pressure to 76%: every lane now wraps heavy work in **`/home/hunter/workspace/poolrad-heavy.sh <command>`**, which allows **one slot while a `dosbox-x` is running and two otherwise**, all at nice 15, and returns **exit 75** so the agent does reading or fixture design instead of piling on. Stale slots expire after 30 minutes; detection reads `/proc/*/exe`, not `pgrep`, which counted itself.
 - Corollary: a blanket "renice everything above X%" rule will eventually **renice the VP's own process and the Dunking Sheep daemon**. Use an explicit allowlist.
+
+### A commit is not a record (2026-07-20)
+
+Three deliverables in one session sat on **pushed branches with no PR**: a band-closure decision, an identity-sweep design note, and a hold ruling the VP had explicitly asked to be recorded. Each was "done" from the author's side and invisible from everyone else's — including the next session's.
+
+The rule the author adopted, and the one to hold successors to: **open the PR in the same turn as the commit.** A ruling that lives only on a branch is not a ruling; a design note nobody can find is not a design note. The test is not "did I commit it", it is **"can the next person read it on main."**
