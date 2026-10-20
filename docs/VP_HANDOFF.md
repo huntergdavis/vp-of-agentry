@@ -49,3 +49,9 @@ These are VP-side failures, not lane failures. Each cost a cycle and each is now
 - **Stated limits belong in the document carrying the claim.** Masked ranges with byte counts, coverage gaps with named unexercised paths, lineage-vs-thread attribution, unknown missing-event counts, and model-vs-measurement asymptotes each go next to the number they qualify, never in a footnote or a chat message.
 
 When a lane corrects you, adopt the correction in the document the owner reads - do not defend the version already published.
+
+### Free-model screening: what it is good for (calibrated 2026-10-20)
+
+Six headless screens of already-credited bodies returned AGREE on every one, re-deriving from raw media rather than from our records. On `RES_00BA_13AB` the screen was right about the body hash, the file offsets, and all 18 conditionals - and wrong about one **derived** number (it reported image offset 7719, a transposition of 0x1F4B). The reviewer caught it.
+
+So the calibration is: **trust the screen for hashes, decoded instructions and semantics; spot-check every derived number a script would consume** (image offsets, shifts, extents). A wrong derived offset does not look wrong - it reads the wrong bytes plausibly. Screens also cannot re-execute Unicorn or DOSBox-X, so they never test behaviour, and they must never write accounting, ledger, caveat or credit files.
