@@ -121,3 +121,21 @@ Owner-visible symptoms and what actually caused them, in the order they were mea
 Three deliverables in one session sat on **pushed branches with no PR**: a band-closure decision, an identity-sweep design note, and a hold ruling the VP had explicitly asked to be recorded. Each was "done" from the author's side and invisible from everyone else's — including the next session's.
 
 The rule the author adopted, and the one to hold successors to: **open the PR in the same turn as the commit.** A ruling that lives only on a branch is not a ruling; a design note nobody can find is not a design note. The test is not "did I commit it", it is **"can the next person read it on main."**
+
+### Running a five-agent crew on poolrad-decomp (2026-10-20)
+
+One day on a subscription allowance, six agents, 244 -> 250 strict credits. What made it work, and what the VP got wrong.
+
+**Structure that worked.** Two reviewers and three to four authors, each in its own git worktree off main, all addressed by pane id. Authors never accept; reviewers never author; **both reviewers reproduce every claim from the media rather than proofreading the PR text**, and each acceptance is one accounting change made by the reviewer. Two reviewers is a deliberate trade of slight consistency loss for throughput: the rule is to apply the checklist literally, reject rather than accept anything that does not reproduce, and escalate disagreements to the VP instead of negotiating a middle position.
+
+**Avoid duplicate acceptances.** Before opening an acceptance, check for an existing local `claude/accept-<row>` branch, the remote and open PRs - two accounting PRs for one row collide. This happened twice and was caught by the reviewer both times.
+
+**The three gates are separate, and a row can pass two and fail the third.** Identity (is it game code), readiness (are its callees translated), evidence (does the differential/native reproduce). Thirteen identity-cleared rows reduced to **one actionable** once readiness was priced. Never quote an identity-cleared count as a credit count.
+
+**Price chains before authoring, then decide with the owner's constraints in view.** 0C77 (>=1,672 B), 08C3 (two-hop 8,179 B against a 5,000 cap), 0F08 (>=3,215 B within one hop), 1B52 (needs a new bus-aware Move endpoint plus a covered-with-bus mechanism for one 10 B row). Record each decline with its requirement, three-part cost and row value, so the next session inherits the price instead of the question.
+
+**Merge discipline the VP broke once.** Read the CI rollup **only when every check is terminal**; a green read from a partially-finished matrix is not a verification. The VP merged one PR red this way - no accounting damage, but the record had to be corrected by hand.
+
+**Attribution.** Three times the VP credited a finding to the lane it was writing to rather than the lane that made it. Cite the sender, not the recipient; with five agents the names blur.
+
+**Scratch hygiene.** `/tmp` hit its warning five times in a day, every time from build directories of already-merged bodies. The semaphore wrapper could retire its own scratch on success; until then the VP cleans it, and never touches the session store or a live lane's directories.
