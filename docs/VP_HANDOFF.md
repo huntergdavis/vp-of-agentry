@@ -263,3 +263,23 @@ directory (`ls -ld /tmp/poolrad-heavy.N`), whether any heavy process is actually
 running (`ps -eo pcpu,args | grep -E 'audit|compose|clang|cc1'`), and if both say the
 slot is orphaned, `rmdir` it. Never remove a slot directory that a live heavy job
 created - the wrapper's `trap ... rmdir` will then fail and the job loses its slot.
+
+## Tests must never open the live store (2026-10-21)
+
+A test module passed only a temporary *state* file, so its default task store fell
+back to the live `tasks.db`. The suite then claimed **real** tasks (t6, t29, t32) as a
+fake pane and its fake reaper requeued them - seven "stale lease" reaps that looked
+like a resolver bug and were actually test pollution. Every line of the test was
+doing what it was told; only the *destination* was wrong.
+
+Rules:
+- The test bootstrap sets `DUNKINGSHEEP_DIR` to a temp directory **before any
+  `dunk_*` import**, and every test module imports the bootstrap first.
+- Assert the invariant that matters: **the live task count is identical before and
+  after a test run** (35 -> 35). A suite that cannot state that is not isolated.
+- A fixture that can inject a pane list into the reaper can requeue **real** work;
+  reapers should refuse a snapshot that is not tagged as coming from the live
+  backend, so the next fixture mistake fails loudly.
+- Requeue policy: only on the lease deadline or a dead `/proc` caller. Pane-gone is
+  metadata, not evidence - a live agent behind a vanished pane keeps its claim, and
+  an unattributable or legacy lease is never guessed dead.
