@@ -232,3 +232,21 @@ that the comparison passes on every run and that the instability is in a value t
 environment supplies rather than in the result. A doc that writes `RESULT.BIN = X`
 with no qualifier will fail the next reviewer's reproduction for a reason that has
 nothing to do with the body.
+
+## /tmp is tmpfs: it is RAM, and lane scratch is not garbage (2026-10-20)
+
+`/tmp` is a tmpfs, so its usage is memory. On this host the dominant consumer is
+`/tmp/claude-1000/<workspace-slug>` - one directory per Claude session, hundreds of
+MB each for a long lane (945 MB for a busy one). The warning threshold (60% used)
+fires most evenings for that reason alone, with memory otherwise comfortable
+(22 GB available).
+
+Rules:
+- Reclaim `poolrad-*`/`u*` build dirs whose work has MERGED and which have no file
+  touched in 4 hours; that is safe and worth ~250 MB at a time.
+- **Do not delete a lane's Claude session directory while the lane may resume.**
+  "Idle" is not "retired": a standing-down lane can still be woken with its context,
+  and the session dir is part of that context. Trim it only when the lane is retired
+  for good, and say so when you do.
+- Treat a `/tmp` warning with memory numbers beside it: if `Mem` shows plenty
+  available, the warning is about a cache, not about pressure.
