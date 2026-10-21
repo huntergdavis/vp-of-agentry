@@ -283,3 +283,19 @@ Rules:
 - Requeue policy: only on the lease deadline or a dead `/proc` caller. Pane-gone is
   metadata, not evidence - a live agent behind a vanished pane keeps its claim, and
   an unattributable or legacy lease is never guessed dead.
+
+## An event log that cannot explain its own gaps is not a history (2026-10-21)
+
+Deleting three task rows that a test had created left a hole in the board's history
+with no explanation. `task_note` now appends an event **without needing the task row**,
+and the removed rows carry `removed_test_pollution` events naming the reason.
+
+Rules:
+- When a row is deleted for a good reason, write the reason into the event log in the
+  same motion. A reader who sees a gap with no entry will assume corruption.
+- Reapers must be conservative and say why **in the code**: a lagging pane reader, a
+  live agent that may still own the work, and a lease with no caller identity that is
+  *unattributable rather than dead*. A task with another live claimant stays in
+  progress for that claimant.
+- A fixture pane list must never move real work; the reaper refuses a snapshot that is
+  not tagged `alive_source='live'`.
