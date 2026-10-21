@@ -161,3 +161,20 @@ In each case the artefact was right and the reasoning about it was invented. Bef
 The VP merged on a **non-terminal** rollup three times in one session: once on a red matrix, twice more on PRs that turned out green. `gh pr view --json statusCheckRollup` **races the matrix** - a job that has not started yet reads as an empty conclusion, which looks like "not failed".
 
 Use **`gh pr checks <n>`**, which waits for the rollup to be terminal and exits non-zero if anything failed, or require **`mergeStateStatus == CLEAN`** plus a scan that **no conclusion is empty**. Sampling a rollup and inferring "green" from the absence of red is the same class of mistake as reading a partially-written file: the absence of evidence is not the evidence.
+
+## Stacked PRs: retarget the base BEFORE merging (2026-10-20)
+
+A PR stacked on another PR's *branch* merges into that branch, not into main.
+`#1276` (Crt.ReadKey) was based on `#1268`'s branch; I merged `#1268` to main and
+then merged `#1276`, which landed it on the **branch**, so ReadKey never reached
+main. `gh pr view <n> --json state` said `MERGED` the whole time, and the files
+were absent from main.
+
+Rules:
+- Before merging a PR whose base is another PR's branch, **retarget it to main**
+  (`gh pr edit <n> --base main`) and wait for checks, or merge it only after the
+  parent has landed *and* the base has been retargeted.
+- After merging anything, **verify the files exist on main** (`git pull` then
+  `ls`/`git log --oneline -1`), rather than trusting `state: MERGED`.
+- When a lane reports "X is not on main", believe it and check the base branch
+  first; the merge state is not evidence of destination.
