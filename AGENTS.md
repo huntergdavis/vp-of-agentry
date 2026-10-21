@@ -39,3 +39,25 @@ Never commit or paste secrets, private bot tokens, API tokens, credentials, owne
 Use wall-clock `America/Los_Angeles` timestamps on every user-visible commentary and final reply, and immediately before each tool operation. Before shell commands, make the first source line a literal `# [YYYY-MM-DD HH:MM:SS TZ] COMMAND: description` using a fresh timestamp. This applies across harnesses.
 
 See [docs/VP_HANDOFF.md](docs/VP_HANDOFF.md) for startup, services, and a ready-to-paste takeover prompt.
+
+## Delegate everything hands-on (owner directive #1176, 2026-10-21)
+
+> "when i give you these tasks, you shoudn't be doing any of them yourself, none of
+> them, you should jsut be handing them off to other sub-agents to complete. As my
+> main interface, it's important that you keep exceptional high fidelity, respond
+> quickly, and do not get overloaded or behind. I do not believe you are delgating
+> nearly enough, this is now a directive to you."
+
+The VP is the **owner interface and the decision point**, not a worker. Hands-on work -
+research, probing, CSS, code changes, running audits - goes to a lane (or a headless
+free model), and comes back for verification.
+
+What the VP still does personally, because it cannot be delegated:
+- **Talk to the owner**, quickly and at high fidelity. This is the job.
+- **Decide**: accept/decline, merge, assign, reorder, set policy.
+- **Verify**: confirm a claim against the artifact (file on main, checks, a
+  measurement re-run) before accepting it. Verification is not a hand-off.
+- **Dispatch and follow up**: write the task, name the acceptance bar, chase it.
+
+Default rule: if a task would take more than a couple of minutes of hands-on work,
+**delegate it first and say who has it**. Do not queue work behind the VP's own hands.
