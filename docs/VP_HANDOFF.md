@@ -178,3 +178,22 @@ Rules:
   `ls`/`git log --oneline -1`), rather than trusting `state: MERGED`.
 - When a lane reports "X is not on main", believe it and check the base branch
   first; the merge state is not evidence of destination.
+
+## Verify the instrument before you trust the observation (2026-10-20)
+
+A debugging lane found five defects in one body; four were in its own harness or
+trace, not in the model, and each produced a plausible wrong conclusion that was
+reported before it was checked (a wrong-node theory, a wrong-argument theory, and a
+stack offset one word too high read as a real value).
+
+Rules:
+- **Positive control first.** Before using an instrument's reading to explain a
+  failure, run the same instrument on a KNOWN-GOOD case. If it reports coherent
+  values there, trust it for the failing case; if not, you have found an
+  instrumentation bug for the price of one run.
+- **Narrate after, not alongside.** Send the measurement and the conclusion
+  together, or send "measurement in progress, theory withheld". A theory published
+  before its differential costs a retraction, and retractions spend the reader's
+  attention that the real finding will need.
+- **A plausible number is the most dangerous kind.** The three wrong readings were
+  all internally consistent with the symptom; consistency is not corroboration.
