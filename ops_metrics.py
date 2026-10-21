@@ -145,6 +145,12 @@ CREATE TABLE IF NOT EXISTS dunk_metrics_snapshots (
     payload_json TEXT NOT NULL,
     UNIQUE(generated_at,interval_start,interval_end)
 );
+CREATE TABLE IF NOT EXISTS provider_usage_snapshots (
+    id INTEGER PRIMARY KEY,
+    observed_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS accounting_snapshots (
     id INTEGER PRIMARY KEY,
     project TEXT NOT NULL,
@@ -404,6 +410,9 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
     agent_message_events: list[tuple] = []
     metrics: dict | None = None
     accounting: dict | None = None
+    usage: dict | None = None
+    if force_external or _provider_usage_due(conn, now):
+        usage = provider_usage(now)
     try:
         result = command_json(["dunkingsheep", "--json", "panes"])
         panes = result["panes"]
@@ -523,6 +532,13 @@ def collect(conn: sqlite3.Connection, *, now: datetime | None = None,
             )
         if accounting is not None:
             record_accounting(conn, accounting, observed_at=observed_at)
+        if usage is not None:
+            conn.execute(
+                "INSERT INTO provider_usage_snapshots(observed_at,status,payload_json) "
+                "VALUES(?,?,?)",
+                (usage["observed_at"], usage["status"],
+                 json.dumps(usage, separators=(",", ":"), sort_keys=True)),
+            )
     return summary(conn, now=now)
 
 
@@ -845,6 +861,46 @@ def host_health(now: datetime, *, path: Path | None = None) -> dict | None:
         return None
 
 
+def provider_usage(now: datetime, *, command: list[str] | None = None) -> dict | None:
+    """Configured real provider usage (owner #1110) via `dunkingsheep usage`.
+
+    The usage CLI is deliberately uncached and says UNKNOWN out loud, so this
+    collector stores a snapshot and the dashboard labels its age; it never
+    turns a failed command into zero. Set VP_PROVIDER_USAGE=0 to disable the
+    external read (tests do).
+    """
+    if os.environ.get("VP_PROVIDER_USAGE", "1") == "0":
+        return None
+    argv = command or [os.environ.get("DUNKINGSHEEP_BIN", "dunkingsheep"),
+                       "--json", "usage"]
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"observed_at": iso(now), "status": "unavailable",
+                "error": type(error).__name__}
+    if not proc.stdout.strip():
+        return {"observed_at": iso(now), "status": "unavailable",
+                "error": (proc.stderr or f"exited {proc.returncode}").strip()[:300]}
+    try:
+        readings = json.loads(proc.stdout)
+    except ValueError:
+        return {"observed_at": iso(now), "status": "invalid",
+                "error": "usage command did not print JSON"}
+    if not isinstance(readings, list):
+        return {"observed_at": iso(now), "status": "invalid",
+                "error": "usage output is not a list of provider readings"}
+    return {"observed_at": iso(now),
+            "status": "ok" if proc.returncode == 0 else "partial",
+            "exit_code": proc.returncode, "readings": readings}
+
+
+def _provider_usage_due(conn: sqlite3.Connection, now: datetime) -> bool:
+    row = conn.execute(
+        "SELECT observed_at FROM provider_usage_snapshots ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return row is None or (now - parse_time(row["observed_at"])).total_seconds() >= EXTERNAL_INTERVAL_S
+
+
 def opencode_usage(now: datetime, *, path: Path | None = None) -> dict | None:
     """Read aggregate session estimates without copying OpenCode prompts or account data."""
     path = path or OPENCODE_DB
@@ -995,6 +1051,15 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "SELECT generated_at,interval_start,interval_end,schema_version,payload_json "
         "FROM dunk_metrics_snapshots ORDER BY id DESC LIMIT 1"
     ).fetchone()
+    usage_row = conn.execute(
+        "SELECT observed_at,status,payload_json FROM provider_usage_snapshots "
+        "ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    provider_usage_data = None
+    if usage_row:
+        provider_usage_data = dict(json.loads(usage_row["payload_json"]))
+        provider_usage_data["age_s"] = max(
+            0, int((now - parse_time(usage_row["observed_at"])).total_seconds()))
     vp_counts = []
     if run and run["vp_messages_state"] == "ok":
         vp_counts = [dict(row) for row in conn.execute(
@@ -1019,6 +1084,7 @@ def summary(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "billing_month": now.strftime("%Y-%m"),
         "usage_cost_usd": None,
         "opencode_usage": opencode_usage(now),
+        "provider_usage": provider_usage_data,
         "host_health": host_health(now),
         "goals": goals,
         "function_progress": function_progress,

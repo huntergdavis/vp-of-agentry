@@ -2,7 +2,9 @@
 
 import base64
 import json
+import os
 import sqlite3
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -25,8 +27,52 @@ class OpsMetricsTests(unittest.TestCase):
         host_source = patch.object(ops_metrics, "HOST_WATCH_STATE", Path(self.temporary.name) / "missing-host-state.json")
         host_source.start()
         self.addCleanup(host_source.stop)
+        usage_disabled = patch.dict(os.environ, {"VP_PROVIDER_USAGE": "0"})
+        usage_disabled.start()
+        self.addCleanup(usage_disabled.stop)
         self.conn = ops_metrics.connect(Path(self.temporary.name) / "ops.sqlite3")
         self.addCleanup(self.conn.close)
+
+    def test_provider_usage_reads_the_configured_json(self):
+        script = ("import json;print(json.dumps(["
+                  "{'provider':'claude','status':'ok','meaning':'percent_used',"
+                  "'windows':[{'label':'weekly','used_percent':37,'remaining_percent':63}]},"
+                  "{'provider':'opencode','status':'unknown','reason':'no endpoint'}]))")
+        with patch.dict(os.environ, {"VP_PROVIDER_USAGE": "1"}):
+            usage = ops_metrics.provider_usage(
+                datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc),
+                command=[sys.executable, "-c", script])
+        self.assertEqual("ok", usage["status"])
+        self.assertEqual("claude", usage["readings"][0]["provider"])
+        self.assertEqual("unknown", usage["readings"][1]["status"])
+
+    def test_provider_usage_failure_is_missing_not_zero(self):
+        with patch.dict(os.environ, {"VP_PROVIDER_USAGE": "1"}), \
+                patch.object(ops_metrics.subprocess, "run",
+                             side_effect=FileNotFoundError):
+            usage = ops_metrics.provider_usage(
+                datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual("unavailable", usage["status"])
+        self.assertNotIn("readings", usage)
+
+    def test_summary_labels_the_latest_provider_usage_snapshot(self):
+        now = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+        with patch.object(ops_metrics, "command_json",
+                          side_effect=RuntimeError("offline")):
+            result = ops_metrics.collect(self.conn, now=now)
+        payload = {"observed_at": ops_metrics.iso(now), "status": "ok",
+                   "readings": [{"provider": "claude", "status": "ok",
+                                 "meaning": "percent_used"}]}
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO provider_usage_snapshots(observed_at,status,payload_json) "
+                "VALUES(?,?,?)",
+                (payload["observed_at"], payload["status"], json.dumps(payload)))
+        result = ops_metrics.summary(self.conn, now=now)
+        self.assertEqual("ok", result["provider_usage"]["status"])
+        self.assertEqual(0, result["provider_usage"]["age_s"])
+        self.assertEqual("claude",
+                         result["provider_usage"]["readings"][0]["provider"])
 
     def test_missing_telemetry_stays_unavailable(self):
         def command(argv, **_):
