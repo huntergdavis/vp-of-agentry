@@ -250,3 +250,16 @@ Rules:
   for good, and say so when you do.
 - Treat a `/tmp` warning with memory numbers beside it: if `Mem` shows plenty
   available, the warning is about a cache, not about pressure.
+
+## Heavy-slot reclaim is acquire-time only (2026-10-21)
+
+`poolrad-heavy.sh` uses `mkdir /tmp/poolrad-heavy.N` as its lock and reclaims a
+slot directory older than 30 minutes **only when it next tries to acquire**. A slot
+orphaned by a killed job therefore stays "busy" until somebody asks for a slot -
+which is why the watchdog can flag `host.heavy_slot_stale` on a slot that is empty.
+
+Operational rule: when the watchdog flags a stale slot, check whether it is an empty
+directory (`ls -ld /tmp/poolrad-heavy.N`), whether any heavy process is actually
+running (`ps -eo pcpu,args | grep -E 'audit|compose|clang|cc1'`), and if both say the
+slot is orphaned, `rmdir` it. Never remove a slot directory that a live heavy job
+created - the wrapper's `trap ... rmdir` will then fail and the job loses its slot.
