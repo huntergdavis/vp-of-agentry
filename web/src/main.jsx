@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { isNearBottom, shouldFollow } from './chat-scroll.js';
 import { Message, MessageList } from '@chatscope/chat-ui-kit-react';
 import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -171,6 +172,8 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
 
 function MessageCard({ item, highlight, onSendNow, onInspect }) {
   const owner = item.role === 'owner';
+  const [expanded, setExpanded] = useState(false);
+  const long = String(item.body || '').length > 1200;
   const deliveryLabel = { inbox: 'delivered to inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
   const waitingSeconds = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 1000));
   const waitingMinutes = Math.floor(waitingSeconds / 60);
@@ -178,7 +181,8 @@ function MessageCard({ item, highlight, onSendNow, onInspect }) {
   return <div className={`message-wrap ${owner ? 'owner' : 'agent'} ${highlight ? 'highlight' : ''}`} id={`message-${item.id}`}>
     <div className="message-meta"><strong>{owner ? 'YOU' : 'AGENT'}</strong><span>{new Date(item.created_at).toLocaleString()}</span>{owner && <span className={`delivery ${item.delivery}`} title={item.delivery_detail}>{deliveryLabel}</span>}</div>
     <Message model={{ message: '', direction: owner ? 'outgoing' : 'incoming', position: 'single', sender: owner ? 'You' : 'Agent' }}>
-      <Message.CustomContent><div className="markdown"><ReactMarkdown>{item.body}</ReactMarkdown></div>
+      <Message.CustomContent><div className={`markdown ${long && !expanded ? 'clamped' : ''}`}><ReactMarkdown>{item.body}</ReactMarkdown></div>
+        {long && <button className="message-expand" onClick={() => setExpanded(value => !value)}>{expanded ? 'Show less' : `Show full message (${String(item.body || '').length.toLocaleString()} chars)`}</button>}
         {item.attachments?.length > 0 && <div className="attachments">{item.attachments.map(a => <div key={a.id} className="attachment-card">{['image/png','image/jpeg','image/gif','image/webp'].includes(a.mime) && <a href={`/api/uploads/${a.id}`} target="_blank" rel="noreferrer"><img src={`/api/uploads/${a.id}?preview=true`} loading="lazy" alt={a.filename} /></a>}<a href={`/api/uploads/${a.id}`} target="_blank" rel="noreferrer">📎 {a.filename}</a></div>)}</div>}</Message.CustomContent>
     </Message>
     {owner && item.delivery === 'queued' && <div className={`queue-help ${heldForDraft && waitingMinutes >= 2 ? 'long-wait' : ''}`} role={heldForDraft && waitingMinutes >= 2 ? 'alert' : undefined}><span>{heldForDraft && waitingMinutes >= 2 ? 'Action needed: VP input box has an unfinished draft' : heldForDraft ? 'Waiting for the VP input box to clear' : (item.delivery_detail || 'Waiting for guarded delivery')} · {waitingMinutes < 1 ? 'under 1 min' : `${waitingMinutes} min`}</span>{heldForDraft && <button onClick={() => onSendNow(item)}>Send now</button>}</div>}
@@ -791,7 +795,7 @@ function Desk({ onLogout }) {
     if (!listRef.current || (!ownSend && !incoming)) return;
     if (incoming && !ownSend && !nearBottomRef.current) { setShowLatest(true); return; }
     const pane = listRef.current;
-    const follow = () => { if (ownSend || nearBottomRef.current) pane.scrollTop = pane.scrollHeight; };
+    const follow = () => { if (shouldFollow({ atBottom: nearBottomRef.current, ownSend })) pane.scrollTop = pane.scrollHeight; };
     nearBottomRef.current = true;
     setShowLatest(false);
     follow();
@@ -804,7 +808,7 @@ function Desk({ onLogout }) {
   function onConversationScroll() {
     const pane = listRef.current;
     if (!pane) return;
-    nearBottomRef.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80;
+    nearBottomRef.current = isNearBottom(pane);
     if (nearBottomRef.current) setShowLatest(false);
   }
   function jumpToLatest() {
@@ -862,7 +866,7 @@ function Desk({ onLogout }) {
     return () => { clearInterval(timer); activityRequest.current++; };
   }, [channel, jumpId]);
   useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel, dashboardOpen]);
-  useEffect(() => { if (!dashboardOpen && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [dashboardOpen]);
+  useEffect(() => { if (dashboardOpen || !listRef.current || !nearBottomRef.current) return; listRef.current.scrollTop = listRef.current.scrollHeight; }, [dashboardOpen]);
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
   async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); scrollToSentRef.current = item.id; if (jumpId != null) setJumpId(null); else setItems(old => [...old, item]); }
   async function confirmSendNow(item) { setForceBusy(true); setError(''); try { const updated = await api(`/messages/${item.id}/send-now`, { method: 'POST' }); setItems(old => old.map(current => current.id === updated.id ? updated : current)); setForceTarget(null); } catch (e) { setError(e.message); setForceTarget(null); } finally { setForceBusy(false); } }
@@ -900,6 +904,8 @@ function VpStandalone() {
   const [error, setError] = useState('');
   const [updated, setUpdated] = useState(null);
   const listRef = useRef(null);
+  const nearBottomRef = useRef(true); const lastIdRef = useRef(null); const ownSendRef = useRef(null);
+  const [showLatest, setShowLatest] = useState(false);
   const selected = channels.find(c => c.id === 'vp');
   useEffect(() => {
     let live = true;
@@ -917,9 +923,31 @@ function VpStandalone() {
     const timer = setInterval(load, 5000);
     return () => { live = false; clearInterval(timer); };
   }, []);
-  useEffect(() => { const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [items]);
+  useLayoutEffect(() => {
+    const pane = listRef.current; if (!pane) return;
+    const latest = items.at(-1)?.id ?? null;
+    const previous = lastIdRef.current;
+    lastIdRef.current = latest;
+    const ownSend = ownSendRef.current != null && items.some(item => item.id === ownSendRef.current);
+    const incoming = previous != null && latest != null && latest > previous;
+    if (!incoming && !ownSend) return;
+    if (incoming && !ownSend && !nearBottomRef.current) { setShowLatest(true); return; }
+    nearBottomRef.current = true; setShowLatest(false);
+    pane.scrollTop = pane.scrollHeight;
+    if (ownSend) ownSendRef.current = null;
+  }, [items]);
+  function onScroll() {
+    const pane = listRef.current; if (!pane) return;
+    nearBottomRef.current = isNearBottom(pane);
+    if (nearBottomRef.current) setShowLatest(false);
+  }
+  function jumpToLatest() {
+    const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight;
+    nearBottomRef.current = true; setShowLatest(false);
+  }
   async function send(data) {
     const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'vp', ...data }) });
+    ownSendRef.current = item.id;
     setItems(old => [...old, item]);
   }
   const route = DASH_ROUTES.vp;
@@ -930,12 +958,13 @@ function VpStandalone() {
     </>} />
     <div className="dash-body dash-conversation">
       {error && <div className="dash-error" role="alert">{error}</div>}
-      <div className="conversation" ref={listRef}>
+      <div className="conversation" ref={listRef} onScroll={onScroll}>
         <div className="conversation-inner">
           {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here.</p></div>}
           <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
+      {showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}
       <Composer channel="vp" onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>
   </DashShell>;
