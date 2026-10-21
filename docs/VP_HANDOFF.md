@@ -155,3 +155,9 @@ The most common failure of the day, in four different costumes: a **hand-written
 In each case the artefact was right and the reasoning about it was invented. Before asserting what a derived field means, **find the code that computes it and apply that**, not a rule that seems equivalent.
 
 **A fifth costume: search for the claim, not for the words you expect it to use.** Verifying the corpus summary, the reviewer grepped the 08AE receipt's cited source for `53 rows` and `53-row`, found nothing, and reported that the source "contains no 53". The source said **"53 candidate rows"** (`STRICT_CANDIDATE_QUEUE.md`, line 400), and a second lane caught it. A verification that searches for a *phrasing* reports absence falsely. When checking whether a document states a number or a fact, search for the number itself (`\b53\b`) or re-measure the fact from the products, and report "not found" only after a search that could not have missed it. The re-measurement settled the substance either way: 53 rows list `RES_00BA_16EC` as a callee across nine units, 21 of them in unit 0x38, out of that unit's 57 candidates. So "53" is a 16EC-gated count, not "the 0x38 band".
+
+### Wait for the rollup, do not sample it (2026-07-21)
+
+The VP merged on a **non-terminal** rollup three times in one session: once on a red matrix, twice more on PRs that turned out green. `gh pr view --json statusCheckRollup` **races the matrix** - a job that has not started yet reads as an empty conclusion, which looks like "not failed".
+
+Use **`gh pr checks <n>`**, which waits for the rollup to be terminal and exits non-zero if anything failed, or require **`mergeStateStatus == CLEAN`** plus a scan that **no conclusion is empty**. Sampling a rollup and inferring "green" from the absence of red is the same class of mistake as reading a partially-written file: the absence of evidence is not the evidence.
