@@ -218,3 +218,17 @@ Rules:
   a preceding callee also wrote (`POST_CALL_READ` with address, value, callee), on
   both the model and the original-bytes side, and flag bodies where only one side
   produces them. Output is a list of bodies to re-examine, never a verdict.
+
+## Hash receipts that depend on live hardware state (2026-10-20)
+
+Two bodies in one night produced native receipt hashes that differ between runs
+(`13B1`: `013c9de2` / `87ea827e` / `c7f635b1`; `0899:0000`: `01182f30` vs `74957ab9`).
+Both were caused by a live environment-supplied value - the `IN 61h` port byte -
+with the affected cases masked or fully unmasked and the comparison passing every
+run.
+
+Rule: quote such a hash as a **per-run receipt**, name the varying input, and state
+that the comparison passes on every run and that the instability is in a value the
+environment supplies rather than in the result. A doc that writes `RESULT.BIN = X`
+with no qualifier will fail the next reviewer's reproduction for a reason that has
+nothing to do with the body.
