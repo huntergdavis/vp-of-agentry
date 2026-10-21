@@ -197,3 +197,24 @@ Rules:
   attention that the real finding will need.
 - **A plausible number is the most dangerous kind.** The three wrong readings were
   all internally consistent with the symptom; consistency is not corroboration.
+
+## Order of reads vs order of calls (2026-10-20)
+
+Two defects in one 252-byte body were the same shape: the model performed the correct
+operation in the wrong ORDER. One inverted a branch condition (`JNE` means `INC` runs
+on EQUAL); the other re-read a record field (`+108h`) AFTER the callee that rewrote
+the record, through a pointer the callee had left stale, saw background `A5A5`, and
+called a FreeMem the original never called. Both produced *plausible* symptoms (two
+RAM bytes, a wrong-callee stop) rather than wrong answers, and both took several
+rounds to pin because the first theories were about logic rather than timing.
+
+Rules:
+- A body that calls a routine which rewrites the record it is walking must **snapshot
+  the pointer before the call** and must not re-read through a clobbered register
+  after it. The original's `[bp-4]` is not decoration; it is the snapshot.
+- When a differential disagrees on *state* but agrees on *return values*, suspect
+  ordering before logic.
+- Candidate class-wide detector: in a diagnostic mode, log every read of a cell that
+  a preceding callee also wrote (`POST_CALL_READ` with address, value, callee), on
+  both the model and the original-bytes side, and flag bodies where only one side
+  produces them. Output is a list of bodies to re-examine, never a verdict.
