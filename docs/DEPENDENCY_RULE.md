@@ -46,3 +46,23 @@ position.
 When a key function gains a vendor adapter, the PR that adds it also adds or
 extends the test that runs the boring fallback. A green adapter test with a dead
 fallback is a finding, not a pass.
+
+## A local protocol is not a local dependency
+
+Learned 2026-10-21, codex steer. The app-server protocol is local (a unix
+socket, a generated JSON schema, a documented method set) and looked like the
+clean escape from terminal scraping. It is not usable without a **remote**
+step: `remote-control pair` calls
+`https://chatgpt.com/backend-api/wham/remote/control/server/enroll`, which
+answers **403 `{"detail":"Multi-factor authentication required"}`** until the
+account completes MFA. The socket is local; the authorization is not.
+
+So the rule above gets a third question: **where does the authorization come
+from?** An interface can be open and local and still be gated by a vendor's
+server, and that gate is the dependency, not the socket. Ask for it explicitly
+before counting a protocol as an escape hatch.
+
+Consequence here: herdr remains required for codex as a **stable fact** with a
+named reason (experimental surface, CLI 0.162.1 vs app-server 0.163.0, MFA-gated
+enrollment), revisit only if the account completes MFA and the surface
+stabilises.
