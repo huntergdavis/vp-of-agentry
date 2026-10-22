@@ -15,7 +15,7 @@ test('the built bundle contains the live dashboard nav', () => {
     .filter(name => name.endsWith('.js'))
     .map(name => readFileSync(join(assets, name), 'utf8'))
     .join('\n');
-  for (const marker of ['Owner snapshot', 'Agents', 'Operations board', 'Original C bodies']) {
+  for (const marker of ['Operations', 'Play Pool of Radiance', 'VP of Agentry', 'Agents']) {
     assert.ok(bundle.includes(marker), `built bundle is missing ${JSON.stringify(marker)} - the nav may be in a component nothing renders`);
   }
 });
