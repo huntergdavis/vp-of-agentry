@@ -322,3 +322,4 @@
 .snapshot-quotas { margin: 14px 0; }
 .snapshot-quotas h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 .snapshot-quota-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.page-fingerprint { position: fixed; right: 10px; bottom: 6px; z-index: 30; font-size: 10px; color: #8b9aa4; background: #ffffffcc; border: 1px solid #e4e9ed; border-radius: 6px; padding: 2px 7px; }

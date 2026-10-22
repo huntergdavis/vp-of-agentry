@@ -322,6 +322,51 @@ def collect_hybrid_denominator():
         return None, None, None, f"{HYBRID_GLUE}: {exc}"
 
 
+def collect_agent_activity(since):
+    """Per-pane message rate, median answer time, unread and oldest unread.
+
+    All from inbox.db. Median is the true middle of the per-message latencies
+    (created_at -> first read or ack), not an average. null+reason when the
+    table/column premise fails.
+    """
+    stamp = since.timestamp()
+    broken = guard(INBOX_DB, table="messages",
+                   columns=("pane_id", "created_at", "read_at", "acked_at", "state"),
+                   min_rows=0)
+    if broken:
+        return None, broken
+    try:
+        with sqlite3.connect(f"file:{INBOX_DB}?mode=ro", uri=True) as conn:
+            rows = conn.execute(
+                "SELECT pane_id, created_at, read_at, acked_at FROM messages "
+                "WHERE created_at >= ? AND pane_id IS NOT NULL", (stamp,)).fetchall()
+            unread = conn.execute(
+                "SELECT pane_id, COUNT(*), MIN(created_at) FROM messages "
+                "WHERE state = 'queued' AND pane_id IS NOT NULL GROUP BY pane_id").fetchall()
+        counts, latencies = {}, {}
+        for pane, created, read, acked in rows:
+            counts[pane] = counts.get(pane, 0) + 1
+            answered = read or acked
+            if answered is not None:
+                latencies.setdefault(pane, []).append(max(0.0, answered - created))
+        out = {}
+        for pane in set(counts) | {row[0] for row in unread}:
+            values = sorted(latencies.get(pane, []))
+            median = round(values[len(values) // 2], 1) if values else None
+            out[pane] = {
+                "messages_24h": cell(counts.get(pane, 0), since),
+                "median_answer_s": (cell(median, since) if median is not None
+                                    else failed("no answered messages in the window")),
+            }
+        for pane, n, oldest in unread:
+            entry = out.setdefault(pane, {})
+            entry["unread"] = cell(n, since)
+            entry["oldest_unread_s"] = cell(round(now().timestamp() - oldest, 1), since)
+        return out, None
+    except (sqlite3.Error, OSError) as exc:
+        return None, f"inbox.db: {exc}"
+
+
 def collect_backlog():
     """The dunkies feature backlog. AGE is the interesting number, not the count."""
     try:
@@ -385,6 +430,7 @@ def main(argv=None):
     bodies, ceiling, checkpoint_at, checkpoint_ref = collect_checkpoint()
     tasks_done, tasks_at = collect_tasks(since)
     messages_n, messages_unattributed, messages_at = collect_messages(since)
+    activity, activity_error = collect_agent_activity(since)
     latency = reply_latency()
     hybrid_running, hybrid_source, hybrid_proof = hybrid_claim()
     repro_checker, repro_total, repro_breakdown, repro_at, repro_ref = collect_reproducibility()
@@ -483,6 +529,7 @@ def main(argv=None):
         "warnings": warnings,
         "sources": sources,
         "reply_latency": latency,
+        "agent_activity": activity if activity is not None else {"error": activity_error},
         "backlog": collect_backlog(),
         "context": {
             "status": "not_initialised",

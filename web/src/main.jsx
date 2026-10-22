@@ -27,7 +27,7 @@ const api = async (path, options = {}) => {
 };
 
 const DASH_ROUTES = {
-  operations: { eyebrow: 'OPERATIONS', title: 'Operations', subtitle: 'Poolrad, hybrid, reproducibility, crackdown, backlog and agents · one page, auto-calculated' },
+  operations: { eyebrow: 'OPERATIONS', title: 'Operations', subtitle: 'Project progress, reproducibility, backlog and agents · one page, auto-calculated' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
   agents: { eyebrow: 'AGENTS', title: 'Agents', subtitle: 'Talk to an agent directly' },
@@ -375,6 +375,13 @@ function RetiredNotice() {
   </div>;
 }
 
+function BundleFingerprint() {
+  const build = typeof __BUILD__ === 'object' ? __BUILD__ : { commit: 'unknown', builtAt: null };
+  return <div className="page-fingerprint" title="Which build this page is">
+    build <b>{build.commit}</b>{build.builtAt ? ` · ${new Date(build.builtAt).toLocaleString()}` : ''}
+  </div>;
+}
+
 function App() {
   const route = useDashRoute();
   const [authorized, setAuthorized] = useState(null);
@@ -391,7 +398,7 @@ function App() {
   const content = route.standalone
     ? (authorized ? <StandaloneDesk view={route.view} known={route.known} /> : <Login onSuccess={() => setAuthorized(true)} />)
     : (authorized ? <RetiredNotice /> : <Login onSuccess={() => setAuthorized(true)} />);
-  return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</>;
+  return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}<BundleFingerprint /></>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
