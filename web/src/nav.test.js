@@ -19,3 +19,9 @@ test('the built bundle contains the live dashboard nav', () => {
     assert.ok(bundle.includes(marker), `built bundle is missing ${JSON.stringify(marker)} - the nav may be in a component nothing renders`);
   }
 });
+
+test('the nav links use the hash form the router reads, not /dash/*', () => {
+  const source = readFileSync(join(here, 'main.jsx'), 'utf8');
+  assert.ok(!source.includes('href={`/dash/${key}`}'), 'nav must not link /dash/<key> (server 302s without a session)');
+  assert.ok(source.includes('href={`/#${key}`}'), 'nav must link /#<key>');
+});

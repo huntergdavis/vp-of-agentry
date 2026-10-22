@@ -55,7 +55,7 @@ function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
     <div><span className="dash-eyebrow">{eyebrow}</span><h1>{title}</h1>{subtitle && <p className="dash-subtitle">{subtitle}</p>}</div>
     <div className="dash-side">
       {side}
-      {view && !standalone && <a className="dash-link" href={`/dash/${view}`} title="Open this dashboard on its own route">Standalone ↗</a>}
+      {view && !standalone && <a className="dash-link" href={`/#${view}`} title="Open this dashboard on its own route">Standalone ↗</a>}
     </div>
   </header>;
 }
@@ -64,7 +64,7 @@ function DashNav({ view }) {
   return <nav className="dash-nav" aria-label="Dashboards">
     <span className="dash-nav-brand"><span className="dash-nav-mark">VA</span>VP OF AGENTRY</span>
     <span className="dash-nav-links">
-      {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
+      {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/#${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
     </span>
     <span className="dash-nav-right"><a className="dash-link" href="/">Open the desk ↗</a></span>
   </nav>;
@@ -1051,7 +1051,7 @@ function StandaloneDesk({ view, known }) {
     return <DashShell standalone view={view}>
       <DashHeader eyebrow="DASHBOARDS" title="Unknown dashboard" subtitle={`No dashboard is registered at /dash/${view}`} />
       <div className="dash-body"><div className="dash-empty">Pick one of the four dashboards
-        <div className="dash-nav-links" style={{ marginTop: 10 }}>{Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`}>{route.title}</a>)}</div>
+        <div className="dash-nav-links" style={{ marginTop: 10 }}>{Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/#${key}`}>{route.title}</a>)}</div>
       </div></div>
     </DashShell>;
   }
@@ -1075,7 +1075,7 @@ function RetiredNotice() {
         The old desk interface is retired. Terminals, workspaces and the four dashboards live in the Herdr web UI.
         <div style={{ marginTop: 12 }}><a className="dash-primary-link" href={target}>Open the Herdr web UI ↗</a></div>
         <div className="dash-nav-links" style={{ marginTop: 16 }}>
-          {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`}>{route.title}</a>)}
+          {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/#${key}`}>{route.title}</a>)}
         </div>
       </div>
     </div>
