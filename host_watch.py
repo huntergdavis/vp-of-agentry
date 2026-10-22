@@ -143,8 +143,13 @@ def levels_for(sample: dict, old: dict) -> tuple[dict, dict]:
     return {"tmp": tmp_level(sample)}, report
 
 
+HISTORY_MAX = 2880  # ~10 days at the 5-minute cadence; the band fit needs this
+
+
 def append_sample(history: list[dict], sample: dict) -> list[dict]:
-    history = history[-2:]
+    # Keep a long bounded history: the band is calibrated from it, not from two
+    # points. Only the load LEVEL still needs just the last few samples.
+    history = history[-HISTORY_MAX:]
     if history and sample["at"] - history[-1]["at"] < 45:
         history[-1] = sample
     else:
