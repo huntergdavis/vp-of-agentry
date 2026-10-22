@@ -133,3 +133,19 @@ Not a replacement for `AGENTS.md` (that is the operating contract, read by every
 agent) and not a replacement for memory (that is the evidence). It is the store
 for **what is true**, so an agent does not have to rediscover it or trust a stale
 copy.
+
+## Access logging (required by owner #1235)
+
+The owner wants the dashboard to show **how many articles, how many facts, ages of
+facts, and access rates**. That last one only exists if the store records reads.
+
+Rules:
+- Every read of an entry appends `{slug, at, by}` to a **derived** `access.jsonl`
+  next to the index (gitignored, same class of artifact as `.index.db`).
+- The store never counts a write as an access, and never counts the digest build as
+  an access of every entry (the digest reads ground truths wholesale; counting that
+  would make the most-consulted article always the most-boring one).
+- `context stats` prints: counts by class, age distribution (median/p90 per class),
+  reads in the last 7 days, and entries never read since creation.
+- Entries **never read** are the interesting number, not the read ones: an article
+  nobody opens is either wrong, unknown, or in the wrong place.
