@@ -8,6 +8,7 @@ proof - a guard that has never been seen to fail is a guard we are assuming.
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -43,7 +44,9 @@ class GuardTests(unittest.TestCase):
             before = production.stat().st_mtime if production.exists() else None
             proc = subprocess.run(
                 [sys.executable, str(COLLECTOR), "--dunk-dir", str(empty), "--out", str(out)],
-                capture_output=True, text=True, timeout=240)
+                capture_output=True, text=True, timeout=240,
+                env={**os.environ, "VP_COST_HOME": str(empty), "VP_OPS_DB": str(empty / "ops.sqlite3"),
+                     "FREE_MODEL_LEDGER": str(empty / "ledger.md")})
             self.assertEqual(0, proc.returncode, proc.stderr)
             self.assertNotIn(str(production), proc.stdout,
                              "--out must be honoured; the production path must not be written")
@@ -54,6 +57,15 @@ class GuardTests(unittest.TestCase):
                 self.assertTrue(snapshot["sources"][source]["reason"], source)
             self.assertTrue(snapshot["warnings"], "a broken source must produce a warning")
             self.assertTrue(any("absent" in item["reason"] for item in snapshot["warnings"]))
+            # No harness logs: every harness says absent, no row claims zero cost.
+            costs = snapshot["cost_per_agent"]
+            self.assertEqual("partial", costs["status"])
+            self.assertEqual([], costs["rows"])
+            self.assertEqual({"claude", "codex", "pi", "opencode"}, set(costs["failed_sources"]))
+            self.assertIsNone(snapshot["free_model"]["outcomes_recorded"]["value"])
+            self.assertEqual("nulled", snapshot["usage"]["status"])
+            self.assertTrue((Path(temporary) / "snap-costs-cache.json").exists(),
+                            "the scan cache belongs beside --out, never in production data/")
             if before is not None:
                 self.assertEqual(before, production.stat().st_mtime,
                                  "the production snapshot was rewritten by a test run")

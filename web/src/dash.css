@@ -396,3 +396,18 @@
 .login-card input:focus { border-color: #89b4fa; }
 .login-card .primary { background: #89b4fa; color: #11111b; }
 .login-card .primary:hover { background: #9dc0fb; }
+
+/* Cost per agent, free-model volume, usage (cost-panels.jsx) */
+.snapshot-costs { margin-top: 18px; }
+.snapshot-costs > small { display: block; opacity: .7; margin: 2px 0 6px; }
+.cost-reason { display: block; font-size: 11px; opacity: .75; margin-top: 4px; }
+.cost-usage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 8px; }
+.cost-usage-card { border: 1px solid rgba(127,127,127,.25); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cost-usage-card > small { opacity: .7; }
+.cost-window { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; font-size: 12px; }
+.cost-window small { grid-column: 1 / -1; opacity: .7; }
+.cost-window.extra strong { color: #b5541b; }
+.cost-subs { margin-top: 10px; font-size: 12px; }
+.cost-subs h4 { margin: 0 0 4px; font-size: 12px; }
+.cost-subs ul { margin: 0; padding-left: 18px; }
+.cost-more { margin-top: 6px; font-size: 12px; }

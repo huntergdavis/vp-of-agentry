@@ -20,6 +20,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import agent_costs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "data" / "ops-snapshot.json"
 CHECKPOINT = Path(os.environ.get(
@@ -569,6 +572,9 @@ def main(argv=None):
     repro_checker, repro_total, repro_breakdown, repro_at, repro_ref = collect_reproducibility()
     crack_fps, crack_cpu, crack_at, crack_ref = collect_crackdown()
     hybrid_num, hybrid_den, hybrid_den_ref, hybrid_den_reason = collect_hybrid_denominator()
+    # The scan cache sits beside the snapshot, so a test --out never touches production's.
+    costs = agent_costs.collect(cache_path=out.with_name(out.stem + "-costs-cache.json"))
+    free = costs["free_model"]
 
     agents = []
     for lane in sorted(rows):
@@ -646,14 +652,20 @@ def main(argv=None):
                       "reason": None if crack_fps is not None else crack_ref},
         "reproducibility": {"status": "ok" if repro_checker is not None else "nulled",
                             "reason": None if repro_checker is not None else repro_ref},
-        "freemodel": {"status": "nulled", "reason": "par-d tally not published yet"},
+        "freemodel": {"status": free.get("status", "nulled"),
+                      "reason": free.get("reason") or (None if free["outcomes"] is not None
+                                                       else free["outcomes_recorded"]["reason"])},
+        "costs": {"status": costs["cost_per_agent"]["status"],
+                  "reason": costs["cost_per_agent"].get("reason") or "; ".join(
+                      f"{h}: {r}" for h, r in costs["cost_per_agent"].get("failed_sources", {}).items()) or None},
+        "usage": {"status": costs["usage"]["status"], "reason": costs["usage"].get("reason")},
     }
     context = collect_context()
     dispatch = collect_dispatch()
     warnings = gh_warnings + [
         {"source": name, "reason": source.get("reason") or source.get("status")}
         for name, source in sources.items()
-        if source.get("status") != "ok" and name != "freemodel"]
+        if source.get("status") != "ok"]
     if context.get("status") != "ok":
         warnings.append({"source": "context", "reason": context.get("reason")})
     if dispatch.get("status") != "ok":
@@ -673,6 +685,9 @@ def main(argv=None):
         "backlog": collect_backlog(),
         "dispatch": collect_dispatch(),
         "context": context,
+        "cost_per_agent": costs["cost_per_agent"],
+        "free_model": free,
+        "usage": costs["usage"],
         "attribution": {
             "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
             "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),
