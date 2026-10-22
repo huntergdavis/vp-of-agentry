@@ -816,8 +816,8 @@ function AgentList({ onSelect }) {
     <div className="agent-rows">{agents.map(a => <div className={`agent-row ${a.status}`} key={a.id}>
       <div className="agent-id"><b>{a.name}</b><small>{a.pane_id || 'no live pane'}{a.cwd ? ` · ${a.cwd}` : ''}</small></div>
       <span className={`agent-status ${a.status}`} title={a.status_reason || ''}>{a.status.toUpperCase()}</span>
-      <div className="agent-metrics">{a.metrics ? `${a.metrics.events} events` : 'no metrics'}{a.last_activity ? <small>{new Date(a.last_activity * 1000).toLocaleTimeString()}</small> : null}</div>
-      {a.pane_id ? <button className="agent-message" onClick={() => onSelect(a.id)}>Message</button> : <span className="agent-unavailable">{a.status_reason || 'unavailable'}</span>}
+      <div className="agent-metrics">{a.metrics ? `${a.metrics.events} events` : 'no metrics'}{a.last_event ? <small>last event {new Date(a.last_event * 1000).toLocaleTimeString()}</small> : null}</div>
+      {a.note ? <span className="agent-unavailable" title={a.note}>{a.note}</span> : a.pane_id ? <button className="agent-message" onClick={() => onSelect(a.id)}>Message</button> : <span className="agent-unavailable">{a.status_reason || 'unavailable'}</span>}
     </div>)}</div>
   </div>;
 }

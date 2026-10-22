@@ -1084,27 +1084,49 @@ def agents(_: Annotated[str, Depends(require_auth)]):
         return {"agents": [], "as_of": None, "error": str(exc.detail),
                 "note": "pane registry unavailable; no agent rows are shown"}
     metrics = _pane_metrics()
-    rows = []
+    rows, covered = [], set()
     for cfg in CHANNELS:
         pane = match_pane(cfg, panes)
         name = cfg.get("name") or cfg.get("id")
         if pane is None:
             rows.append({"id": cfg.get("id"), "name": name, "pane_id": None,
-                         "agent": None, "status": "unknown",
+                         "agent": None, "status": "unknown", "source": "channel",
                          "status_reason": "no live pane matched this channel",
-                         "cwd": None, "last_activity": None, "metrics": None})
+                         "cwd": None, "last_event": None, "metrics": None,
+                         "note": None})
             continue
+        covered.add(pane.get("pane_id"))
         raw = str(pane.get("agent_status") or "").lower()
         status = raw if raw in {"working", "idle", "blocked", "done"} else "unknown"
         row_metrics = metrics.get(pane.get("pane_id"))
         rows.append({
             "id": cfg.get("id"), "name": name, "pane_id": pane.get("pane_id"),
-            "agent": pane.get("agent"),
-            "status": status,
+            "agent": pane.get("agent"), "status": status, "source": "channel",
             "status_reason": None if status != "unknown" else "no status reported by the tool",
             "cwd": pane.get("cwd"),
-            "last_activity": (row_metrics or {}).get("last_at"),
+            "last_event": (row_metrics or {}).get("last_at"),
             "metrics": ({"events": row_metrics["events"]} if row_metrics else None),
+            "note": None,
+        })
+    # A live agent pane with no channel config must still be visible: the owner
+    # may receive mail from it. Read-only here - adding a channel is a decision.
+    for pane in panes:
+        if not pane.get("agent") or pane.get("pane_id") in covered:
+            continue
+        raw = str(pane.get("agent_status") or "").lower()
+        status = raw if raw in {"working", "idle", "blocked", "done"} else "unknown"
+        row_metrics = metrics.get(pane.get("pane_id"))
+        label = (pane.get("tab_label") or "").strip()
+        name = label if label and label not in {"1", "2", "3", "bottom"} else pane.get("pane_id")
+        rows.append({
+            "id": pane.get("pane_id"), "name": name,
+            "pane_id": pane.get("pane_id"), "agent": pane.get("agent"),
+            "status": status, "source": "pane",
+            "status_reason": None if status != "unknown" else "no status reported by the tool",
+            "cwd": pane.get("cwd"),
+            "last_event": (row_metrics or {}).get("last_at"),
+            "metrics": ({"events": row_metrics["events"]} if row_metrics else None),
+            "note": "no channel configured - read-only, add one to message",
         })
     return {"agents": rows, "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
