@@ -173,13 +173,23 @@ def collect_tasks(since):
 
 
 def collect_messages(since):
+    """Per-pane handled events, and the null-pane bucket separately.
+
+    The metrics DB has 16,823 events with pane_id IS NULL; counting them into
+    the per-pane total would make 'unknown' the biggest bar. They are reported
+    as unattributed_events, never dropped.
+    """
     try:
-        n = scalar(METRICS_DB,
-                   "SELECT COUNT(*) FROM events WHERE kind IN ('message.sent','inbox.read') "
-                   "AND at >= ?", (since.timestamp(),))
-        return n, now()
+        stamp = since.timestamp()
+        handled = scalar(METRICS_DB,
+                         "SELECT COUNT(*) FROM events WHERE kind IN ('message.sent','inbox.read') "
+                         "AND at >= ? AND pane_id IS NOT NULL", (stamp,))
+        unattributed = scalar(METRICS_DB,
+                              "SELECT COUNT(*) FROM events WHERE kind IN ('message.sent','inbox.read') "
+                              "AND at >= ? AND pane_id IS NULL", (stamp,))
+        return handled, unattributed, now()
     except (sqlite3.Error, OSError) as exc:
-        return None, f"metrics.db: {exc}"
+        return None, None, f"metrics.db: {exc}"
 
 
 def reply_latency():
@@ -206,7 +216,8 @@ def reply_latency():
 
         return {"p50_s": round(pct(.5)), "p90_s": round(pct(.9)),
                 "max_s": round(max(values)) if values else None, "n": len(values),
-                "window": "last 80 answered owner messages, ordered by message id desc",
+                "window": "last 80 answered owner messages, ordered by message id desc; "
+                          "nearest-rank percentiles",
                 "unanswered": unanswered, "as_of": iso(now()),
                 "source": "vp-of-agentry/data/messages.sqlite3 (created_at -> answered_at)"}
     except (sqlite3.Error, OSError, ValueError) as exc:
@@ -299,7 +310,7 @@ def main():
     rows, unattributed, warnings, pr_as_of = collect_agents()
     bodies, ceiling, checkpoint_at, checkpoint_ref = collect_checkpoint()
     tasks_done, tasks_at = collect_tasks(since)
-    messages_n, messages_at = collect_messages(since)
+    messages_n, messages_unattributed, messages_at = collect_messages(since)
     latency = reply_latency()
     hybrid_running, hybrid_source, hybrid_proof = hybrid_claim()
     repro_checker, repro_total, repro_breakdown, repro_at, repro_ref = collect_reproducibility()
@@ -378,7 +389,9 @@ def main():
                       "reason": None if tasks_done is not None else tasks_at},
             "metrics": {"status": "ok" if messages_n is not None else "nulled",
                         "as_of": iso(messages_at) if messages_n is not None else None,
-                        "reason": None if messages_n is not None else messages_at},
+                        "reason": None if messages_n is not None else messages_at,
+                        "per_pane_events": messages_n,
+                        "unattributed_events": messages_unattributed},
             "messages": {"status": "ok" if latency.get("p50_s") is not None else "nulled",
                          "as_of": latency.get("as_of")},
             "hybrid": {"status": "ok" if hybrid_running is not None else "nulled",
