@@ -27,11 +27,9 @@ const api = async (path, options = {}) => {
 };
 
 const DASH_ROUTES = {
-  poolrad: { eyebrow: 'POOLRAD', title: 'Original C bodies', subtitle: 'Completion against the PM-reviewed 815 upper bound' },
-  operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
+  operations: { eyebrow: 'OPERATIONS', title: 'Operations', subtitle: 'Poolrad, hybrid, reproducibility, crackdown, backlog and agents · one page, auto-calculated' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
-  snapshot: { eyebrow: 'OWNER VIEW', title: 'Owner snapshot', subtitle: 'One page, auto-calculated' },
   agents: { eyebrow: 'AGENTS', title: 'Agents', subtitle: 'Talk to an agent directly' },
 };
 
@@ -784,7 +782,9 @@ function PoolradPlay({ vpChannel, standalone = false }) {
 
 function OwnerSnapshot() {
   const [snap, setSnap] = useState(null); const [error, setError] = useState('');
+  const [board, setBoard] = useState(null);
   useEffect(() => { let alive = true; api('/ops-snapshot').then(d => alive && setSnap(d)).catch(e => alive && setError(e.message)); return () => { alive = false; }; }, []);
+  useEffect(() => { api('/ops-board').then(setBoard).catch(() => {}); }, []);
   if (error) return <div className="snapshot-error" role="alert">Snapshot unavailable: {error}</div>;
   if (!snap) return <div className="muted">Loading snapshot…</div>;
   const num = c => c && c.value != null ? c.value : '—';
@@ -802,6 +802,9 @@ function OwnerSnapshot() {
       {p.configuration && <div className="snapshot-config">{p.configuration}</div>}
       {p.value?.reason && <div className="snapshot-missing">— {p.value.reason}</div>}
     </div>)}</div>
+    {board?.quotas && <div className="snapshot-quotas"><h3>Provider windows</h3>
+      <div className="snapshot-quota-row"><QuotaCard provider="codex" quota={board.quotas.codex} /><QuotaCard provider="claude" quota={board.quotas.claude} /></div>
+    </div>}
     <div className="snapshot-cols">
       <div><h3>Agents</h3><div className="snapshot-attribution"><b>attributed {snap.attribution?.attributed ?? '—'} PRs</b> <span>unattributed {snap.attribution?.unattributed ?? '—'} PRs</span><small>{snap.attribution?.method}</small></div><div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Type</th><th>PRs</th><th>Bodies</th><th>Tasks</th><th>Msgs</th></tr></thead><tbody>{snap.agents.map(a => <tr key={a.agent}><td>{a.agent}</td><td>{a.type}</td><td>{num(a.merged_prs)}</td><td>{num(a.bodies_credited)}</td><td>{num(a.tasks_completed)}</td><td>{num(a.messages_handled)}</td></tr>)}{!snap.agents.length && <tr><td colSpan="6">No attributed agents yet.</td></tr>}</tbody></table></div><small>PRs carry their lane in the branch name from 2026-10-21.</small></div>
       <div><h3>Backlog · age is the number</h3><div className="snapshot-backlog"><span>{snap.backlog.open} open · {snap.backlog.in_progress} in progress · {snap.backlog.blocked} blocked</span>{snap.backlog.oldest_open && <b>oldest open {snap.backlog.oldest_open.id} · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</b>}</div><ol>{snap.backlog.top.map(t => <li key={t.id}>{t.id} {t.title} <small>{t.priority} · {(t.age_s / 86400).toFixed(1)} d</small></li>)}</ol>{snap.backlog.reason && <div className="snapshot-missing">{snap.backlog.reason}</div>}</div>
@@ -1055,9 +1058,7 @@ function StandaloneDesk({ view, known }) {
       </div></div>
     </DashShell>;
   }
-  if (view === 'poolrad') return <PoolradProgress standalone />;
-  if (view === 'operations') return <OpsBoard standalone />;
-  if (view === 'snapshot') return <OwnerSnapshot />;
+  if (view === 'operations') return <OwnerSnapshot />;
   if (view === 'agents') return <AgentList onSelect={() => {}} />;
   if (view === 'play') return <PoolradPlay standalone />;
   return <VpStandalone />;
