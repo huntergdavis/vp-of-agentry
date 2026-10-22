@@ -92,7 +92,8 @@ def gh_prs(repo, since):
 
 def attribute(pr):
     """First known lane token anywhere in the branch, then [lane] in the title,
-    then the git author, else None. Never a harness name, never a guess."""
+    then None. The git author is NOT a lane: it goes to its own named fallback
+    row so a person's name is never read as an agent."""
     branch = (pr.get("headRefName") or "").casefold()
     for token in KNOWN_LANES:
         if re.search(r"(^|[/_.-])" + re.escape(token) + r"($|[/_.-])", branch):
@@ -104,8 +105,10 @@ def attribute(pr):
     match = re.search(r"\[([a-zA-Z0-9_-]+)\]", pr.get("title") or "")
     if match and match.group(1).casefold() in KNOWN_LANES:
         return match.group(1).casefold()
-    author = ((pr.get("author") or {}).get("login") or "").strip()
-    return author or None
+    return None
+
+
+AUTHOR_ROW = "unattributed (git author)"
 
 
 def lane_type(lane):
@@ -127,12 +130,17 @@ def collect_agents():
         for pr in prs:
             lane = attribute(pr)
             if lane is None:
+                # Kept as a named fallback row, not silently dropped and not a
+                # person's name: the owner sees this is not an agent.
+                author = ((pr.get("author") or {}).get("login") or "unknown").strip()
                 unattributed.append({"number": pr["number"], "branch": pr.get("headRefName"),
-                                     "title": pr.get("title"), "reason": "no lane token in branch or title"})
-                continue
+                                     "title": pr.get("title"), "author": author,
+                                     "reason": "no lane token in branch or title"})
+                lane = AUTHOR_ROW
             row = rows.setdefault(lane, {"agent": lane, "pane": None, "type": lane_type(lane),
                                          "merged_prs": 0, "bodies_credited": 0,
-                                         "tasks_completed": 0, "messages_handled": 0})
+                                         "tasks_completed": 0, "messages_handled": 0,
+                                         "fallback": lane == AUTHOR_ROW})
             row["merged_prs"] += 1
     return rows, unattributed, warnings, as_of
 
@@ -303,6 +311,7 @@ def main():
         row = rows[lane]
         agents.append({
             "agent": row["agent"], "pane": row["pane"], "type": row["type"],
+            "fallback": row.get("fallback", False),
             "merged_prs": cell(row["merged_prs"], pr_as_of),
             "bodies_credited": failed("no per-lane checkpoint delta source"),
             "tasks_completed": failed("no per-assignee task completion source in window"),
@@ -387,9 +396,9 @@ def main():
             "never_read": failed("context store not yet initialised"),
             "as_of": None,
         },
-        "attribution": {"attributed": sum(1 for a in agents if a["agent"]),
-                        "unattributed": len(unattributed),
-                        "method": "branch lane token -> [lane] title token -> git author -> unattributed"},
+        "attribution": {"attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
+                        "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),
+                        "method": "branch lane token -> [lane] title token -> 'unattributed (git author)'"},
         "agents_unattributed": unattributed,
         "agents": agents,
         "types": list(types.values()),
