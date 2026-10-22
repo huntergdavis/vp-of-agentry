@@ -69,6 +69,33 @@ def cell(value, as_of, reason=None):
     return {"value": value, "as_of": iso(as_of) if as_of else None, "reason": reason}
 
 
+def guard(path, *, table=None, columns=(), min_rows=0):
+    """Assert a source's premise. Returns a reason string, or None when it holds.
+
+    A wrong path or a missing table looks exactly like 'no work done' - a
+    confident zero. This makes the null+reason rule enforceable: the cell is
+    null with the failed premise, never a zero.
+    """
+    p = Path(path)
+    if not p.exists():
+        return f"{p} absent"
+    if table is not None:
+        try:
+            with sqlite3.connect(f"file:{p}?mode=ro", uri=True) as conn:
+                names = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+                if not names:
+                    return f"table {table!r} absent at {p}"
+                missing = [name for name in columns if name not in names]
+                if missing:
+                    return f"column(s) {', '.join(missing)} absent in {table!r} at {p}"
+                rows = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                if rows < min_rows:
+                    return f"{table!r} has {rows} row(s), expected at least {min_rows}, at {p}"
+        except sqlite3.Error as exc:
+            return f"{p}: {exc}"
+    return None
+
+
 def failed(reason):
     return cell(None, None, reason)
 
@@ -146,8 +173,14 @@ def collect_agents():
 
 
 def collect_checkpoint():
+    broken = guard(CHECKPOINT)
+    if broken:
+        return None, None, None, broken
     try:
         data = json.loads(CHECKPOINT.read_text())
+        for key in ("strict_full_c_originals", "verified_game_identities"):
+            if key not in data:
+                return None, None, None, f"{CHECKPOINT}: key {key!r} absent"
         stamp = datetime.fromtimestamp(CHECKPOINT.stat().st_mtime, timezone.utc)
         bodies = int(data["strict_full_c_originals"])
         ceiling = int(data["verified_game_identities"])
@@ -163,6 +196,9 @@ def scalar(db, sql, params=()):
 
 
 def collect_tasks(since):
+    broken = guard(TASKS_DB, table="tasks", columns=("status", "completed_at"), min_rows=1)
+    if broken:
+        return None, broken
     try:
         done = scalar(TASKS_DB,
                       "SELECT COUNT(*) FROM tasks WHERE status='done' AND completed_at >= ?",
@@ -175,10 +211,15 @@ def collect_tasks(since):
 def collect_messages(since):
     """Per-pane handled events, and the null-pane bucket separately.
 
+    Guards the table/columns first: an absent events table is not 'no traffic'.
+
     The metrics DB has 16,823 events with pane_id IS NULL; counting them into
     the per-pane total would make 'unknown' the biggest bar. They are reported
     as unattributed_events, never dropped.
     """
+    broken = guard(METRICS_DB, table="events", columns=("kind", "at", "pane_id"), min_rows=1)
+    if broken:
+        return None, None, broken
     try:
         stamp = since.timestamp()
         handled = scalar(METRICS_DB,
@@ -193,6 +234,12 @@ def collect_messages(since):
 
 
 def reply_latency():
+    broken = guard(MESSAGES_DB, table="messages",
+                   columns=("role", "answered_at", "created_at", "id"), min_rows=1)
+    if broken:
+        return {"p50_s": None, "p90_s": None, "max_s": None, "n": 0,
+                "window": "unavailable", "unanswered": None, "as_of": None,
+                "source": broken}
     try:
         with sqlite3.connect(f"file:{MESSAGES_DB}?mode=ro", uri=True) as conn:
             rows = conn.execute(
@@ -227,8 +274,13 @@ def reply_latency():
 
 
 def collect_reproducibility():
+    broken = guard(CREDIT_CSV)
+    if broken:
+        return None, None, {}, None, broken
     try:
         rows = list(csv.DictReader(CREDIT_CSV.open()))
+        if not rows or "kind" not in rows[0]:
+            return None, None, {}, None, f"{CREDIT_CSV}: no rows or no 'kind' column"
         breakdown = {}
         for row in rows:
             breakdown[row["kind"]] = breakdown.get(row["kind"], 0) + 1
@@ -239,6 +291,9 @@ def collect_reproducibility():
 
 
 def collect_crackdown():
+    broken = guard(CRACKDOWN_RESULT)
+    if broken:
+        return None, None, None, broken
     try:
         text = CRACKDOWN_RESULT.read_text()
         match = re.search(r"shadow OFF \(mode 0\)\s+([\d.]+) / ([\d.]+)\s+([\d.]+)/([\d.]+)", text)
@@ -254,6 +309,9 @@ def collect_crackdown():
 
 
 def collect_hybrid_denominator():
+    broken = guard(HYBRID_GLUE)
+    if broken:
+        return None, None, None, broken
     try:
         text = HYBRID_GLUE.read_text()
         match = re.search(r"(\d+)\s+of the\s+(\d+)\s+credited bodies", text)
@@ -295,6 +353,9 @@ def collect_backlog():
 
 
 def hybrid_claim():
+    broken = guard(HYBRID)
+    if broken:
+        return None, None, broken
     try:
         data = json.loads(HYBRID.read_text())
         claims = data.get("claims") or {}
