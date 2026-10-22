@@ -19,6 +19,8 @@ sub = parser.add_subparsers(dest="command", required=True)
 brief = sub.add_parser("brief", help="Publish a Markdown brief from stdin")
 brief.add_argument("--channel", default="vp")
 brief.add_argument("--attach", action="append", type=Path, default=[], help="Attach a local file (up to 25 MB)")
+brief.add_argument("--answers", default="", metavar="IDS",
+                   help="Comma-separated owner message ids this brief answers (links answered_at+answer_id)")
 status = sub.add_parser("status", help="Read channel status")
 args = parser.parse_args()
 auth = json.loads((ROOT / "data" / "auth.json").read_text())
@@ -47,8 +49,13 @@ if args.command == "brief":
         except urllib.error.HTTPError as exc:
             print(exc.read().decode(), file=sys.stderr)
             sys.exit(1)
+    try:
+        answer_ids = [int(part) for part in args.answers.replace(" ", ",").split(",") if part]
+    except ValueError:
+        parser.error("--answers must be comma-separated message ids")
     path, payload = "/api/brief", {"channel": args.channel, "body": body,
-                                   "attachment_ids": attachment_ids}
+                                   "attachment_ids": attachment_ids,
+                                   "answers": answer_ids}
 else:
     path, payload = "/api/channels", None
 request = urllib.request.Request(

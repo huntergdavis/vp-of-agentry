@@ -152,6 +152,10 @@ def _initialize():
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempt_at REAL NOT NULL DEFAULT 0")
         if "external_id" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
+        if "answer_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN answer_id INTEGER")
+        if "answered_at" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN answered_at TEXT")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS messages_external_id ON messages(channel,external_id) WHERE external_id IS NOT NULL")
     if not AUTH.exists():
         password = os.getenv("VP_PASSWORD") or secrets.token_urlsafe(18)
@@ -763,8 +767,12 @@ def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int
                             (channel, before or 2**63 - 1, limit + 1)).fetchall()
         more = len(rows) > limit
         rows = rows[:limit]
+        unanswered = conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE channel=? AND role='owner' AND answer_id IS NULL",
+            (channel,)).fetchone()[0]
         return {"items": [_message(r, conn) for r in reversed(rows)], "has_more": more,
-                "next_before": rows[-1]["id"] if rows else None}
+                "next_before": rows[-1]["id"] if rows else None,
+                "unanswered": unanswered}
 
 
 @app.get("/api/deliveries")
@@ -922,6 +930,9 @@ class BriefIn(BaseModel):
     channel: str
     body: str = Field(min_length=1, max_length=20000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=10)
+    # Owner message ids this brief answers. A link is explicit on purpose:
+    # 'acked' must not mean 'answered'.
+    answers: list[int] = Field(default_factory=list, max_length=50)
 
 
 @app.post("/api/brief")
@@ -930,18 +941,29 @@ def post_brief(data: BriefIn, identity: Annotated[str, Depends(require_auth)]):
         raise HTTPException(403, "API token required")
     if not _known_channel(data.channel):
         raise HTTPException(404, "Unknown channel")
+    answer_ids = sorted(set(data.answers))
     with _db() as conn:
         for attachment_id in data.attachment_ids:
             row = conn.execute("SELECT id FROM attachments WHERE id=? AND message_id IS NULL",
                                (attachment_id,)).fetchone()
             if not row:
                 raise HTTPException(422, f"Attachment {attachment_id} is unavailable")
+        for message_id in answer_ids:
+            row = conn.execute("SELECT id,role,channel FROM messages WHERE id=?",
+                               (message_id,)).fetchone()
+            if not row or row["role"] != "owner" or row["channel"] != data.channel:
+                raise HTTPException(422, f"Message {message_id} is not an owner message in this channel")
         cursor = conn.execute("INSERT INTO messages(channel,role,body) VALUES(?,?,?)",
                               (data.channel, "agent", data.body.strip()))
+        brief_id = cursor.lastrowid
         for attachment_id in data.attachment_ids:
             conn.execute("UPDATE attachments SET message_id=? WHERE id=?",
-                         (cursor.lastrowid, attachment_id))
-        row = conn.execute("SELECT * FROM messages WHERE id=?", (cursor.lastrowid,)).fetchone()
+                         (brief_id, attachment_id))
+        for message_id in answer_ids:
+            conn.execute("UPDATE messages SET answer_id=?,"
+                         "answered_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+                         (brief_id, message_id))
+        row = conn.execute("SELECT * FROM messages WHERE id=?", (brief_id,)).fetchone()
         return _message(row, conn)
 
 
