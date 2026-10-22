@@ -301,3 +301,21 @@
 .snapshot-cols li small { opacity: .65; }
 .snapshot-attribution { display: flex; gap: 10px; align-items: baseline; font-size: 12px; margin-bottom: 6px; }
 .snapshot-attribution span { color: #8b1a1a; }
+
+.agent-list { padding: 18px; overflow: auto; height: 100%; }
+.agent-list-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+.agent-list-head small { opacity: .7; max-width: 320px; text-align: right; }
+.agent-rows { display: flex; flex-direction: column; gap: 8px; }
+.agent-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 14px; align-items: center; border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 10px 12px; }
+.agent-id small { display: block; opacity: .6; font-size: 11px; }
+.agent-status { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: rgba(0,0,0,.07); }
+.agent-status.working { background: #d8f3dc; color: #1b4332; }
+.agent-status.idle { background: #e8f0fe; color: #1a3c8b; }
+.agent-status.blocked { background: #fff3cd; color: #7a5a00; }
+.agent-status.done { background: #eee; color: #444; }
+.agent-status.unknown { background: #f1f1f1; color: #777; }
+.agent-metrics { font-size: 12px; text-align: right; }
+.agent-metrics small { display: block; opacity: .6; }
+.agent-message { padding: 5px 12px; border-radius: 8px; }
+.agent-unavailable { font-size: 11px; color: #8b1a1a; max-width: 180px; }
+.agent-empty { padding: 40px; display: flex; flex-direction: column; gap: 6px; align-items: center; opacity: .8; }

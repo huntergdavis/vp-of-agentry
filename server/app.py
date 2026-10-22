@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import sqlite3
+from datetime import datetime, timezone
 import subprocess
 import sys
 import tempfile
@@ -1051,6 +1052,61 @@ def panes_activity(response: Response, _: Annotated[str, Depends(require_auth)])
         if PANES_ACTIVITY_CACHE["data"] is None:
             raise HTTPException(503, "Herdr panes unavailable", headers={"Cache-Control": "no-store"})
         return PANES_ACTIVITY_CACHE["data"]
+
+
+DUNK_METRICS = Path(os.environ.get(
+    "DUNKINGSHEEP_DIR", str(Path.home() / ".config" / "dunkingsheep"))) / "metrics.db"
+
+
+def _pane_metrics():
+    """Per-pane event count + last activity. Read-only; a missing DB is empty."""
+    try:
+        with sqlite3.connect(f"file:{DUNK_METRICS}?mode=ro", uri=True) as conn:
+            rows = conn.execute(
+                "SELECT pane_id, COUNT(*) AS events, MAX(at) AS last_at FROM events "
+                "WHERE pane_id IS NOT NULL GROUP BY pane_id").fetchall()
+        return {row[0]: {"events": int(row[1]), "last_at": row[2]} for row in rows}
+    except (OSError, sqlite3.Error):
+        return {}
+
+
+@app.get("/api/agents")
+def agents(_: Annotated[str, Depends(require_auth)]):
+    """Read-only talkable agent list.
+
+    Status is honest: a status the tool reported (working/idle/blocked/done) or
+    UNKNOWN with a reason. Pane presence is not progress, so it is never turned
+    into 'working'. Metrics are the ones the ops collector already computes.
+    """
+    try:
+        panes = _panes()
+    except HTTPException as exc:
+        return {"agents": [], "as_of": None, "error": str(exc.detail),
+                "note": "pane registry unavailable; no agent rows are shown"}
+    metrics = _pane_metrics()
+    rows = []
+    for cfg in CHANNELS:
+        pane = match_pane(cfg, panes)
+        name = cfg.get("name") or cfg.get("id")
+        if pane is None:
+            rows.append({"id": cfg.get("id"), "name": name, "pane_id": None,
+                         "agent": None, "status": "unknown",
+                         "status_reason": "no live pane matched this channel",
+                         "cwd": None, "last_activity": None, "metrics": None})
+            continue
+        raw = str(pane.get("agent_status") or "").lower()
+        status = raw if raw in {"working", "idle", "blocked", "done"} else "unknown"
+        row_metrics = metrics.get(pane.get("pane_id"))
+        rows.append({
+            "id": cfg.get("id"), "name": name, "pane_id": pane.get("pane_id"),
+            "agent": pane.get("agent"),
+            "status": status,
+            "status_reason": None if status != "unknown" else "no status reported by the tool",
+            "cwd": pane.get("cwd"),
+            "last_activity": (row_metrics or {}).get("last_at"),
+            "metrics": ({"events": row_metrics["events"]} if row_metrics else None),
+        })
+    return {"agents": rows, "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
 @app.get("/api/ops-snapshot")
