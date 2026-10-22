@@ -449,6 +449,40 @@ def collect_context(project_dir=None):
             "as_of": stamp}
 
 
+def collect_dispatch():
+    """The dispatcher's own last tick: idle lanes, dispatched this hour, blocked.
+
+    Reads the state file the tick writes - never runs a tick and never a model.
+    A missing file means the dispatcher has not run, which is stated, not zeroed.
+    """
+    path = DUNK_DIR / "dispatch-state.json"
+    try:
+        with open(path, encoding="utf-8") as handle:
+            state = json.load(handle)
+    except OSError as exc:
+        reason = f"no dispatcher tick yet ({exc.strerror or exc})"
+        return {"status": "absent", "reason": reason,
+                "idle": failed(reason), "dispatched_1h": failed(reason),
+                "blocked": [], "dead": [], "queue_depth": failed(reason),
+                "as_of": None}
+    except ValueError as exc:
+        reason = f"dispatcher state unreadable: {exc}"
+        return {"status": "failed", "reason": reason,
+                "idle": failed(reason), "dispatched_1h": failed(reason),
+                "blocked": [], "dead": [], "queue_depth": failed(reason), "as_of": None}
+    stamp_at = datetime.fromtimestamp(state["tick_at"], timezone.utc) if state.get("tick_at") else None
+    blocked = [dict(b) for b in state.get("blocked") or []]
+    return {"status": "ok", "reason": None,
+            "idle": cell(len(state.get("idle_unfilled") or []), stamp_at),
+            "dispatched_1h": cell(state.get("dispatched_1h"), stamp_at),
+            "ready": cell(state.get("ready"), stamp_at),
+            "queue_depth": cell(state.get("queue_depth"), stamp_at),
+            "queue_empty": bool(state.get("queue_empty")),
+            "blocked": blocked,
+            "dead": [dict(d) for d in state.get("dead") or []],
+            "as_of": iso(stamp_at)}
+
+
 def collect_backlog():
     """The dunkies feature backlog. AGE is the interesting number, not the count."""
     try:
@@ -605,12 +639,15 @@ def main(argv=None):
         "freemodel": {"status": "nulled", "reason": "par-d tally not published yet"},
     }
     context = collect_context()
+    dispatch = collect_dispatch()
     warnings = gh_warnings + [
         {"source": name, "reason": source.get("reason") or source.get("status")}
         for name, source in sources.items()
         if source.get("status") != "ok" and name != "freemodel"]
     if context.get("status") != "ok":
         warnings.append({"source": "context", "reason": context.get("reason")})
+    if dispatch.get("status") != "ok":
+        warnings.append({"source": "dispatch", "reason": dispatch.get("reason")})
 
     snapshot = {
         "schema": "ops-snapshot/1", "generated_at": iso(now()),
@@ -624,6 +661,7 @@ def main(argv=None):
         "reply_latency": latency,
         "agent_activity": activity if activity is not None else {"error": activity_error},
         "backlog": collect_backlog(),
+        "dispatch": collect_dispatch(),
         "context": context,
         "attribution": {
             "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),

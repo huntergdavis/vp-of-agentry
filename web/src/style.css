@@ -349,3 +349,12 @@
 .snapshot-context-table td { padding: 4px 8px; border-bottom: 1px solid #1d2430; color: #c7d0de; }
 .snapshot-context-table tr.never-read td { color: #e0a04a; }
 .snapshot-wiki-sub { display: flex; gap: 12px; color: #8b97a9; font-size: 0.8rem; margin-top: 2px; }
+
+/* Feeding: the dispatcher's own numbers, beside the backlog. */
+.snapshot-dispatch { margin: 18px 0; padding: 14px 16px; border: 1px solid #2a3140; border-radius: 8px; background: #131722; }
+.snapshot-dispatch h3 { margin: 0 0 10px; font-size: 0.95rem; letter-spacing: 0.02em; text-transform: uppercase; color: #9aa6ba; }
+.snapshot-dispatch-nums { display: flex; gap: 22px; flex-wrap: wrap; color: #c7d0de; font-size: 0.9rem; }
+.snapshot-dispatch-nums b { color: #eef3fb; font-size: 1.1rem; margin-right: 4px; }
+.snapshot-dispatch-nums .warn b { color: #e0a04a; }
+.snapshot-dispatch-blocked { margin: 10px 0 4px; padding-left: 18px; color: #e0a04a; font-size: 0.85rem; }
+.snapshot-finding { display: block; margin-top: 8px; color: #e0a04a; }

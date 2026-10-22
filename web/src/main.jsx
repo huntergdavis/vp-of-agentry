@@ -288,6 +288,23 @@ function OwnerSnapshot() {
         <small>{snap.context?.articles?.reason || snap.context?.reason || 'unavailable'}</small>
       </div>
     </div>
+    {snap.dispatch && <div className="snapshot-dispatch">
+      <h3>Feeding · deterministic dispatcher</h3>
+      <div className="snapshot-dispatch-nums">
+        <span><b>{num(snap.dispatch.idle)}</b> idle lanes</span>
+        <span><b>{num(snap.dispatch.dispatched_1h)}</b> dispatched this hour</span>
+        <span><b>{num(snap.dispatch.queue_depth)}</b> queued</span>
+        <span className={snap.dispatch.blocked?.length ? 'warn' : ''}><b>{snap.dispatch.blocked?.length ?? 0}</b> blocked</span>
+      </div>
+      {(snap.dispatch.blocked || []).length > 0 && <ul className="snapshot-dispatch-blocked">
+        {snap.dispatch.blocked.map(b => <li key={b.pane_id}><b>{b.name}</b> {b.reason}</li>)}
+      </ul>}
+      {snap.dispatch.queue_empty && (snap.dispatch.idle?.value || 0) > 0 && <small className="snapshot-finding">
+        {num(snap.dispatch.idle)} lane(s) are idle and the standby queue is empty - that is the instruction supply, not the lanes.
+      </small>}
+      {snap.dispatch.status !== 'ok' && <small className="snapshot-missing">{snap.dispatch.reason}</small>}
+      {snap.dispatch.as_of && <small>tick at {new Date(snap.dispatch.as_of).toLocaleString()} ({age(snap.dispatch.as_of)} ago)</small>}
+    </div>}
     {snap.context?.digest !== undefined && <div className="snapshot-digest">
       <h3>What every agent is told at session start</h3>
       {snap.context.digest
