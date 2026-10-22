@@ -13,6 +13,7 @@ import './dash.css';
 import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
+import { CostPerAgent, FreeModelVolume, UsagePanel } from './cost-panels.jsx';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const api = async (path, options = {}) => {
@@ -338,6 +339,9 @@ function OwnerSnapshot() {
     {board?.quotas && <div className="snapshot-quotas"><h3>Provider windows</h3>
       <div className="snapshot-quota-row"><QuotaCard provider="codex" quota={board.quotas.codex} /><QuotaCard provider="claude" quota={board.quotas.claude} /></div>
     </div>}
+    <UsagePanel section={snap.usage} />
+    <CostPerAgent section={snap.cost_per_agent} />
+    <FreeModelVolume section={snap.free_model} />
     <div className="snapshot-activity">
       <h3>Agent activity · last 24h</h3>
       <div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Messages</th><th>Median answer</th><th>Tasks done</th><th>Unread now</th></tr></thead>

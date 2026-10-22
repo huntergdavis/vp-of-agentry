@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { age, num, why } from './format.js';
+import { age, num, tokens, usd, why } from './format.js';
 
 test('a plain number renders as itself, not as cannot-compute', () => {
 	// The regression: backlog counts are plain ints, the helper expected cells,
@@ -24,4 +24,15 @@ test('age is in the units a person reads', () => {
 	assert.equal(age('2026-10-22T11:50:00Z', now), '10m');
 	assert.equal(age('2026-10-22T02:00:00Z', now), '10h');
 	assert.equal(age('2026-10-20T12:00:00Z', now), '2d');
+});
+
+test('tokens and dollars keep zero and cannot-compute apart', () => {
+	assert.equal(tokens({ value: 2_154_599_040, as_of: 'x', reason: null }), '2.2B');
+	assert.equal(tokens(12_400), '12.4k');
+	assert.equal(tokens(0), '0');
+	assert.equal(tokens({ value: null, as_of: null, reason: 'pi absent' }), '—');
+	assert.equal(usd({ value: 10.736, as_of: 'x', reason: null }), '$10.74');
+	assert.equal(usd({ value: 0, as_of: 'x', reason: null }), '$0.00', 'a recorded zero is a number');
+	assert.equal(usd({ value: 0.0012, as_of: 'x', reason: null }), '$0.001');
+	assert.equal(usd({ value: null, as_of: null, reason: 'tokens only' }), '—', 'never $0 for unknown');
 });
