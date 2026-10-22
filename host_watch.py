@@ -128,27 +128,19 @@ def tmp_level(sample: dict) -> str:
     return "ok"
 
 
-def load_candidate(sample: dict) -> str:
-    cpus = sample["cpus"]
-    psi = sample["cpu_psi_some_avg60"]
-    if sample["load1"] >= 2.5 * cpus or psi >= 60:
-        return "critical"
-    if sample["load5"] >= 1.5 * cpus or sample["load15"] >= 1.5 * cpus or psi >= 35:
-        return "warning"
-    return "ok"
+def levels_for(sample: dict, old: dict) -> tuple[dict, dict]:
+    """Alert levels and the load REPORT (numbers only, never a level).
 
-
-def load_level(previous: str, history: list[dict]) -> str:
-    """Require spaced samples for load alerts and recovery."""
-    if len(history) >= 2 and history[-1]["at"] - history[-2]["at"] >= 45:
-        if all(load_candidate(row) == "critical" for row in history[-2:]):
-            return "critical"
-    if len(history) >= 3 and history[-1]["at"] - history[-3]["at"] >= 90:
-        if all(LEVELS[load_candidate(row)] >= 1 for row in history[-3:]):
-            return "warning"
-        if all(load_candidate(row) == "ok" for row in history[-3:]):
-            return "ok"
-    return previous
+    Load is owned by the dunkingsheep watchdog (interim band 2.0/2.6, sustained
+    runs, lanes/busy/heavy). host_watch measures load and reports the numbers,
+    but does not page on it and does not print a second band: two pagers for
+    one signal with different thresholds is the defect. /tmp and inodes still
+    page here.
+    """
+    report = {"load1": round(sample["load1"], 2), "load5": round(sample["load5"], 2),
+              "load15": round(sample["load15"], 2), "cpus": sample["cpus"],
+              "cpu_psi_some_avg60": sample["cpu_psi_some_avg60"]}
+    return {"tmp": tmp_level(sample)}, report
 
 
 def append_sample(history: list[dict], sample: dict) -> list[dict]:
@@ -164,7 +156,7 @@ def alert_body(sample: dict, old: dict, new: dict) -> str:
     local = datetime.fromtimestamp(sample["at"], ZoneInfo("America/Los_Angeles"))
     stamp = local.strftime("%Y-%m-%d %H:%M:%S %Z")
     changes = ", ".join(f"{key} {old[key].upper()} -> {new[key].upper()}"
-                        for key in ("tmp", "load") if old[key] != new[key])
+                        for key in ("tmp",) if old.get(key) != new.get(key))
     severity = max(new.values(), key=LEVELS.get).upper()
     return (
         f"HOST HEALTH {severity} | {stamp}\n"
@@ -201,13 +193,15 @@ def run_once(dry_run: bool) -> int:
     with LOCK.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
-        old = state.get("levels", {"tmp": "ok", "load": "ok"})
+        old = {"tmp": (state.get("levels") or {}).get("tmp", "ok")}
         history = append_sample(state.get("history", []), sample)
-        new = {"tmp": tmp_level(sample), "load": load_level(old["load"], history)}
-        print(json.dumps({"sample": sample, "levels": new, "previous_levels": old}))
+        new, load_report = levels_for(sample, old)
+        print(json.dumps({"sample": sample, "levels": new, "load": load_report,
+                          "previous_levels": old}))
         if dry_run:
             return 0
-        state.update({"last_sample": sample, "history": history})
+        state.update({"last_sample": sample, "history": history,
+                      "load_report": load_report})
         if new != old:
             severity = {"ok": 0, "warning": 1, "critical": 2}
             max_new = max(severity.get(v, 0) for v in new.values())

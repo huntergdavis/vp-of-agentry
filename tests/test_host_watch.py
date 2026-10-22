@@ -1,6 +1,6 @@
 import unittest
 
-from host_watch import append_sample, load_level, tmp_level, GIB
+from host_watch import append_sample, levels_for, tmp_level, GIB
 
 
 def row(at, *, tmp_used=0.1, free=7, inodes=0.01, load1=2, load5=2,
@@ -25,27 +25,17 @@ class HostWatchThresholdTests(unittest.TestCase):
         self.assertEqual(tmp_level(row(0, free=0.7)), "critical")
         self.assertEqual(tmp_level(row(0, inodes=0.91)), "critical")
 
-    def test_load_requires_spaced_samples_and_recovers(self):
-        history = []
-        for at in (0, 60):
-            history = append_sample(history, row(at, load15=14))
-            self.assertEqual(load_level("ok", history), "ok")
-        history = append_sample(history, row(120, load15=14))
-        self.assertEqual(load_level("ok", history), "warning")
-        for at in (180, 240):
-            history = append_sample(history, row(at))
-            self.assertEqual(load_level("warning", history), "warning")
-        history = append_sample(history, row(300))
-        self.assertEqual(load_level("warning", history), "ok")
+    def test_load_is_reported_but_never_pages(self):
+        # One owner for load: the dunkingsheep watchdog. host_watch reports the
+        # numbers only - no level, so there is no second band.
+        levels, report = levels_for(row(0, load1=21, tmp_used=0.1), {"tmp": "ok"})
+        self.assertEqual({"tmp": "ok"}, levels)   # load never enters alert levels
+        self.assertEqual(21, report["load1"])
+        self.assertNotIn("level", report)
 
-    def test_critical_load_needs_two_spaced_samples(self):
-        first = row(0, load1=21)
-        history = append_sample([], first)
-        self.assertEqual(load_level("ok", history), "ok")
-        history = append_sample(history, row(5, load1=21))
-        self.assertEqual(load_level("ok", history), "ok")
-        history = append_sample(history, row(60, load1=21))
-        self.assertEqual(load_level("ok", history), "critical")
+    def test_tmp_still_pages(self):
+        levels, _ = levels_for(row(0, tmp_used=0.61), {"tmp": "ok"})
+        self.assertEqual("warning", levels["tmp"])
 
 
 if __name__ == "__main__":
