@@ -256,11 +256,36 @@ function OwnerSnapshot() {
         <div className="snapshot-held">held on owner decisions: <b>{snap.backlog.held?.count ?? '—'}</b>{snap.backlog.held?.oldest_days != null ? ` · oldest ${snap.backlog.held.oldest_days} d` : ''}</div>
       </div>
       <div className="snapshot-wiki">
-        <h3>Wiki / context store</h3>
-        <div className="snapshot-wiki-value">{num(snap.context?.articles)} articles</div>
-        <small>{snap.context?.reason || 'unavailable'}</small>
+        <h3>Context store</h3>
+        <div className="snapshot-wiki-value">{num(snap.context?.articles?.value)} articles</div>
+        <div className="snapshot-wiki-sub">
+          <span>{num(snap.context?.ground_truths?.value)} ground truths</span>
+          <span>{num(snap.context?.never_read?.value)} never opened</span>
+        </div>
+        <small>{snap.context?.articles?.reason || snap.context?.reason || 'unavailable'}</small>
       </div>
     </div>
+    {snap.context?.digest !== undefined && <div className="snapshot-digest">
+      <h3>What every agent is told at session start</h3>
+      {snap.context.digest
+        ? <>
+            <pre className="snapshot-digest-text">{snap.context.digest}</pre>
+            <small>{(snap.context.digest.length)} bytes · counted and truncated to the 8192-byte cap · rendered verbatim from <code>dunkingsheep context digest</code></small>
+          </>
+        : <div className="muted">{snap.context.reason || 'the context store did not produce a digest'}</div>}
+      {(snap.context.entries || []).length > 0 && <table className="snapshot-context-table">
+        <thead><tr><th>article</th><th>class</th><th>store</th><th>delivered</th><th>opened</th><th>last opened</th></tr></thead>
+        <tbody>{snap.context.entries.map(e => <tr key={`${e.store}:${e.slug}`} className={e.reads ? '' : 'never-read'}>
+          <td title={e.slug}>{e.subject || e.slug}</td>
+          <td>{e.class}</td><td>{e.store}</td>
+          <td>{e.injected}</td><td>{e.reads}</td>
+          <td>{e.last_read ? new Date(e.last_read * 1000).toLocaleDateString() : 'never'}</td>
+        </tr>)}</tbody>
+      </table>}
+      {(snap.context.entries || []).some(e => !e.reads) && <small>
+        {'never opened: ' + snap.context.entries.filter(e => !e.reads).map(e => e.subject || e.slug).join(', ')}
+      </small>}
+    </div>}
     <div className="snapshot-projects">{snap.projects.map(p => <div className="snapshot-project" key={p.id}>
       <div className="snapshot-project-head"><b>{p.label}</b><span>{p.metric}</span></div>
       <div className="snapshot-bar"><i style={{ width: `${pct(p)}%` }} /></div>

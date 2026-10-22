@@ -377,6 +377,78 @@ def collect_agent_activity(since):
         return None, f"inbox.db: {exc}"
 
 
+CONTEXT_BIN = os.environ.get("DUNKINGSHEEP_BIN", "/home/hunter/.local/bin/dunkingsheep")
+
+
+def collect_context(project_dir=None):
+    """The context store as agents see it: the digest verbatim plus per-article
+    delivery and read counts.
+
+    One CLI call, no model, no git. The command runs with record=False on the
+    digest side, so collecting a snapshot is a VIEW and does not inflate
+    injected_7d - a dashboard that polls must not look like a reader.
+    """
+    env = dict(os.environ)
+    # Honour --dunk-dir: a collector told to read an empty config dir must not
+    # quietly read the live one (the negative test depends on this).
+    env["DUNKINGSHEEP_DIR"] = str(DUNK_DIR)
+    env["DUNKINGSHEEP_FRESH"] = "1"            # never serve a cached snapshot
+    try:
+        proc = subprocess.run([CONTEXT_BIN, "context", "snapshot"], capture_output=True,
+                              text=True, timeout=30, env=env, cwd=project_dir or None)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": "failed", "reason": f"context snapshot failed: {exc}",
+                "articles": failed(f"context snapshot failed: {exc}"),
+                "facts": failed("context snapshot failed"),
+                "never_read": failed("context snapshot failed"),
+                "digest": None, "entries": [], "as_of": None}
+    if proc.returncode != 0:
+        reason = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
+        reason = reason[0][:200]
+        return {"status": "failed", "reason": f"context snapshot exit {proc.returncode}: {reason}",
+                "articles": failed("context snapshot failed"),
+                "facts": failed("context snapshot failed"),
+                "never_read": failed("context snapshot failed"),
+                "digest": None, "entries": [], "as_of": None}
+    try:
+        data = json.loads(proc.stdout)
+        stores = data["stores"]
+        data["digest"]
+    except (ValueError, KeyError) as exc:
+        return {"status": "failed", "reason": f"unreadable context snapshot: {exc}",
+                "articles": failed("unreadable context snapshot"),
+                "facts": failed("unreadable context snapshot"),
+                "never_read": failed("unreadable context snapshot"),
+                "digest": None, "entries": [], "as_of": None}
+    merged, entries, live_stores = {}, [], []
+    for name, store in stores.items():
+        if store.get("status", "ok") != "ok":
+            continue
+        live_stores.append(name)
+        for cls, count in (store.get("counts") or {}).items():
+            merged[cls] = merged.get(cls, 0) + count
+        for entry in store.get("entries") or []:
+            entries.append(dict(entry, store=name))
+    if not live_stores:
+        reason = f"no context store at {', '.join(s.get('path', '?') for s in stores.values()) or 'any selected path'}"
+        return {"status": "failed", "reason": reason,
+                "articles": failed(reason), "facts": failed(reason),
+                "never_read": failed(reason), "digest": None, "entries": [], "as_of": None}
+    stamp_at = datetime.fromtimestamp(data["as_of"], timezone.utc) if data.get("as_of") else None
+    stamp = iso(stamp_at)
+    never = [e for e in entries if not e.get("reads")]
+    return {"status": "ok", "reason": None,
+            "articles": cell(sum(merged.values()), stamp_at),
+            "facts": cell(merged.get("fact", 0) + merged.get("provisional", 0), stamp_at),
+            "ground_truths": cell(merged.get("ground-truth", 0), stamp_at),
+            "never_read": cell(len(never), stamp_at),
+            "digest": data.get("digest"),
+            "entries": sorted(entries, key=lambda e: (e.get("store") != "global",
+                                                      e.get("class") != "ground-truth",
+                                                      e.get("subject") or "")),
+            "as_of": stamp}
+
+
 def collect_backlog():
     """The dunkies feature backlog. AGE is the interesting number, not the count."""
     try:
@@ -434,8 +506,9 @@ def main(argv=None):
     parser.add_argument("--dunk-dir", type=Path, default=None,
                         help="Dunking Sheep config dir (default DUNKINGSHEEP_DIR)")
     args = parser.parse_args(argv)
-    global TASKS_DB, METRICS_DB, INBOX_DB, SNAPSHOT
+    global TASKS_DB, METRICS_DB, INBOX_DB, SNAPSHOT, DUNK_DIR
     if args.dunk_dir is not None:
+        DUNK_DIR = Path(args.dunk_dir)
         TASKS_DB = Path(args.dunk_dir) / "tasks.db"
         METRICS_DB = Path(args.dunk_dir) / "metrics.db"
         INBOX_DB = Path(args.dunk_dir) / "inbox.db"
@@ -531,31 +604,27 @@ def main(argv=None):
                             "reason": None if repro_checker is not None else repro_ref},
         "freemodel": {"status": "nulled", "reason": "par-d tally not published yet"},
     }
+    context = collect_context()
     warnings = gh_warnings + [
         {"source": name, "reason": source.get("reason") or source.get("status")}
         for name, source in sources.items()
         if source.get("status") != "ok" and name != "freemodel"]
+    if context.get("status") != "ok":
+        warnings.append({"source": "context", "reason": context.get("reason")})
 
     snapshot = {
         "schema": "ops-snapshot/1", "generated_at": iso(now()),
         "oldest_as_of": oldest(
             [a[c] for a in agents for c in ("merged_prs", "bodies_credited", "tasks_completed", "messages_handled")]
-            + [p["value"] for p in projects]),
+            + [p["value"] for p in projects]
+            + [context.get("articles") or {}]),
         "collector": {"duration_s": round(time.time() - started, 2), "sources_failed": len(warnings)},
         "warnings": warnings,
         "sources": sources,
         "reply_latency": latency,
         "agent_activity": activity if activity is not None else {"error": activity_error},
         "backlog": collect_backlog(),
-        "context": {
-            "status": "not_initialised",
-            "reason": "context store not yet initialised (v0 not built)",
-            "articles": failed("context store not yet initialised"),
-            "facts": failed("context store not yet initialised"),
-            "oldest_fact": failed("context store not yet initialised"),
-            "never_read": failed("context store not yet initialised"),
-            "as_of": None,
-        },
+        "context": context,
         "attribution": {
             "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
             "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),

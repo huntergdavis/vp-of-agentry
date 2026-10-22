@@ -337,3 +337,15 @@
 .snapshot-now-row { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
 .snapshot-now-row.agent b { color: #2d6a4f; }
 .snapshot-now-row small { opacity: .6; font-size: 11px; }
+
+/* The digest as the agents receive it: monospace, verbatim, counted. */
+.snapshot-digest { margin: 18px 0; padding: 14px 16px; border: 1px solid #2a3140; border-radius: 8px; background: #131722; }
+.snapshot-digest h3 { margin: 0 0 8px; font-size: 0.95rem; letter-spacing: 0.02em; text-transform: uppercase; color: #9aa6ba; }
+.snapshot-digest-text { margin: 0 0 8px; padding: 10px 12px; background: #0d1119; border-radius: 6px; color: #d5dce8;
+  font: 0.82rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
+.snapshot-digest small { color: #7e8a9d; display: block; margin-top: 6px; }
+.snapshot-context-table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 0.82rem; }
+.snapshot-context-table th { text-align: left; color: #7e8a9d; font-weight: 500; padding: 4px 8px; border-bottom: 1px solid #2a3140; }
+.snapshot-context-table td { padding: 4px 8px; border-bottom: 1px solid #1d2430; color: #c7d0de; }
+.snapshot-context-table tr.never-read td { color: #e0a04a; }
+.snapshot-wiki-sub { display: flex; gap: 12px; color: #8b97a9; font-size: 0.8rem; margin-top: 2px; }

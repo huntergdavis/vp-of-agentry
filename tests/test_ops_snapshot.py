@@ -59,5 +59,37 @@ class GuardTests(unittest.TestCase):
                                  "the production snapshot was rewritten by a test run")
 
 
+class ContextSectionTests(unittest.TestCase):
+    """The digest section: rendered from the file, counted, and nulled honestly."""
+
+    def test_context_section_carries_the_digest_and_per_article_counts(self):
+        module = load_collector()
+        live = Path.home() / ".config" / "dunkingsheep" / "context"
+        if not live.is_dir():
+            self.skipTest("no live context store on this host")
+        context = module.collect_context()
+        self.assertEqual("ok", context["status"], context.get("reason"))
+        self.assertTrue(context["digest"].startswith("## Ground truths ("),
+                        "the digest must be included verbatim")
+        self.assertIsInstance(context["articles"]["value"], int)
+        self.assertTrue(context["articles"]["as_of"], "every number carries an as_of")
+        self.assertTrue(context["entries"], "per-article rows are what makes 'never read' visible")
+        for entry in context["entries"]:
+            self.assertIn("reads", entry)
+            self.assertIn("injected", entry)
+            self.assertIn(entry["store"], ("global", "project"))
+
+    def test_an_absent_store_is_nulled_with_a_reason_not_zero_articles(self):
+        module = load_collector()
+        with tempfile.TemporaryDirectory() as temporary:
+            context = module.collect_context(project_dir=temporary)
+            if context["status"] == "ok":
+                self.skipTest("a project store exists in the temp dir")
+            self.assertIsNone(context["articles"]["value"],
+                              "an absent store is not '0 articles'")
+            self.assertTrue(context["articles"]["reason"])
+            self.assertIsNone(context["digest"])
+
+
 if __name__ == "__main__":
     unittest.main()
