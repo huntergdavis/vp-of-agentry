@@ -1148,6 +1148,14 @@ def agents(_: Annotated[str, Depends(require_auth)]):
             "since": (doing.get(pane.get("pane_id")) or {}).get("since"),
             "note": None,
         })
+        if not rows[-1]["doing"]:
+            # Working from an inbox instruction, not the task board: that is most
+            # lanes most of the time. A blank next to 'working' reads as idle.
+            last_at = (row_metrics or {}).get("last_at")
+            stamp = (datetime.fromtimestamp(last_at, timezone.utc).isoformat(timespec="seconds")
+                     if last_at else "no event recorded")
+            rows[-1]["doing"] = (f"working - no task (last event: {stamp})"
+                                 if status == "working" else None)
     # A live agent pane with no channel config must still be visible: the owner
     # may receive mail from it. Read-only here - adding a channel is a decision.
     for pane in panes:
@@ -1170,6 +1178,12 @@ def agents(_: Annotated[str, Depends(require_auth)]):
             "since": (doing.get(pane.get("pane_id")) or {}).get("since"),
             "note": "no channel configured - read-only, add one to message",
         })
+        if not rows[-1]["doing"]:
+            last_at = (row_metrics or {}).get("last_at")
+            stamp = (datetime.fromtimestamp(last_at, timezone.utc).isoformat(timespec="seconds")
+                     if last_at else "no event recorded")
+            rows[-1]["doing"] = (f"working - no task (last event: {stamp})"
+                                 if status == "working" else None)
     return {"agents": rows, "in_progress": in_progress,
             "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 

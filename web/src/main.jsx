@@ -240,7 +240,7 @@ function OwnerSnapshot() {
           {item.since ? <small>since {new Date(item.since * 1000).toLocaleString()}</small> : null}
         </div>)}
         {(agentList.agents || []).filter(a => a.status === 'working').map(a => <div className="snapshot-now-row agent" key={a.id}>
-          <b>{a.name}</b><span>{a.doing || 'working (no task title reported)'}</span>
+          <b>{a.name}</b><span>{a.doing || `${a.status.toUpperCase()}${a.status_reason ? ` - ${a.status_reason}` : ''}`}</span>
           {a.since ? <small>since {new Date(a.since * 1000).toLocaleString()}</small> : null}
         </div>)}
         {!(agentList.in_progress || []).length && !(agentList.agents || []).some(a => a.status === 'working') && <div className="muted">Nothing is working right now.</div>}
