@@ -31,6 +31,8 @@ const DASH_ROUTES = {
   operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
+  snapshot: { eyebrow: 'OWNER VIEW', title: 'Owner snapshot', subtitle: 'One page, auto-calculated' },
+  agents: { eyebrow: 'AGENTS', title: 'Agents', subtitle: 'Talk to an agent directly' },
 };
 
 function useDashRoute() {
@@ -41,8 +43,11 @@ function useDashRoute() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
   const match = /^\/dash\/([a-z]+)\/?$/.exec(path);
-  const view = match ? match[1] : 'poolrad';
-  return { standalone: path === '/dash' || path.startsWith('/dash/'), view, known: view in DASH_ROUTES };
+  const hash = (window.location.hash || '').replace(/^#/, '');
+  const fromHash = hash && hash in DASH_ROUTES ? hash : null;
+  const view = match ? match[1] : (fromHash || 'poolrad');
+  return { standalone: path === '/dash' || path.startsWith('/dash/') || Boolean(fromHash),
+           view, known: view in DASH_ROUTES };
 }
 
 function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
@@ -805,7 +810,7 @@ function OwnerSnapshot() {
   </div>;
 }
 
-function AgentList({ onSelect }) {
+function AgentList({ onSelect = () => {} }) {
   const [agents, setAgents] = useState(null); const [error, setError] = useState('');
   useEffect(() => { let alive = true; api('/agents').then(d => alive && setAgents(d.agents || [])).catch(e => alive && setError(e.message)); return () => { alive = false; }; }, []);
   if (error) return <div className="snapshot-error" role="alert">Agent registry unavailable: {error}</div>;
@@ -822,6 +827,8 @@ function AgentList({ onSelect }) {
   </div>;
 }
 
+// DEAD: App renders StandaloneDesk, never this. Kept only until its nav,
+// snapshot and agent-list pieces are confirmed live in the standalone path.
 function Desk({ onLogout }) {
   const [channels, setChannels] = useState([]); const [channel, setChannel] = useState('vp');
   const [dashboardView, setDashboardView] = useState(null);
@@ -921,13 +928,27 @@ function Desk({ onLogout }) {
   useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel, dashboardOpen]);
   useEffect(() => { if (dashboardOpen || !listRef.current || !nearBottomRef.current) return; listRef.current.scrollTop = listRef.current.scrollHeight; }, [dashboardOpen]);
   useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
+  useEffect(() => {
+    const apply = () => {
+      const h = (window.location.hash || '').replace(/^#/, '');
+      if (!h) return;
+      if (h === 'operations' || h === 'ops') setDashboardView('ops');
+      else if (h === 'agents') setDashboardView('agents');
+      else if (h === 'snapshot') setDashboardView('snapshot');
+      else if (h === 'play') setDashboardView('play');
+      else if (h === 'herdr') setDashboardView('herdr');
+    };
+    apply();
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
   async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); scrollToSentRef.current = item.id; if (jumpId != null) setJumpId(null); else setItems(old => [...old, item]); }
   async function confirmSendNow(item) { setForceBusy(true); setError(''); try { const updated = await api(`/messages/${item.id}/send-now`, { method: 'POST' }); setItems(old => old.map(current => current.id === updated.id ? updated : current)); setForceTarget(null); } catch (e) { setError(e.message); setForceTarget(null); } finally { setForceBusy(false); } }
   function selectChannel(id) { setDashboardView(null); setChannel(id); setJumpId(null); }
   function jumpTo(item) { setDashboardView(null); setChannel(item.channel); setJumpId(item.id); }
   return <div className={`shell ${dashboardOpen ? 'dashboard-mode' : ''}`}>
     <aside className="sidebar"><div className="identity"><div className="brand-mark small">VA</div><div><strong>VP OF AGENTRY</strong><span>Executive desk</span></div></div>
-      <div className="sidebar-section">PROJECT VIEW · {new Set(channels.filter(c => c.online && c.workspace).map(c => c.workspace)).size} live spaces</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
+      <div className="sidebar-section">PROJECT VIEW · {new Set(channels.filter(c => c.online && c.workspace).map(c => c.workspace)).size} live spaces</div>
       <button className={`channel dashboard-nav ${dashboardView === 'ops' ? 'selected' : ''}`} onClick={() => setDashboardView('ops')}><span aria-hidden="true">▤</span><span>Operations dashboard</span><small>metrics</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'play' ? 'selected' : ''}`} onClick={() => setDashboardView('play')}><span aria-hidden="true">▶</span><span>Play Poolrad</span><small>live game</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'snapshot' ? 'selected' : ''}`} onClick={() => setDashboardView('snapshot')}><span aria-hidden="true">◈</span><span>Owner snapshot</span><small>one page</small></button>
@@ -1036,6 +1057,8 @@ function StandaloneDesk({ view, known }) {
   }
   if (view === 'poolrad') return <PoolradProgress standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
+  if (view === 'snapshot') return <OwnerSnapshot />;
+  if (view === 'agents') return <AgentList onSelect={() => {}} />;
   if (view === 'play') return <PoolradPlay standalone />;
   return <VpStandalone />;
 }
