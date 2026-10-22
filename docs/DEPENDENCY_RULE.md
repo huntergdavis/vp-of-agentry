@@ -95,3 +95,14 @@ load.
 Rule: when a test is flaky, the first hypothesis is that the product has a race,
 and the reproduction to hunt is the *ordering*, not the timing. "It's the test"
 is a conclusion that needs its own evidence.
+
+## An executed script is immutable
+
+2026-10-22: a deploy script was edited 14 seconds after a deploy started. Bash reads a
+script *while executing it*, so it resumed at the old file's byte offset - which in the
+new file fell mid-line. A spliced fragment ran on the wrong host and the script stopped.
+
+Rule: **write a new file and rename it over the old one; never edit in place while
+anything might be running it.** Same reason as the atomic snapshot write - a reader
+must never see a half-written thing. On a shared device, record the script's sha256 in
+the prerun checklist and have the deploy refuse if it changed between check and run.
