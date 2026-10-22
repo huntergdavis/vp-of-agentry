@@ -106,3 +106,31 @@ Rule: **write a new file and rename it over the old one; never edit in place whi
 anything might be running it.** Same reason as the atomic snapshot write - a reader
 must never see a half-written thing. On a shared device, record the script's sha256 in
 the prerun checklist and have the deploy refuse if it changed between check and run.
+
+## A lane is reachable or it is not - and presence is not reachability
+
+2026-10-22, three variants of the same failure, each of which made a live pane
+unreachable while every surface said it was present:
+
+1. **Dead session.** The agent's connection died; the pane still rendered a
+   composer. Four sends were typed and never submitted, and `skip_if_unconsumed`
+   read that as "the lane is idle" for ten hours.
+2. **Unsubmitted draft.** A nudge landed in the box and never submitted. Every
+   later send was then held ('someone is typing') because the guard correctly
+   refuses to type over a non-empty box - so one failed send locked the lane for
+   ever.
+3. **Placeholder read as a draft.** A harness prompt line such as
+   `new task? /clear to save 497.4k tokens` is placeholder text, but the box
+   reader treated it as somebody's unfinished message: the lane was permanently
+   "typing" and could never receive anything.
+
+Rules:
+- Before asserting a lane is busy or idle, ask the only question that matters:
+  **can this pane accept a message right now?** That is a checkable state
+  (ready / blocked-with-reason / dead), not an inference from a process existing.
+- A guard that refuses valid writes is worse than no guard: it converts into false
+  alerts (the watchdog paged about four "unread" messages that could not be acked
+  because the ack compared a decorated mailbox name literally).
+- And the corollary for feeding work: **a lane that finishes and stops is a
+  scheduling defect, not a lane defect.** Feeding must be deterministic (a queue
+  and a timer), never dependent on a model being awake to notice.
