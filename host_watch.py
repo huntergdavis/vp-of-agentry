@@ -31,6 +31,51 @@ def cpu_pressure_avg60() -> float:
         return 0.0
 
 
+DUNK_POLL = os.environ.get("DUNKINGSHEEP_POLL_BIN") or "/home/hunter/.local/bin/dunk-poll"
+
+
+def pane_counts() -> tuple[int, int]:
+    """Live panes and BUSY panes from the daemon's one socket batch.
+
+    The VP ops pane_samples only covers the poolrad project; the fit needs the
+    whole fleet. Best effort: an unavailable daemon reports 0/0, not a crash.
+    """
+    try:
+        proc = subprocess.run([DUNK_POLL, "--panes", "--compact"],
+                              capture_output=True, text=True, timeout=10)
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return 0, 0
+        payload = json.loads(proc.stdout)
+        panes = ((payload.get("panes") or {}).get("panes")) or []
+        busy = sum(1 for pane in panes
+                   if str(pane.get("agent_status") or "").lower() == "working")
+        return len(panes), busy
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0, 0
+
+
+def heavy_count() -> int:
+    """Heavy slot holders with a live pid; unreadable/legacy slots count as one."""
+    count = 0
+    try:
+        for slot in Path("/tmp").glob("poolrad-heavy.*"):
+            try:
+                pid = int((slot / "pid").read_text().strip())
+            except (OSError, ValueError):
+                count += 1
+                continue
+            try:
+                os.kill(pid, 0)
+                count += 1
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                count += 1
+    except OSError:
+        pass
+    return count
+
+
 def sample_host() -> dict:
     stat = os.statvfs("/tmp")
     block = stat.f_frsize
@@ -39,6 +84,8 @@ def sample_host() -> dict:
     used = (stat.f_blocks - stat.f_bfree) * block
     inode_used = stat.f_files - stat.f_ffree if stat.f_files else 0
     load1, load5, load15 = os.getloadavg()
+    live, busy = pane_counts()
+    heavy = heavy_count()
     process_count = zombie_count = 0
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
@@ -63,6 +110,11 @@ def sample_host() -> dict:
         "cpu_psi_some_avg60": cpu_pressure_avg60(),
         "process_count": process_count,
         "zombie_count": zombie_count,
+        # Kept in the same row so a future fit has matched points:
+        # load = base + a*busy + b*heavy, over the whole fleet.
+        "live": live,
+        "busy": busy,
+        "heavy": heavy,
     }
 
 
