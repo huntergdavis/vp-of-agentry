@@ -43,7 +43,7 @@ function useDashRoute() {
   const match = /^\/dash\/([a-z]+)\/?$/.exec(path);
   const hash = (window.location.hash || '').replace(/^#/, '');
   const fromHash = hash && hash in DASH_ROUTES ? hash : null;
-  const view = match ? match[1] : (fromHash || 'poolrad');
+  const view = match ? match[1] : (fromHash || Object.keys(DASH_ROUTES)[0]);
   return { standalone: path === '/dash' || path.startsWith('/dash/') || Boolean(fromHash),
            view, known: view in DASH_ROUTES };
 }
