@@ -365,10 +365,23 @@ def hybrid_claim():
         return None, None, f"{HYBRID}: {exc}"
 
 
-def main():
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(description="Collect one ops snapshot (read-only).")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="write here; only the default path is production")
+    parser.add_argument("--dunk-dir", type=Path, default=None,
+                        help="Dunking Sheep config dir (default DUNKINGSHEEP_DIR)")
+    args = parser.parse_args(argv)
+    global TASKS_DB, METRICS_DB, INBOX_DB, SNAPSHOT
+    if args.dunk_dir is not None:
+        TASKS_DB = Path(args.dunk_dir) / "tasks.db"
+        METRICS_DB = Path(args.dunk_dir) / "metrics.db"
+        INBOX_DB = Path(args.dunk_dir) / "inbox.db"
+    out = Path(args.out) if args.out is not None else SNAPSHOT
     started = time.time()
     since = now() - timedelta(hours=WINDOW_H)
-    rows, unattributed, warnings, pr_as_of = collect_agents()
+    rows, unattributed, gh_warnings, pr_as_of = collect_agents()
     bodies, ceiling, checkpoint_at, checkpoint_ref = collect_checkpoint()
     tasks_done, tasks_at = collect_tasks(since)
     messages_n, messages_unattributed, messages_at = collect_messages(since)
@@ -402,8 +415,7 @@ def main():
     for kind in types.values():
         for key in ("merged_prs", "bodies_credited", "tasks_completed", "messages_handled"):
             value = kind[key]
-            kind[key] = cell(value, pr_as_of) if value is not None else failed(
-                "a member lane cell is null")
+            kind[key] = cell(value, pr_as_of) if value is not None else failed("a member lane cell is null")
 
     projects = [
         {"id": "poolrad", "label": "Poolrad", "metric": "strict bodies",
@@ -421,8 +433,7 @@ def main():
         {"id": "reproducibility", "label": "Reproducibility", "metric": "credits rebuildable by one command",
          "value": cell(repro_checker, repro_at) if repro_checker is not None else failed(repro_ref),
          "denominator": cell(repro_total, repro_at) if repro_total is not None else failed(repro_ref),
-         "denominator_label": "credits", "evidence_ref": repro_ref,
-         "breakdown": repro_breakdown,
+         "denominator_label": "credits", "evidence_ref": repro_ref, "breakdown": repro_breakdown,
          "truth": "98 of 280 credits can be rebuilt with one command; the other kinds are a breakdown, not the bar."},
         {"id": "crackdown", "label": "Crackdown", "metric": "measured FPS",
          "value": cell(crack_fps, crack_at) if crack_fps is not None else failed(crack_ref),
@@ -432,33 +443,45 @@ def main():
          "truth": "Measured on <configuration>; a different config is a different number."},
     ]
 
+    sources = {
+        "github": {"status": "ok" if not gh_warnings else "partial",
+                   "as_of": iso(pr_as_of), "detail": "one paginated gh pr list per project",
+                   "pr_source": "gh"},
+        "checkpoint": {"status": "ok" if bodies is not None else "nulled",
+                       "as_of": iso(checkpoint_at),
+                       "reason": None if bodies is not None else checkpoint_ref},
+        "tasks": {"status": "ok" if tasks_done is not None else "nulled",
+                  "as_of": iso(tasks_at) if tasks_done is not None else None,
+                  "reason": None if tasks_done is not None else tasks_at},
+        "metrics": {"status": "ok" if messages_n is not None else "nulled",
+                    "as_of": iso(messages_at) if messages_n is not None else None,
+                    "reason": None if messages_n is not None else messages_at,
+                    "per_pane_events": messages_n,
+                    "unattributed_events": messages_unattributed},
+        "messages": {"status": "ok" if latency.get("p50_s") is not None else "nulled",
+                     "as_of": latency.get("as_of"),
+                     "reason": None if latency.get("p50_s") is not None else latency.get("source")},
+        "hybrid": {"status": "ok" if hybrid_running is not None else "nulled",
+                   "reason": None if hybrid_running is not None else hybrid_proof},
+        "crackdown": {"status": "ok" if crack_fps is not None else "nulled",
+                      "reason": None if crack_fps is not None else crack_ref},
+        "reproducibility": {"status": "ok" if repro_checker is not None else "nulled",
+                            "reason": None if repro_checker is not None else repro_ref},
+        "freemodel": {"status": "nulled", "reason": "par-d tally not published yet"},
+    }
+    warnings = gh_warnings + [
+        {"source": name, "reason": source.get("reason") or source.get("status")}
+        for name, source in sources.items()
+        if source.get("status") != "ok" and name != "freemodel"]
+
     snapshot = {
         "schema": "ops-snapshot/1", "generated_at": iso(now()),
-        "oldest_as_of": oldest([a[c] for a in agents for c in
-                                ("merged_prs", "bodies_credited", "tasks_completed", "messages_handled")]
-                               + [p["value"] for p in projects]),
-        "collector": {"duration_s": round(time.time() - started, 2),
-                      "sources_failed": len(warnings)},
+        "oldest_as_of": oldest(
+            [a[c] for a in agents for c in ("merged_prs", "bodies_credited", "tasks_completed", "messages_handled")]
+            + [p["value"] for p in projects]),
+        "collector": {"duration_s": round(time.time() - started, 2), "sources_failed": len(warnings)},
         "warnings": warnings,
-        "sources": {
-            "github": {"status": "ok" if not warnings else "partial", "as_of": iso(pr_as_of),
-                       "detail": "one paginated gh pr list per project", "pr_source": "gh"},
-            "checkpoint": {"status": "ok" if bodies is not None else "nulled",
-                           "as_of": iso(checkpoint_at), "reason": None if bodies is not None else checkpoint_ref},
-            "tasks": {"status": "ok" if tasks_done is not None else "nulled",
-                      "as_of": iso(tasks_at) if tasks_done is not None else None,
-                      "reason": None if tasks_done is not None else tasks_at},
-            "metrics": {"status": "ok" if messages_n is not None else "nulled",
-                        "as_of": iso(messages_at) if messages_n is not None else None,
-                        "reason": None if messages_n is not None else messages_at,
-                        "per_pane_events": messages_n,
-                        "unattributed_events": messages_unattributed},
-            "messages": {"status": "ok" if latency.get("p50_s") is not None else "nulled",
-                         "as_of": latency.get("as_of")},
-            "hybrid": {"status": "ok" if hybrid_running is not None else "nulled",
-                       "reason": None if hybrid_running is not None else hybrid_proof},
-            "freemodel": {"status": "nulled", "reason": "par-d tally not published yet"},
-        },
+        "sources": sources,
         "reply_latency": latency,
         "backlog": collect_backlog(),
         "context": {
@@ -470,19 +493,20 @@ def main():
             "never_read": failed("context store not yet initialised"),
             "as_of": None,
         },
-        "attribution": {"attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
-                        "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),
-                        "method": "branch lane token -> [lane] title token -> 'unattributed (git author)'"},
+        "attribution": {
+            "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
+            "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),
+            "method": "branch lane token -> [lane] title token -> 'unattributed (git author)'"},
         "agents_unattributed": unattributed,
         "agents": agents,
         "types": list(types.values()),
         "projects": projects,
     }
-    SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
-    temporary = SNAPSHOT.with_suffix(".json.tmp")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    temporary = out.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(snapshot, indent=2) + "\n")
-    os.replace(temporary, SNAPSHOT)
-    print(json.dumps({"wrote": str(SNAPSHOT), "agents": len(agents),
+    os.replace(temporary, out)
+    print(json.dumps({"wrote": str(out), "agents": len(agents),
                       "unattributed": len(unattributed), "warnings": len(warnings),
                       "oldest_as_of": snapshot["oldest_as_of"]}))
     return 0
