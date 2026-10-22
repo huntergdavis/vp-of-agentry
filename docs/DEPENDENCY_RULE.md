@@ -82,3 +82,16 @@ data away, and the model built on top of it was asked to explain noise.
 The rule: **when a decision depends on a number, prove the recorder first** — how
 many samples, over what window, with which fields present. Say the sample count and
 the window in the same sentence as the conclusion, or the conclusion is unfalsifiable.
+
+## A flaky test is a defect until proven otherwise
+
+2026-10-22: a close-path test failed intermittently on a loaded machine and never
+in isolation. The cause was not the test. A stopped dunk's own countdown thread
+wrote one more `Next: 60:00` outside the lock and without checking whether it was
+still running, so a dunk that had just been closed reported itself as scheduled
+again. Order determined the answer, which is exactly why it only appeared under
+load.
+
+Rule: when a test is flaky, the first hypothesis is that the product has a race,
+and the reproduction to hunt is the *ordering*, not the timing. "It's the test"
+is a conclusion that needs its own evidence.
