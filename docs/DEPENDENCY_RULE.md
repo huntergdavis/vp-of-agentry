@@ -66,3 +66,19 @@ Consequence here: herdr remains required for codex as a **stable fact** with a
 named reason (experimental surface, CLI 0.162.1 vs app-server 0.163.0, MFA-gated
 enrollment), revisit only if the account completes MFA and the surface
 stabilises.
+
+## Before you model a number, check the recorder
+
+Three defects in one night, all the same shape: the instrument was throwing the
+data away, and the model built on top of it was asked to explain noise.
+
+1. `host_watch.append_sample` kept `history[-2:]` — enough for a *level*, useless
+   for a *fit*. A band calibration was requested against a history that did not exist.
+2. `pane_samples` recorded only the poolrad lanes, so "busy lanes" read 1 while 27
+   panes were live. A fit would have produced "load per busy lane ~12".
+3. A case-sensitive grep for `poolrad` returned zero, and "absent" was reported —
+   the string was there with a capital P.
+
+The rule: **when a decision depends on a number, prove the recorder first** — how
+many samples, over what window, with which fields present. Say the sample count and
+the window in the same sentence as the conclusion, or the conclusion is unfalsifiable.
