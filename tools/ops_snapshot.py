@@ -358,6 +358,16 @@ def collect_agent_activity(since):
                 "median_answer_s": (cell(median, since) if median is not None
                                     else failed("no answered messages in the window")),
             }
+        try:
+            with sqlite3.connect(f"file:{TASKS_DB}?mode=ro", uri=True) as conn:
+                done = conn.execute(
+                    "SELECT completed_by, COUNT(*) FROM tasks WHERE status='done' "
+                    "AND completed_at >= ? AND completed_by IS NOT NULL GROUP BY completed_by",
+                    (stamp,)).fetchall()
+        except (sqlite3.Error, OSError):
+            done = []
+        for pane, n in done:
+            out.setdefault(pane, {})["tasks_completed"] = cell(n, since)
         for pane, n, oldest in unread:
             entry = out.setdefault(pane, {})
             entry["unread"] = cell(n, since)
@@ -373,7 +383,7 @@ def collect_backlog():
         with sqlite3.connect(f"file:{TASKS_DB}?mode=ro", uri=True) as conn:
             conn.row_factory = sqlite3.Row
             rows = [dict(r) for r in conn.execute(
-                "SELECT id,title,status,priority,created_at FROM tasks "
+                "SELECT id,title,status,priority,created_at,block_reason FROM tasks "
                 "WHERE status IN ('open','in_progress','blocked')")]
         stamp = time.time()
         order = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
@@ -384,6 +394,8 @@ def collect_backlog():
                     "age_s": int(stamp - float(row["created_at"]))}
 
         top = sorted(rows, key=lambda r: (order.get(r["priority"], 9), r["created_at"]))[:5]
+        held = [r for r in rows if (r.get("block_reason") or "").strip().upper()
+                .startswith("HELD FOR OWNER DECISION")]
         opens = [r for r in rows if r["status"] == "open"]
         oldest = min(opens, key=lambda r: r["created_at"]) if opens else None
         return {"open": sum(1 for r in rows if r["status"] == "open"),
@@ -391,6 +403,10 @@ def collect_backlog():
                 "blocked": sum(1 for r in rows if r["status"] == "blocked"),
                 "top": [item(r) for r in top],
                 "oldest_open": item(oldest) if oldest else None,
+                "held": {"count": len(held),
+                         "oldest_days": round(max((stamp - float(r["created_at"])) / 86400
+                                                  for r in held), 1) if held else None,
+                         "ids": [r["id"] for r in held]},
                 "as_of": iso(now())}
     except (sqlite3.Error, OSError, ValueError) as exc:
         return {"open": None, "in_progress": None, "blocked": None, "top": [],
