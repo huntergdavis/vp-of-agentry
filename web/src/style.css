@@ -273,3 +273,29 @@
 .answer-state.acknowledged { background: #fff3cd; color: #7a5a00; }
 .answer-state.unanswered { background: #fde2e1; color: #8b1a1a; }
 .unanswered-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: #fde2e1; color: #8b1a1a; }
+
+.snapshot { padding: 18px; overflow: auto; height: 100%; }
+.snapshot-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.snapshot-clock { text-align: right; font-size: 13px; }
+.snapshot-clock b { display: block; }
+.snapshot-clock small { display: block; opacity: .75; }
+.snapshot-warn { margin: 12px 0; padding: 8px 12px; border-radius: 8px; background: #fff3cd; color: #7a5a00; display: flex; flex-direction: column; gap: 2px; }
+.snapshot-projects { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+.snapshot-project { border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 12px; }
+.snapshot-project-head { display: flex; justify-content: space-between; gap: 8px; }
+.snapshot-project-head span { opacity: .65; font-size: 12px; }
+.snapshot-bar { height: 8px; border-radius: 999px; background: rgba(0,0,0,.08); margin: 10px 0 6px; overflow: hidden; }
+.snapshot-bar i { display: block; height: 100%; background: #2d6a4f; }
+.snapshot-value { font-size: 22px; font-weight: 700; }
+.snapshot-value small { font-size: 12px; font-weight: 400; opacity: .7; }
+.snapshot-truth { font-size: 11px; opacity: .7; margin-top: 6px; }
+.snapshot-config { font-size: 11px; margin-top: 4px; }
+.snapshot-missing { font-size: 12px; color: #8b1a1a; margin-top: 4px; }
+.snapshot-cols { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 18px; }
+.snapshot-cols h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+.snapshot-table { overflow-x: auto; }
+.snapshot-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.snapshot-table th, .snapshot-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid rgba(0,0,0,.07); }
+.snapshot-backlog { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.snapshot-cols ol { padding-left: 18px; font-size: 12px; }
+.snapshot-cols li small { opacity: .65; }

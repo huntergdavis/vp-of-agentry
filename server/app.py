@@ -1053,6 +1053,16 @@ def panes_activity(response: Response, _: Annotated[str, Depends(require_auth)])
         return PANES_ACTIVITY_CACHE["data"]
 
 
+@app.get("/api/ops-snapshot")
+def ops_snapshot(_: Annotated[str, Depends(require_auth)]):
+    """Serve the collector's file as-is. The page renders this, never a live call."""
+    path = ROOT / "data" / "ops-snapshot.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise HTTPException(503, f"ops snapshot unavailable: {exc}")
+
+
 @app.get("/api/activity")
 def activity(channel: str, _: Annotated[str, Depends(require_auth)]):
     pane = _target(channel, _panes())
