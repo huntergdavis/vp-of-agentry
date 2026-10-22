@@ -636,7 +636,11 @@ def main(argv=None):
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     temporary = out.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(snapshot, indent=2) + "\n")
+    with open(temporary, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(snapshot, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    # Atomic swap: a reader sees the old file or the new one, never a partial.
     os.replace(temporary, out)
     print(json.dumps({"wrote": str(out), "agents": len(agents),
                       "unattributed": len(unattributed), "warnings": len(warnings),

@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import logging
 import time
 import uuid
 from contextlib import contextmanager
@@ -170,6 +171,8 @@ def _initialize():
 
 
 _initialize()
+log = logging.getLogger("vp.ops")
+
 app = FastAPI(title="VP of Agentry", docs_url=None, redoc_url=None)
 
 
@@ -1190,12 +1193,31 @@ def agents(_: Annotated[str, Depends(require_auth)]):
 
 @app.get("/api/ops-snapshot")
 def ops_snapshot(_: Annotated[str, Depends(require_auth)]):
-    """Serve the collector's file as-is. The page renders this, never a live call."""
+    """Serve the collector's file as-is. The page renders this, never a live call.
+
+    A partial or unreadable file is logged and explained, never served as an
+    empty page: empty boxes look like zero, and zero is a number the owner
+    will believe.
+    """
     path = ROOT / "data" / "ops-snapshot.json"
     try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError) as exc:
+        raw = path.read_text()
+    except OSError as exc:
+        log.warning("ops snapshot unreadable: %s", exc)
         raise HTTPException(503, f"ops snapshot unavailable: {exc}")
+    try:
+        snapshot = json.loads(raw)
+    except ValueError as exc:
+        # Almost always a write caught mid-flight; the age tells us which.
+        try:
+            age_s = round(time.time() - path.stat().st_mtime, 1)
+        except OSError:
+            age_s = None
+        log.warning("ops snapshot is not valid JSON (%s bytes, age %ss): %s",
+                    len(raw), age_s, exc)
+        raise HTTPException(503, f"ops snapshot is not valid JSON ({len(raw)} bytes, "
+                                 f"age {age_s}s): {exc}")
+    return snapshot
 
 
 @app.get("/api/activity")

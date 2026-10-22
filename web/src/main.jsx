@@ -1,3 +1,4 @@
+import { age, num } from './format.js';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { isNearBottom, shouldFollow } from './chat-scroll.js';
@@ -214,17 +215,39 @@ function CreditTrend({ events, current, ceiling, lastCreditAt }) {
   </div>;
 }
 
+const LAST_GOOD_KEY = 'dunkingsheep.lastGoodSnapshot';
+function rememberGood(snapshot) {
+  try {
+    const age = snapshot?.generated_at ? new Date(snapshot.generated_at).toLocaleString() : 'unknown';
+    window.localStorage.setItem(LAST_GOOD_KEY, JSON.stringify({ at: age, seen: Date.now() }));
+  } catch { /* storage disabled: the page still works */ }
+}
+function lastGood() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(LAST_GOOD_KEY) || 'null');
+    if (!saved?.at) return null;
+    const seconds = Math.max(0, (Date.now() - saved.seen) / 1000);
+    const ago = seconds < 5400 ? `${Math.round(seconds / 60)}m` : `${Math.round(seconds / 3600)}h`;
+    return { at: saved.at, age: `${ago} old, read ${ago} ago` };
+  } catch { return null; }
+}
+
 function OwnerSnapshot() {
   const [snap, setSnap] = useState(null); const [error, setError] = useState('');
   const [board, setBoard] = useState(null);
   const [agentList, setAgentList] = useState(null);
-  useEffect(() => { let alive = true; api('/ops-snapshot').then(d => alive && setSnap(d)).catch(e => alive && setError(e.message)); return () => { alive = false; }; }, []);
+  useEffect(() => { let alive = true; api('/ops-snapshot').then(d => { rememberGood(d); if (alive) setSnap(d); }).catch(e => alive && setError(e.message)); return () => { alive = false; }; }, []);
   useEffect(() => { api('/ops-board').then(setBoard).catch(() => {}); }, []);
   useEffect(() => { api('/agents').then(setAgentList).catch(() => {}); }, []);
   const credit = board ? coverageEconomics(board.snapshot ?? board, board.history) : null;
-  if (error) return <div className="snapshot-error" role="alert">Snapshot unavailable: {error}</div>;
+  if (error) return <div className="snapshot-error" role="alert">
+    Snapshot unavailable: {error}
+    {lastGood() ? ` · last good snapshot ${lastGood().age} (${lastGood().at})` : ' · no snapshot has loaded in this browser'}
+    <div className="snapshot-missing">The boxes are empty because the read failed, not because the numbers are zero.</div>
+  </div>;
   if (!snap) return <div className="muted">Loading snapshot…</div>;
-  const num = c => c && c.value != null ? c.value : '—';
+  // num/age live in format.js so the "number vs cannot-compute" distinction is
+  // unit-tested; see web/src/format.test.js.
   const pct = p => p.denominator?.value ? Math.max(0, Math.min(100, 100 * (p.value?.value ?? 0) / p.denominator.value)) : 0;
   const latency = snap.reply_latency || {};
   const build = typeof __BUILD__ === 'object' ? __BUILD__ : {};
@@ -257,10 +280,10 @@ function OwnerSnapshot() {
       </div>
       <div className="snapshot-wiki">
         <h3>Context store</h3>
-        <div className="snapshot-wiki-value">{num(snap.context?.articles?.value)} articles</div>
+        <div className="snapshot-wiki-value">{num(snap.context?.articles)} articles</div>
         <div className="snapshot-wiki-sub">
-          <span>{num(snap.context?.ground_truths?.value)} ground truths</span>
-          <span>{num(snap.context?.never_read?.value)} never opened</span>
+          <span>{num(snap.context?.ground_truths)} ground truths</span>
+          <span>{num(snap.context?.never_read)} never opened</span>
         </div>
         <small>{snap.context?.articles?.reason || snap.context?.reason || 'unavailable'}</small>
       </div>
@@ -286,7 +309,7 @@ function OwnerSnapshot() {
         {'never opened: ' + snap.context.entries.filter(e => !e.reads).map(e => e.subject || e.slug).join(', ')}
       </small>}
     </div>}
-    <div className="snapshot-projects">{snap.projects.map(p => <div className="snapshot-project" key={p.id}>
+    <div className="snapshot-projects">{(snap.projects || []).map(p => <div className="snapshot-project" key={p.id}>
       <div className="snapshot-project-head"><b>{p.label}</b><span>{p.metric}</span></div>
       <div className="snapshot-bar"><i style={{ width: `${pct(p)}%` }} /></div>
       <div className="snapshot-value">{num(p.value)} <small>/ {num(p.denominator)} {p.denominator_label}</small></div>
@@ -308,11 +331,18 @@ function OwnerSnapshot() {
         </tr>)}{!Object.keys(snap.agent_activity || {}).length && <tr><td colSpan="5">No agent activity source.</td></tr>}</tbody></table></div>
     </div>
     <div className="snapshot-cols">
-      <div><h3>Agents</h3><div className="snapshot-attribution"><b>attributed {snap.attribution?.attributed ?? '—'} PRs</b> <span>unattributed {snap.attribution?.unattributed ?? '—'} PRs</span><small>{snap.attribution?.method}</small></div><div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Type</th><th>PRs</th><th>Bodies</th><th>Tasks</th><th>Msgs</th></tr></thead><tbody>{snap.agents.map(a => <tr key={a.agent}><td>{a.agent}</td><td>{a.type}</td><td>{num(a.merged_prs)}</td><td>{num(a.bodies_credited)}</td><td>{num(a.tasks_completed)}</td><td>{num(a.messages_handled)}</td></tr>)}{!snap.agents.length && <tr><td colSpan="6">No attributed agents yet.</td></tr>}</tbody></table></div><small>PRs carry their lane in the branch name from 2026-10-21.</small></div>
-      <div><h3>Backlog · age is the number</h3><div className="snapshot-backlog"><span>{snap.backlog.open} open · {snap.backlog.in_progress} in progress · {snap.backlog.blocked} blocked</span>{snap.backlog.oldest_open && <b>oldest open {snap.backlog.oldest_open.id} · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</b>}</div><ol>{snap.backlog.top.map(t => <li key={t.id}>{t.id} {t.title} <small>{t.priority} · {(t.age_s / 86400).toFixed(1)} d</small></li>)}</ol>{snap.backlog.reason && <div className="snapshot-missing">{snap.backlog.reason}</div>}</div>
-      <div><h3>Context store</h3>{snap.context?.status === 'not_initialised' ? <div className="snapshot-missing">{snap.context.reason}</div> : null}</div>
+      <div><h3>Agents</h3><div className="snapshot-attribution"><b>attributed {snap.attribution?.attributed ?? '—'} PRs</b> <span>unattributed {snap.attribution?.unattributed ?? '—'} PRs</span><small>{snap.attribution?.method}</small></div><div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Type</th><th>PRs</th><th>Bodies</th><th>Tasks</th><th>Msgs</th></tr></thead><tbody>{(snap.agents || []).map(a => <tr key={a.agent}><td>{a.agent}</td><td>{a.type}</td><td>{num(a.merged_prs)}</td><td>{num(a.bodies_credited)}</td><td>{num(a.tasks_completed)}</td><td>{num(a.messages_handled)}</td></tr>)}{!(snap.agents || []).length && <tr><td colSpan="6">No attributed agents yet.</td></tr>}</tbody></table></div><small>PRs carry their lane in the branch name from 2026-10-21.</small></div>
+      <div><h3>Backlog · age is the number</h3><div className="snapshot-backlog"><span>{snap.backlog.open} open · {snap.backlog.in_progress} in progress · {snap.backlog.blocked} blocked</span>{snap.backlog.oldest_open && <b>oldest open {snap.backlog.oldest_open.id} · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</b>}</div><ol>{(snap.backlog?.top || []).map(t => <li key={t.id}>{t.id} {t.title} <small>{t.priority} · {(t.age_s / 86400).toFixed(1)} d</small></li>)}</ol>{snap.backlog.reason && <div className="snapshot-missing">{snap.backlog.reason}</div>}</div>
+      <div><h3>Context store</h3>
+        {snap.context?.status === 'ok'
+          ? <div className="snapshot-backlog"><span>{num(snap.context.articles)} articles · {num(snap.context.ground_truths)} ground truths · {num(snap.context.never_read)} never opened</span>
+              {snap.context.digest && <b>{snap.context.digest.length} bytes of digest reach every agent</b>}</div>
+          : <div className="snapshot-missing">{snap.context?.reason || 'context store unavailable'}</div>}
+        {(snap.context?.entries || []).some(e => !e.reads) && <small className="snapshot-never">
+          never opened: {snap.context.entries.filter(e => !e.reads).map(e => e.subject || e.slug).join(', ')}</small>}
+      </div>
     </div>
-    <div className="snapshot-footer">build <b>{build.commit || 'unknown'}</b>{build.builtAt ? ` · ${new Date(build.builtAt).toLocaleString()}` : ''} · snapshot {snap.generated_at ? new Date(snap.generated_at).toLocaleString() : '—'} · oldest number {snap.oldest_as_of ? new Date(snap.oldest_as_of).toLocaleString() : '—'}</div>
+    <div className="snapshot-footer">bundle <b>{build.commit || 'unknown'}</b>{build.builtAt ? ` · built ${new Date(build.builtAt).toLocaleString()}` : ''} · snapshot <b>{snap.generated_at ? `${age(snap.generated_at)} ago` : '—'}</b>{snap.generated_at ? ` (${new Date(snap.generated_at).toLocaleString()})` : ''} · oldest number {snap.oldest_as_of ? new Date(snap.oldest_as_of).toLocaleString() : '—'}</div>
   </div>;
 }
 
