@@ -299,3 +299,5 @@
 .snapshot-backlog { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .snapshot-cols ol { padding-left: 18px; font-size: 12px; }
 .snapshot-cols li small { opacity: .65; }
+.snapshot-attribution { display: flex; gap: 10px; align-items: baseline; font-size: 12px; margin-bottom: 6px; }
+.snapshot-attribution span { color: #8b1a1a; }

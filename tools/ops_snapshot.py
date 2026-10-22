@@ -42,8 +42,15 @@ WINDOW_H = 24
 STRICT_CEILING = 815  # poolrad body ceiling; a ceiling, not a verified denominator
 # Branch prefixes are the lane convention (caught by the forward rule). A known
 # prefix is the attribution; anything else is unattributed, never guessed.
-LANE_TYPES = (("claude", "claude"), ("codex", "codex"), ("pi", "pi"),
-              ("opencode", "opencode"), ("free", "free-model"))
+# A LANE is not a harness. 'claude' is a tool; 'par-c' is an agent. These are
+# the lane tokens our branch names actually carry.
+KNOWN_LANES = ("par-a", "par-b", "par-c", "par-d", "par-e", "par-f",
+               "ds4", "codex", "dunky", "vp", "crackdown")
+# The harness/type comes from the lane registry, never from the branch prefix.
+LANE_TYPE = {"par-a": "claude", "par-b": "claude", "par-c": "claude",
+             "par-d": "claude", "par-e": "claude", "par-f": "claude",
+             "ds4": "opencode", "codex": "codex", "dunky": "pi",
+             "vp": "claude", "crackdown": "codex"}
 
 
 class SourceError(Exception):
@@ -83,51 +90,27 @@ def gh_prs(repo, since):
     return json.loads(proc.stdout)
 
 
-def lane_tokens():
-    """Known lane tokens from the live panes, so attribution stays data-driven."""
-    try:
-        out = subprocess.run(["/home/hunter/.local/bin/dunkingsheep", "--json", "panes"],
-                             capture_output=True, text=True, timeout=30).stdout
-        panes = json.loads(out).get("panes") or []
-    except Exception:  # noqa: BLE001
-        return {}
-    tokens = {}
-    for pane in panes:
-        for key in ("agent_name", "lane_name"):
-            name = (pane.get(key) or "").strip()
-            if name and not name.startswith("w"):
-                tokens[name.casefold()] = name
-                tokens[name.casefold().replace(" ", "-")] = name
-    return tokens
-
-
 def attribute(pr):
-    """Branch prefix first, then a [lane] title token, else None (unattributed).
-
-    The branch convention is 'claude/par-c-0411', 'checker-batch-1',
-    'hybrid-glue-...' - the first segment names the lane. We do not attribute
-    by author (one account authors every PR).
-    """
-    branch = (pr.get("headRefName") or "").strip()
-    prefix = re.split(r"[/_-]", branch, maxsplit=1)[0].casefold()
-    known = {name for name, _ in LANE_TYPES} | {"par-a", "par-b", "par-c", "par-d", "par-e",
-                                                "checker-batch", "hybrid-glue"}
-    if prefix in known:
-        return prefix
-    for name in known:
-        if name != prefix and re.match(re.escape(name) + r"[/_-]", branch.casefold()):
-            return name
+    """First known lane token anywhere in the branch, then [lane] in the title,
+    then the git author, else None. Never a harness name, never a guess."""
+    branch = (pr.get("headRefName") or "").casefold()
+    for token in KNOWN_LANES:
+        if re.search(r"(^|[/_.-])" + re.escape(token) + r"($|[/_.-])", branch):
+            return token
+    # A bare 'crackdown-<lane>' segment.
+    match = re.search(r"crackdown-([a-z0-9]+)", branch)
+    if match:
+        return f"crackdown-{match.group(1)}"
     match = re.search(r"\[([a-zA-Z0-9_-]+)\]", pr.get("title") or "")
-    if match and match.group(1).casefold() in known:
+    if match and match.group(1).casefold() in KNOWN_LANES:
         return match.group(1).casefold()
-    return None
+    author = ((pr.get("author") or {}).get("login") or "").strip()
+    return author or None
 
 
 def lane_type(lane):
-    for prefix, kind in LANE_TYPES:
-        if lane == prefix or lane.startswith(prefix):
-            return kind
-    return "unknown"
+    base = lane.split("-")[0] if lane else ""
+    return LANE_TYPE.get(lane) or LANE_TYPE.get(base) or "unknown"
 
 
 def collect_agents():
@@ -335,6 +318,11 @@ def main():
         for key in ("merged_prs", "bodies_credited", "tasks_completed", "messages_handled"):
             value = agent[key].get("value")
             kind[key] = None if kind[key] is None or value is None else kind[key] + value
+    for kind in types.values():
+        for key in ("merged_prs", "bodies_credited", "tasks_completed", "messages_handled"):
+            value = kind[key]
+            kind[key] = cell(value, pr_as_of) if value is not None else failed(
+                "a member lane cell is null")
 
     projects = [
         {"id": "poolrad", "label": "Poolrad", "metric": "strict bodies",
@@ -399,6 +387,9 @@ def main():
             "never_read": failed("context store not yet initialised"),
             "as_of": None,
         },
+        "attribution": {"attributed": sum(1 for a in agents if a["agent"]),
+                        "unattributed": len(unattributed),
+                        "method": "branch lane token -> [lane] title token -> git author -> unattributed"},
         "agents_unattributed": unattributed,
         "agents": agents,
         "types": list(types.values()),
