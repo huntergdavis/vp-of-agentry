@@ -464,7 +464,7 @@ def collect_dispatch():
         return {"status": "absent", "reason": reason,
                 "idle": failed(reason), "dispatched_1h": failed(reason),
                 "blocked": [], "dead": [], "queue_depth": failed(reason),
-                "as_of": None}
+                "retired": failed(reason), "as_of": None}
     except ValueError as exc:
         reason = f"dispatcher state unreadable: {exc}"
         return {"status": "failed", "reason": reason,
@@ -472,12 +472,22 @@ def collect_dispatch():
                 "blocked": [], "dead": [], "queue_depth": failed(reason), "as_of": None}
     stamp_at = datetime.fromtimestamp(state["tick_at"], timezone.utc) if state.get("tick_at") else None
     blocked = [dict(b) for b in state.get("blocked") or []]
+    # Counted from the retire file itself, so it is available even before the
+    # next tick: no file means nothing is retired, which is a fact, not a gap.
+    try:
+        with open(DUNK_DIR / "retired-panes.json", encoding="utf-8") as handle:
+            retired_records = json.load(handle) or {}
+        retired_count = len(retired_records)
+    except (OSError, ValueError):
+        retired_count = 0
     return {"status": "ok", "reason": None,
             "idle": cell(len(state.get("idle_unfilled") or []), stamp_at),
             "dispatched_1h": cell(state.get("dispatched_1h"), stamp_at),
             "ready": cell(state.get("ready"), stamp_at),
             "queue_depth": cell(state.get("queue_depth"), stamp_at),
             "queue_empty": bool(state.get("queue_empty")),
+            "retired": cell(retired_count, stamp_at),
+            "retired_panes": sorted(retired_records) if retired_count else [],
             "blocked": blocked,
             "dead": [dict(d) for d in state.get("dead") or []],
             "as_of": iso(stamp_at)}
