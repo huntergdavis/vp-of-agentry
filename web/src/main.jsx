@@ -217,8 +217,10 @@ function CreditTrend({ events, current, ceiling, lastCreditAt }) {
 function OwnerSnapshot() {
   const [snap, setSnap] = useState(null); const [error, setError] = useState('');
   const [board, setBoard] = useState(null);
+  const [agentList, setAgentList] = useState(null);
   useEffect(() => { let alive = true; api('/ops-snapshot').then(d => alive && setSnap(d)).catch(e => alive && setError(e.message)); return () => { alive = false; }; }, []);
   useEffect(() => { api('/ops-board').then(setBoard).catch(() => {}); }, []);
+  useEffect(() => { api('/agents').then(setAgentList).catch(() => {}); }, []);
   const credit = board ? coverageEconomics(board.snapshot ?? board, board.history) : null;
   if (error) return <div className="snapshot-error" role="alert">Snapshot unavailable: {error}</div>;
   if (!snap) return <div className="muted">Loading snapshot…</div>;
@@ -230,6 +232,20 @@ function OwnerSnapshot() {
     <div className="snapshot-head"><div><div className="eyebrow">OWNER SNAPSHOT</div><h2>One page, auto-calculated</h2></div>
       <div className="snapshot-clock">oldest number <b>{snap.oldest_as_of ? new Date(snap.oldest_as_of).toLocaleString() : '—'}</b><small>reply p50 {latency.p50_s ?? '—'}s · p90 {latency.p90_s ?? '—'}s · max {latency.max_s ?? '—'}s · n {latency.n ?? '—'} · unanswered {latency.unanswered ?? '—'}</small></div></div>
     {snap.warnings?.length > 0 && <div className="snapshot-warn" role="alert">{snap.warnings.map((w, i) => <span key={i}>{w.source}: {w.reason}</span>)}</div>}
+    {agentList && <div className="snapshot-now">
+      <h3>In progress now</h3>
+      <div className="snapshot-now-rows">
+        {(agentList.in_progress || []).map(item => <div className="snapshot-now-row" key={item.task_id}>
+          <b>{item.task_id}</b><span>{item.task}</span>
+          {item.since ? <small>since {new Date(item.since * 1000).toLocaleString()}</small> : null}
+        </div>)}
+        {(agentList.agents || []).filter(a => a.status === 'working').map(a => <div className="snapshot-now-row agent" key={a.id}>
+          <b>{a.name}</b><span>{a.doing || 'working (no task title reported)'}</span>
+          {a.since ? <small>since {new Date(a.since * 1000).toLocaleString()}</small> : null}
+        </div>)}
+        {!(agentList.in_progress || []).length && !(agentList.agents || []).some(a => a.status === 'working') && <div className="muted">Nothing is working right now.</div>}
+      </div>
+    </div>}
     <div className="snapshot-topline">
       <div className="snapshot-backlog-top">
         <h3>Backlog</h3>

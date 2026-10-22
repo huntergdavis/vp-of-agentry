@@ -331,3 +331,9 @@
 .snapshot-activity { margin: 14px 0; }
 .snapshot-activity h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 .snapshot-footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,.1); font-size: 11px; opacity: .65; }
+.snapshot-now { margin: 12px 0; border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 12px; background: #f7fbf4; }
+.snapshot-now h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: .7; margin-bottom: 6px; }
+.snapshot-now-rows { display: flex; flex-direction: column; gap: 4px; }
+.snapshot-now-row { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+.snapshot-now-row.agent b { color: #2d6a4f; }
+.snapshot-now-row small { opacity: .6; font-size: 11px; }

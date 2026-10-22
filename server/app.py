@@ -1070,6 +1070,42 @@ def _pane_metrics():
         return {}
 
 
+DUNK_TASKS = Path(os.environ.get(
+    "DUNKINGSHEEP_DIR", str(Path.home() / ".config" / "dunkingsheep"))) / "tasks.db"
+
+
+def _agent_doing():
+    """pane -> {task, status, since} for the task it currently holds.
+
+    'Doing' is the title of a leased in_progress task, and 'since' is when the
+    lease was claimed. No model, one query.
+    """
+    try:
+        with sqlite3.connect(f"file:{DUNK_TASKS}?mode=ro", uri=True) as conn:
+            rows = conn.execute(
+                "SELECT l.pane_id, t.id, t.title, t.status, l.claimed_at "
+                "FROM task_leases l JOIN tasks t ON t.id = l.task_id "
+                "WHERE t.status IN ('in_progress', 'open')").fetchall()
+        doing = {row[0]: {"task_id": row[1], "task": row[2], "status": row[3],
+                          "since": row[4]} for row in rows}
+    except (OSError, sqlite3.Error):
+        doing = {}
+    # A lane doing in_progress work with no lease still has a title to show.
+    # The assignees field names the lane/project; expose it rather than a blank.
+    try:
+        with sqlite3.connect(f"file:{DUNK_TASKS}?mode=ro", uri=True) as conn:
+            for task_id, title, assignees, updated in conn.execute(
+                    "SELECT id,title,assignees,updated_at FROM tasks "
+                    "WHERE status='in_progress' ORDER BY updated_at").fetchall():
+                doing.setdefault(f"task:{task_id}", {"task_id": task_id, "task": title,
+                                                     "status": "in_progress",
+                                                     "since": updated,
+                                                     "assignees": assignees})
+    except (OSError, sqlite3.Error):
+        pass
+    return doing
+
+
 @app.get("/api/agents")
 def agents(_: Annotated[str, Depends(require_auth)]):
     """Read-only talkable agent list.
@@ -1084,6 +1120,8 @@ def agents(_: Annotated[str, Depends(require_auth)]):
         return {"agents": [], "as_of": None, "error": str(exc.detail),
                 "note": "pane registry unavailable; no agent rows are shown"}
     metrics = _pane_metrics()
+    doing = _agent_doing()
+    in_progress = [row for key, row in doing.items() if key.startswith("task:")]
     rows, covered = [], set()
     for cfg in CHANNELS:
         pane = match_pane(cfg, panes)
@@ -1093,7 +1131,7 @@ def agents(_: Annotated[str, Depends(require_auth)]):
                          "agent": None, "status": "unknown", "source": "channel",
                          "status_reason": "no live pane matched this channel",
                          "cwd": None, "last_event": None, "metrics": None,
-                         "note": None})
+                         "doing": None, "since": None, "note": None})
             continue
         covered.add(pane.get("pane_id"))
         raw = str(pane.get("agent_status") or "").lower()
@@ -1106,6 +1144,8 @@ def agents(_: Annotated[str, Depends(require_auth)]):
             "cwd": pane.get("cwd"),
             "last_event": (row_metrics or {}).get("last_at"),
             "metrics": ({"events": row_metrics["events"]} if row_metrics else None),
+            "doing": (doing.get(pane.get("pane_id")) or {}).get("task"),
+            "since": (doing.get(pane.get("pane_id")) or {}).get("since"),
             "note": None,
         })
     # A live agent pane with no channel config must still be visible: the owner
@@ -1126,9 +1166,12 @@ def agents(_: Annotated[str, Depends(require_auth)]):
             "cwd": pane.get("cwd"),
             "last_event": (row_metrics or {}).get("last_at"),
             "metrics": ({"events": row_metrics["events"]} if row_metrics else None),
+            "doing": (doing.get(pane.get("pane_id")) or {}).get("task"),
+            "since": (doing.get(pane.get("pane_id")) or {}).get("since"),
             "note": "no channel configured - read-only, add one to message",
         })
-    return {"agents": rows, "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    return {"agents": rows, "in_progress": in_progress,
+            "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
 @app.get("/api/ops-snapshot")
