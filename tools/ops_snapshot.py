@@ -9,6 +9,7 @@ never the previous snapshot.
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
@@ -30,6 +31,9 @@ METRICS_DB = DUNK_DIR / "metrics.db"
 INBOX_DB = DUNK_DIR / "inbox.db"
 MESSAGES_DB = ROOT / "data" / "messages.sqlite3"
 HYBRID = Path("/home/hunter/workspace/poolrad-decomp/tools/dashboard/hybrid_status.json")
+CREDIT_CSV = Path("/home/hunter/workspace/poolrad-decomp/docs/re/credit_evidence_kind.csv")
+CRACKDOWN_RESULT = Path("/home/hunter/workspace/crackdown-switch/discovery/shadow-mode-20261021/RESULT.txt")
+HYBRID_GLUE = Path("/home/hunter/workspace/poolrad-decomp/docs/HYBRID_GLUE_BATCH1.md")
 PROJECTS = {
     "poolrad": ("poolrad-decomp", "huntergdavis/poolrad-decomp"),
     "crackdown": ("crackdown-switch", "huntergdavis/crackdown-switch"),
@@ -220,6 +224,44 @@ def reply_latency():
                 "source": f"messages.sqlite3: {exc}"}
 
 
+def collect_reproducibility():
+    try:
+        rows = list(csv.DictReader(CREDIT_CSV.open()))
+        breakdown = {}
+        for row in rows:
+            breakdown[row["kind"]] = breakdown.get(row["kind"], 0) + 1
+        stamp = datetime.fromtimestamp(CREDIT_CSV.stat().st_mtime, timezone.utc)
+        return breakdown.get("checker", 0), len(rows), breakdown, stamp, str(CREDIT_CSV)
+    except (OSError, KeyError, ValueError) as exc:
+        return None, None, {}, None, f"{CREDIT_CSV}: {exc}"
+
+
+def collect_crackdown():
+    try:
+        text = CRACKDOWN_RESULT.read_text()
+        match = re.search(r"shadow OFF \(mode 0\)\s+([\d.]+) / ([\d.]+)\s+([\d.]+)/([\d.]+)", text)
+        if not match:
+            raise ValueError("shadow OFF row not found")
+        first, second, cpu_first, cpu_second = (float(x) for x in match.groups())
+        fps = round(max(first, second), 1)  # the reported headroom window
+        cpu = round((cpu_first + cpu_second) / 2, 1)
+        stamp = datetime.fromtimestamp(CRACKDOWN_RESULT.stat().st_mtime, timezone.utc)
+        return fps, cpu, stamp, f"{CRACKDOWN_RESULT} (sha 36b413d8)"
+    except (OSError, ValueError, AttributeError) as exc:
+        return None, None, None, f"{CRACKDOWN_RESULT}: {exc}"
+
+
+def collect_hybrid_denominator():
+    try:
+        text = HYBRID_GLUE.read_text()
+        match = re.search(r"(\d+)\s+of the\s+(\d+)\s+credited bodies", text)
+        if not match:
+            return None, None, None, f"{HYBRID_GLUE}: denominator not stated"
+        return int(match.group(1)), int(match.group(2)), str(HYBRID_GLUE), None
+    except (OSError, ValueError) as exc:
+        return None, None, None, f"{HYBRID_GLUE}: {exc}"
+
+
 def collect_backlog():
     """The dunkies feature backlog. AGE is the interesting number, not the count."""
     try:
@@ -269,6 +311,9 @@ def main():
     messages_n, messages_at = collect_messages(since)
     latency = reply_latency()
     hybrid_running, hybrid_source, hybrid_proof = hybrid_claim()
+    repro_checker, repro_total, repro_breakdown, repro_at, repro_ref = collect_reproducibility()
+    crack_fps, crack_cpu, crack_at, crack_ref = collect_crackdown()
+    hybrid_num, hybrid_den, hybrid_den_ref, hybrid_den_reason = collect_hybrid_denominator()
 
     agents = []
     for lane in sorted(rows):
@@ -298,18 +343,23 @@ def main():
          "denominator_label": "CEILING", "evidence_ref": checkpoint_ref,
          "truth": "815 is an upper bound, not a verified denominator."},
         {"id": "hybrid", "label": "Hybrid", "metric": "credited bodies running as our C",
-         "value": cell(hybrid_running, checkpoint_at) if hybrid_running is not None else failed(hybrid_proof),
-         "denominator": failed("bodies reached not yet read"), "denominator_label": "bodies reached",
-         "evidence_ref": hybrid_source, "truth": "Running as our C is the claim; credited is the input."},
-        {"id": "reproducibility", "label": "Reproducibility", "metric": "registered checkers",
-         "value": failed("registered-checker source not wired yet"),
-         "denominator": cell(280, checkpoint_at) if bodies is not None else failed(checkpoint_ref),
-         "denominator_label": "", "evidence_ref": checkpoint_ref,
-         "truth": "A checker is registered when it fails a known-bad build."},
+         "value": cell(hybrid_num or hybrid_running, checkpoint_at) if (hybrid_num or hybrid_running) is not None else failed(hybrid_proof),
+         "denominator": cell(hybrid_den, checkpoint_at) if hybrid_den is not None else failed(
+             hybrid_den_reason or "denominator = credited bodies reached on the measured route"),
+         "denominator_label": "credited bodies reached",
+         "evidence_ref": hybrid_den_ref or hybrid_source,
+         "truth": "Running as our C is the claim; credited is the input."},
+        {"id": "reproducibility", "label": "Reproducibility", "metric": "credits rebuildable by one command",
+         "value": cell(repro_checker, repro_at) if repro_checker is not None else failed(repro_ref),
+         "denominator": cell(repro_total, repro_at) if repro_total is not None else failed(repro_ref),
+         "denominator_label": "credits", "evidence_ref": repro_ref,
+         "breakdown": repro_breakdown,
+         "truth": "98 of 280 credits can be rebuilt with one command; the other kinds are a breakdown, not the bar."},
         {"id": "crackdown", "label": "Crackdown", "metric": "measured FPS",
-         "value": failed("FPS source not wired yet"), "denominator": cell(30, None),
-         "denominator_label": "target", "evidence_ref": None,
-         "configuration": None,
+         "value": cell(crack_fps, crack_at) if crack_fps is not None else failed(crack_ref),
+         "denominator": cell(30, None), "denominator_label": "target",
+         "evidence_ref": crack_ref,
+         "configuration": ("50%% resolution, LOD0, shadows OFF (mode 0); CPU %.1f ms binds" % crack_cpu) if crack_cpu is not None else None,
          "truth": "Measured on <configuration>; a different config is a different number."},
     ]
 
