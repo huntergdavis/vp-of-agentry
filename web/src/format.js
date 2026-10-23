@@ -39,3 +39,21 @@ export function usd(c) {
 	if (value == null) return '—';
 	return `$${value.toFixed(value !== 0 && Math.abs(value) < 1 ? 3 : 2)}`;
 }
+
+/** Owner #1358: a panel whose as_of is older than 15 minutes says STALE. A missing as_of is stale too. */
+export const STALE_AFTER_S = 15 * 60;
+export function stale(asOf, now = Date.now()) {
+	if (!asOf) return true;
+	const at = new Date(asOf).getTime();
+	return Number.isNaN(at) || (now - at) / 1000 > STALE_AFTER_S;
+}
+
+/** Seconds as a person reads a wait: 3.9s, 54s, 12m, 4.1h. */
+export function wait(seconds) {
+	const value = seconds != null && typeof seconds === 'object' ? seconds.value : seconds;
+	if (value == null) return '—';
+	if (value < 10) return `${value.toFixed(1)}s`;
+	if (value < 90) return `${Math.round(value)}s`;
+	if (value < 5400) return `${Math.round(value / 60)}m`;
+	return `${(value / 3600).toFixed(1)}h`;
+}

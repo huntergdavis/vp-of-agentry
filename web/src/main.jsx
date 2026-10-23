@@ -14,6 +14,7 @@ import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { CostPerAgent, FreeModelVolume, UsagePanel } from './cost-panels.jsx';
+import { DeliveryPanel, DunksPanel, InboxPanel } from './delivery-panels.jsx';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const api = async (path, options = {}) => {
@@ -339,6 +340,9 @@ function OwnerSnapshot() {
     {board?.quotas && <div className="snapshot-quotas"><h3>Provider windows</h3>
       <div className="snapshot-quota-row"><QuotaCard provider="codex" quota={board.quotas.codex} /><QuotaCard provider="claude" quota={board.quotas.claude} /></div>
     </div>}
+    <DeliveryPanel latency={snap.delivery_latency} health={snap.delivery_health} />
+    <DunksPanel section={snap.dunks} />
+    <InboxPanel section={snap.inbox} />
     <UsagePanel section={snap.usage} />
     <CostPerAgent section={snap.cost_per_agent} />
     <FreeModelVolume section={snap.free_model} />

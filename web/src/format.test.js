@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { age, num, tokens, usd, why } from './format.js';
+import { age, num, stale, tokens, usd, wait, why } from './format.js';
 
 test('a plain number renders as itself, not as cannot-compute', () => {
 	// The regression: backlog counts are plain ints, the helper expected cells,
@@ -35,4 +35,20 @@ test('tokens and dollars keep zero and cannot-compute apart', () => {
 	assert.equal(usd({ value: 0, as_of: 'x', reason: null }), '$0.00', 'a recorded zero is a number');
 	assert.equal(usd({ value: 0.0012, as_of: 'x', reason: null }), '$0.001');
 	assert.equal(usd({ value: null, as_of: null, reason: 'tokens only' }), '—', 'never $0 for unknown');
+});
+
+test('a panel older than 15 minutes is stale, and so is one with no time', () => {
+	const now = Date.parse('2026-10-23T12:00:00Z');
+	assert.equal(stale('2026-10-23T11:50:00Z', now), false);
+	assert.equal(stale('2026-10-23T11:44:59Z', now), true);
+	assert.equal(stale(null, now), true, 'no as_of is never current');
+	assert.equal(stale('not a date', now), true);
+});
+
+test('waits read in human units and unknown stays unknown', () => {
+	assert.equal(wait(3.94), '3.9s');
+	assert.equal(wait({ value: 54.2, as_of: 'x', reason: null }), '54s');
+	assert.equal(wait(720), '12m');
+	assert.equal(wait(14670.2), '4.1h');
+	assert.equal(wait({ value: null, as_of: null, reason: 'no sends' }), '—');
 });
