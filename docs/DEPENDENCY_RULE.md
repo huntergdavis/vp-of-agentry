@@ -151,3 +151,17 @@ Rule: **grep, import, compile and list all prove that a NAME exists.** None prov
 handler runs. The test must execute the thing and assert a result - and for a command
 with no required parameters, "returns a result" must mean a result, not a polite empty
 success.
+
+## A rule tested only in its happy path may be impossible in its only case
+
+The context store's `supersede()` derived the same slug as the entry it replaced, so
+on the same day, with the same subject, the new file collided with the old and the
+command refused with "entry already exists". Supersession is the **only** mechanism by
+which a ground truth may change - and the case it exists for (same day, same subject)
+was the one case it could never serve. It was documented, and tested on a neighbouring
+case.
+
+Rule: for any mechanism that exists for **one** purpose - supersede, retire, rollback,
+migration, restore, resume - the test must exercise **the case it exists for**, not a
+convenient neighbour. A happy-path test on a mechanism with a single purpose proves
+almost nothing.
