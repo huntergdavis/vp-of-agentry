@@ -25,7 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PATH_RE = re.compile(r"\b((?:docs|src|tools|tests|assets|data)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)\b")
+PATH_RE = re.compile(r"\b((?:docs|src|tools|tests|assets|data|resources)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)\b")
+# A path named INSIDE a search/probe command is not a claim about the repo; it is the model
+# looking for it. Counting probes as citations produced a false "FABRICATED" verdict on
+# 2026-10-23 for a report whose every path was a `find`/`cat ... ||` probe.
+PROBE_RE = re.compile(r"(?:^|[\s\"'])(?:cat|find|ls|grep|head|tail|sed|awk|xargs|rg|test)\b[^\n]*$")
+TOOLCALL_RE = re.compile(r'"action"\s*:|"cmd"\s*:|^\s*\$ ')
 ADDR_RE = re.compile(r"\b(?:0x)?([0-9A-Fa-f]{4,5})(?::(?:0x)?([0-9A-Fa-f]{4,5}))?\b")
 
 
@@ -55,7 +60,13 @@ def main(argv: list[str]) -> int:
         except OSError as exc:
             print(f"REFUSED: {rep}: {exc.strerror}")
             return 2
-        paths = sorted(set(PATH_RE.findall(text)))
+        cited_text = []
+        for line in text.splitlines():
+            if TOOLCALL_RE.search(line) or PROBE_RE.search(line):
+                continue
+            cited_text.append(line)
+        paths = sorted({m for line in cited_text for m in PATH_RE.findall(line)})
+        probed = sorted({m for line in text.splitlines() for m in PATH_RE.findall(line)} - set(paths))
         missing = [p for p in paths if not (ROOT / p).exists()]
         addrs = set()
         for a, b in ADDR_RE.findall(text):
@@ -65,7 +76,7 @@ def main(argv: list[str]) -> int:
         inside = sorted(a for a in addrs if lo <= a < hi)
         outside = sorted(a for a in addrs if not (lo <= a < hi))
         print(f"== {rep}")
-        print(f"   paths cited : {len(paths)}  missing: {len(missing)}")
+        print(f"   paths cited : {len(paths)}  missing: {len(missing)}   (probes ignored: {len(probed)})")
         for p in missing:
             print(f"      MISSING  {p}")
             bad += 1
