@@ -165,3 +165,24 @@ Rule: for any mechanism that exists for **one** purpose - supersede, retire, rol
 migration, restore, resume - the test must exercise **the case it exists for**, not a
 convenient neighbour. A happy-path test on a mechanism with a single purpose proves
 almost nothing.
+
+## Derived-value identity: admissible, with a stated chain
+
+VP ruling, 2026-10-22 (`OVL_007F_0000`, #1447). A body may satisfy factor 2 on a value
+it did not read itself, when the value is the output of **credited code over documented
+game state** and is compared against **a documented field of the same record** - and
+only when every link of the derivation is stated with the address and the credited or
+evidenced producer behind it.
+
+`007F_0000` is the precedent: `1CEE` pushes the active-character pointer `[5D94]:[5D92]`
+→ `0054` forwards the record → `0000` calls credited `13AB`, which computes over the
+285-byte character object through `11EA`'s `+10h/+16h` → the result is compared by every
+caller with `+102h`, a field documented and read by credited `0BB8`. Six links, six
+statements, one comparison.
+
+The boundary matters as much as the permission: **transformed values that were never
+game state stay refused** (the `1484`/`1596` refusals). The difference is not "computed
+vs read" but *whether the operand was game state to begin with*.
+
+And the limit travels with the claim: **a derived-value identity is only as good as its
+weakest link**, so the weakest link is named in the doc rather than averaged away.
