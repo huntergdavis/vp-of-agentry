@@ -88,7 +88,16 @@ def main(argv: list[str]) -> int:
         print("usage: free_body_check.py <report.md> [--ovr PATH]", file=sys.stderr)
         return 2
     rep = Path(argv[1])
-    ovr = Path(argv[3]) if len(argv) > 3 and argv[2] == "--ovr" else DEFAULT_OVR
+    ovr = DEFAULT_OVR
+    expect: int | None = None
+    rest = argv[2:]
+    while rest:
+        if rest[0] == "--ovr" and len(rest) > 1:
+            ovr = Path(rest[1]); rest = rest[2:]
+        elif rest[0] == "--expect-offset" and len(rest) > 1:
+            expect = int(rest[1], 0); rest = rest[2:]
+        else:
+            rest = rest[1:]
     if not rep.exists():
         print(f"REFUSED: no report at {rep}", file=sys.stderr)
         return 2
@@ -103,6 +112,8 @@ def main(argv: list[str]) -> int:
     if cb is None:
         print("   NO DUMP: the report printed no byte dump, so nothing is checkable.")
         return 2
+    if expect is not None:
+        offs = [expect] + [o for o in offs if o != expect]
     if not offs:
         print(f"   OFFSET UNRESOLVED: {len(cb)} bytes claimed, no file offset found.")
         return 1
