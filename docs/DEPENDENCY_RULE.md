@@ -186,3 +186,18 @@ vs read" but *whether the operand was game state to begin with*.
 
 And the limit travels with the claim: **a derived-value identity is only as good as its
 weakest link**, so the weakest link is named in the doc rather than averaged away.
+
+## A merge is not landed until the commit is an ancestor of main
+
+Three times now a PR merged "successfully" into a **stacked base branch** rather than
+`main`, and the work sat on the stack while every surface said done. Most recently
+`#1469` (hybrid batch 7, 24 credited bodies) merged into
+`claude/par-b-u68-068d`; only a later `#1472` brought it to main.
+
+Two checks, both one line, both before the next merge:
+
+    gh pr view <n> --json baseRefName --jq .baseRefName    # must print: main
+    git merge-base --is-ancestor <merge-commit> origin/main # must exit 0
+
+`baseRefName` is checkable **before** merging and the ancestor test **after**. A green
+merge message is not either of them.
