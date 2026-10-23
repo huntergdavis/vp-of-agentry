@@ -134,3 +134,20 @@ Rules:
 - And the corollary for feeding work: **a lane that finishes and stops is a
   scheduling defect, not a lane defect.** Feeding must be deterministic (a queue
   and a timer), never dependent on a model being awake to notice.
+
+## A check that proves spelling is not a check that proves function
+
+The same defect appeared in two trees on the same night:
+
+- `check_checker_builds.py --compile-only` compiled and bound a checker without
+  ever executing its hooks, so an undefined register constant reached `main` and
+  stayed there until a lane ran that audit by hand.
+- `tests/test_inbox` asserted "every command is reachable from the CLI" by
+  *grepping the help text*. It proved a name was spelled. When a smoke test finally
+  executed all 86 commands, two of them (`clear_box`, `delivery`) were schema lies -
+  and both were commands the night's operation depended on.
+
+Rule: **grep, import, compile and list all prove that a NAME exists.** None proves a
+handler runs. The test must execute the thing and assert a result - and for a command
+with no required parameters, "returns a result" must mean a result, not a polite empty
+success.
