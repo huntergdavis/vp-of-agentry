@@ -1,5 +1,6 @@
 import React from 'react';
 import { age, num, stale, wait, why } from './format.js';
+import { Absent } from './cost-panels.jsx';
 
 // Owner #1358: current dunks, inbox metrics, delivery latency and health,
 // rendered from the snapshot (tools/delivery_stats.py). Every panel names its
@@ -25,7 +26,7 @@ function when(stamp) {
 }
 
 export function DunksPanel({ section }) {
-  if (!section) return null;
+  if (!section) return <Absent title="Current dunks" panel="dunks" />;
   const rows = section.rows || [];
   return <div className="snapshot-costs" data-panel="dunks">
     <h3>Current dunks · {rows.length}</h3>
@@ -49,7 +50,7 @@ export function DunksPanel({ section }) {
 }
 
 export function InboxPanel({ section }) {
-  if (!section) return null;
+  if (!section) return <Absent title="Inbox" panel="inbox" />;
   const boxes = section.mailboxes || [];
   const total = section.total || {};
   const notice = total.notice || {};
@@ -75,7 +76,7 @@ export function InboxPanel({ section }) {
 }
 
 export function DeliveryPanel({ latency, health }) {
-  if (!latency && !health) return null;
+  if (!latency && !health) return <Absent title="Delivery · arrival to delivery" panel="delivery" />;
   const all = latency?.all || {};
   const waiting = latency?.still_waiting || {};
   const held = health?.held || [];
@@ -99,6 +100,7 @@ export function DeliveryPanel({ latency, health }) {
     {latency?.truth && <div className="snapshot-truth">{latency.truth}</div>}
     <h4 className="delivery-sub">Held now · not yet delivered</h4>
     <Stamp section={health} /><Unavailable section={health} />
+    {health?.panes_reason && <div className="snapshot-missing">Pane list unreadable ({health.panes_reason}): a message to a dead pane cannot be told apart from a held one.</div>}
     <div className="snapshot-table"><table>
       <thead><tr><th>Target</th><th>Reason</th><th>Waiting</th><th>Holds</th><th>Detail</th></tr></thead>
       <tbody>{held.map(h => <tr key={h.message_id || `${h.pane}-${h.waiting_s}`} className={(h.waiting_s || 0) > 3600 ? 'delivery-late' : ''}>
