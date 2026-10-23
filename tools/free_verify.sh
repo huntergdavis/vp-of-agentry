@@ -42,7 +42,7 @@ find_repo() {
 }
 
 COUNT=1
-MODELS_CSV="big-pickle,longcat-2.5-preview-free"
+MODELS_CSV="${FREE_MODELS:-poolside/laguna-s-2.1:free,nvidia/nemotron-3-ultra-550b-a55b:free,cohere/north-mini-code:free}"
 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -85,7 +85,15 @@ Do: (1) read the doc and model; (2) locate the ORIGINAL bytes in GAME.OVR -- use
 
 Rules that matter: do NOT edit accounting, classifier, ledger, caveat or credit files. Do NOT claim credit for anything. Never write a comparison mask or change a model to make something agree -- if it does not match, say so. 'I cannot confirm X' is worth more than a confident guess. Cite file paths and byte offsets. Keep the report under 400 words."
 
-  if [ "${MODEL#opencode/}" != "$MODEL" ] || [ "$MODEL" = "big-pickle" ] || [[ "$MODEL" == *-free && "$MODEL" != longcat* && "$MODEL" != cat-jam* ]]; then
+  if [[ "$MODEL" == */*:free ]]; then
+    # OpenRouter free-tier path (catalog rotated 2026-10-23: big-pickle/longcat are RETIRED).
+    # Key is read from pi's auth store; never printed. Free models only - the account has a $1 cap.
+    _k=$(python3 -c "import json;d=json.load(open('/home/hunter/.pi/agent/auth.json'))['openrouter'];print(d if isinstance(d,str) else next((d[k] for k in ('key','api_key','apiKey','token') if isinstance(d.get(k),str)),''))")
+    (
+      _payload=$(python3 -c "import json,sys;print(json.dumps({'model':sys.argv[1],'max_tokens':4000,'messages':[{'role':'user','content':sys.argv[2]}]}))" "$MODEL" "$PROMPT")
+      timeout 900 curl -s https://openrouter.ai/api/v1/chat/completions -H "Authorization: Bearer $_k"         -H 'Content-Type: application/json' -d "$_payload"         | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['choices'][0]['message'].get('content') or '') if 'choices' in d else print('ERROR',d.get('error'))" >"$REPORT" 2>&1
+    ) &
+  elif [ "${MODEL#opencode/}" != "$MODEL" ] || [ "$MODEL" = "big-pickle" ] || [[ "$MODEL" == *-free && "$MODEL" != longcat* && "$MODEL" != cat-jam* ]]; then
     # OpenCode client path (free tier is only usable from inside OpenCode).
     MODEL_REF="opencode/$MODEL"; [ "${MODEL#opencode/}" != "$MODEL" ] && MODEL_REF="$MODEL"
     ( cd "$REPO" && nice -n 10 timeout 900 opencode run --model "$MODEL_REF" "$PROMPT" >"$REPORT" 2>&1 ) &
