@@ -201,3 +201,14 @@ Two checks, both one line, both before the next merge:
 
 `baseRefName` is checkable **before** merging and the ancestor test **after**. A green
 merge message is not either of them.
+
+## 13. A detector that discards candidates must report what it discarded
+
+An `IP_REDIRECT` filter added 2026-10-19 (`7f1fd9d6`) correctly excluded 13 false priors and
+silently dropped `OVL_0025_07BC`, which was already fully translated inside strict `OVL_0025_0E0C`.
+The queue then offered it as new work; par-d2 caught it by reading before writing.
+
+A *silent* discard makes two mistakes cost the same: a false positive costs nothing visible,
+a false negative costs a duplicated body. The filter must log every candidate it drops, with
+the reason, so the rule can be audited without re-deriving it — and the remaining-work figure
+must say whether it counted discarded candidates as unknown.
