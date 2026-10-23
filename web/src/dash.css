@@ -411,3 +411,13 @@
 .cost-subs h4 { margin: 0 0 4px; font-size: 12px; }
 .cost-subs ul { margin: 0; padding-left: 18px; }
 .cost-more { margin-top: 6px; font-size: 12px; }
+
+/* Dunks, inbox, delivery (delivery-panels.jsx, owner #1358) */
+.delivery-stamp { font-size: 11px; opacity: .75; margin: 2px 0 6px; overflow-wrap: anywhere; }
+.delivery-stamp.stale { opacity: 1; color: #b5541b; }
+.delivery-stamp code { font-size: 11px; }
+.delivery-headline { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; margin: 4px 0 8px; }
+.delivery-headline .warn { color: #b5541b; }
+.delivery-sub { margin: 14px 0 2px; font-size: 13px; }
+.delivery-text { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+tr.delivery-late td { background: rgba(181, 84, 27, .08); }

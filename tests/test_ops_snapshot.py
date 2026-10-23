@@ -64,6 +64,9 @@ class GuardTests(unittest.TestCase):
             self.assertEqual({"claude", "codex", "pi", "opencode"}, set(costs["failed_sources"]))
             self.assertIsNone(snapshot["free_model"]["outcomes_recorded"]["value"])
             self.assertEqual("nulled", snapshot["usage"]["status"])
+            for name in ("dunks", "inbox", "delivery_latency", "delivery_health"):
+                self.assertEqual("nulled", snapshot[name]["status"], name)
+                self.assertTrue(snapshot[name]["reason"], name)
             self.assertTrue((Path(temporary) / "snap-costs-cache.json").exists(),
                             "the scan cache belongs beside --out, never in production data/")
             if before is not None:

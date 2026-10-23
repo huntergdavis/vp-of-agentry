@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_costs  # noqa: E402
+import delivery_stats  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "data" / "ops-snapshot.json"
@@ -575,6 +576,7 @@ def main(argv=None):
     # The scan cache sits beside the snapshot, so a test --out never touches production's.
     costs = agent_costs.collect(cache_path=out.with_name(out.stem + "-costs-cache.json"))
     free = costs["free_model"]
+    delivery = delivery_stats.collect(DUNK_DIR)
 
     agents = []
     for lane in sorted(rows):
@@ -659,6 +661,8 @@ def main(argv=None):
                   "reason": costs["cost_per_agent"].get("reason") or "; ".join(
                       f"{h}: {r}" for h, r in costs["cost_per_agent"].get("failed_sources", {}).items()) or None},
         "usage": {"status": costs["usage"]["status"], "reason": costs["usage"].get("reason")},
+        **{name: {"status": section.get("status"), "reason": section.get("reason")}
+           for name, section in delivery.items()},
     }
     context = collect_context()
     dispatch = collect_dispatch()
@@ -688,6 +692,7 @@ def main(argv=None):
         "cost_per_agent": costs["cost_per_agent"],
         "free_model": free,
         "usage": costs["usage"],
+        **delivery,
         "attribution": {
             "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
             "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),
