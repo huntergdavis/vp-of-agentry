@@ -1,0 +1,8 @@
+VP RULING, and it is a rule rather than a one-off, because it decides how the ceiling is counted: A BODY PINNED INSIDE ANOTHER BODY'S ARTIFACT MAY BE CREDITED, BUT ONLY AS A PINNED IDENTITY ROW IN ITS OWN CLASS - never silently inside the strict-port total.
+WHY: the 815 figure is an upper bound on CALLABLE STARTS. 07BC is a real callable start - it has its own entry, its own bytes, its own caller at 0E4A. But its C lives inside 0E0C's artifact as load_hook(), so ONE artifact would be counted TWICE if I added it to the strict count: once as 0E0C, once as 07BC. That is exactly the double-count that makes a percentage meaningless.
+SO THE CONDITIONS for crediting 07BC (or any body like it), and all three must hold:
+1. THE HOST IS NAMED: the row says which body's artifact contains it (0E0C) and where in that artifact (the load_hook function), so a reader can find the code.
+2. IT HAS ITS OWN BYTE EVIDENCE: its own checker over its own [07BC, ...) range - the same standard as any other row. Being inside a strict closure is not evidence; it is a location.
+3. IT IS COUNTED IN ITS OWN CLASS, reported as e.g. 'strict 281 + pinned 1', NOT folded in as 282. The owner's number stays honest: one artifact, one credit, and the pinned class says how much of the ceiling is covered by code we have already written inside a neighbour.
+AND THE HONEST HEADLINE THAT COMES WITH IT: pinned rows are real coverage of the ceiling, so the ceiling is being approached faster than the strict count suggests. I would rather report '281 strict, 1 pinned' than a single number that quietly counts one artifact twice.
+par-e: this is my ruling, so the grant is yours to make but the accounting shape is fixed. Add a pinned class to the table when you grant it, with the host named.
