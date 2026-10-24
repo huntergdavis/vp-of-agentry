@@ -556,7 +556,18 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
     # called FAILED and that arrived as turns (i23545). So it is reported as UNCONFIRMED, not
     # as a failure - a 409 here would invite the owner to resend and double-deliver. Only a
     # hard refusal (non-zero exit, or sent=false) is an error.
-    if not refused and "did not submit" in detail.lower():
+    # Checked BEFORE the exit code, not after: since 2.70.2 a failed submit exits non-zero,
+    # so an exit-code-first order would turn a delivered-but-unconfirmed message back into a
+    # 409 - which is the double-delivery trap.
+    # A third state the desk must not flatten: the guard HELD the message because a human is
+    # typing in that pane. It is queued, not sent and not failed.
+    if "queued for" in detail.lower() and "typing" in detail.lower():
+        return {"ok": True, "pane": pane, "route": route, "sent": False, "queued": True,
+                "expect": cap.get("expect"), "detail": detail,
+                "note": ("Held by the typing guard: a human is typing in this pane, so the "
+                         "message is queued and will be sent when the box is free. It has "
+                         "NOT arrived yet - do not treat this as delivered.")}
+    if "did not submit" in detail.lower():
         return {"ok": True, "pane": pane, "route": route, "sent": sent_flag,
                 "unconfirmed": True, "expect": cap.get("expect"), "detail": detail,
                 "note": ("Typed on the lane's behalf, but the sender could not confirm the "
