@@ -781,6 +781,30 @@ def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int
                 "unanswered": unanswered}
 
 
+DS_HTTP = os.getenv("VP_DS_HTTP", "http://127.0.0.1:8792")
+
+
+@app.get("/api/message-state")
+def message_state(ids: str, _: Annotated[str, Depends(require_auth)]):
+    """Proxy Dunking Sheep's per-message sent/delivered/seen/replied state.
+
+    The definitions of delivered/seen/replied belong to Dunking Sheep; the
+    desk only forwards them so the browser never calls another origin.
+    """
+    try:
+        wanted = [int(part) for part in ids.split(",") if part][:30]
+    except ValueError:
+        raise HTTPException(400, "ids must be comma-separated numbers")
+    if not wanted:
+        return {"messages": []}
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{DS_HTTP}/api/messages/state?ids={','.join(map(str, wanted))}", timeout=4) as response:
+            return json.loads(response.read())
+    except Exception as exc:
+        raise HTTPException(503, f"message state unavailable: {exc}") from exc
+
+
 @app.get("/api/deliveries")
 def deliveries(channel: str, ids: str, _: Annotated[str, Depends(require_auth)]):
     if not _known_channel(channel):

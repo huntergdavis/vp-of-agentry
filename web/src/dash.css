@@ -450,3 +450,11 @@ tr.delivery-late td { background: rgba(181, 84, 27, .08); }
 /* Slim presence line on the owner chat pages (replaces the header layer). */
 .dash-presence { display: flex; gap: 12px; align-items: baseline; padding: 8px 18px; border-bottom: 1px solid var(--dash-border, rgba(255,255,255,.08)); font-size: 13px; }
 .dash-presence strong { font-weight: 600; }
+
+/* Owner chat: four-step message status, full-width bubbles. */
+.message-steps { display: inline-flex; gap: 10px; font-size: 11px; }
+.message-step { text-decoration: none; color: var(--dash-muted); }
+.message-step.done { color: #8fd18f; }
+.message-step.bad { color: #ef8a8a; font-weight: 600; }
+.dash-root .message-wrap { max-width: 100%; }
+.dash-root .message-wrap .cs-message__content-wrapper { width: 100%; max-width: 100% !important; }

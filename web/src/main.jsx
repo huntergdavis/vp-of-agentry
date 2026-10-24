@@ -139,7 +139,53 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
   </section>;
 }
 
-function MessageCard({ item, highlight, onSendNow, onInspect }) {
+// Four owner-message steps. The meaning of delivered/seen/replied comes from
+// Dunking Sheep (/api/message-state); with no state yet, fall back to the
+// desk's own delivery fields and never show a bare "queued".
+function messageSteps(item, state) {
+  const sentAt = state?.sent?.at || item.created_at;
+  const delivered = state ? state.delivered?.ok === true
+    : ['inbox', 'read', 'acked'].includes(item.delivery);
+  // Only the desk's own failed/uncertain marks a failure; ok:false from the state endpoint can just mean not delivered yet.
+  const failed = ['failed', 'uncertain'].includes(item.delivery);
+  const seen = state ? Boolean(state.seen?.at) : ['read', 'acked'].includes(item.delivery);
+  const repliedId = state?.replied?.reply_id || item.answer_id || null;
+  const replied = state ? Boolean(state.replied?.at || state.replied?.reply_id) : Boolean(item.answer_id);
+  return [
+    { key: 'sent', label: 'Sent', ok: true, title: `Sent ${new Date(sentAt).toLocaleString()}` },
+    { key: 'delivered', label: failed ? 'Not delivered' : 'Delivered', ok: delivered, bad: failed,
+      title: state?.delivered?.detail || state?.delivered?.reason || item.delivery_detail || (delivered ? 'Delivered' : 'Waiting for delivery') },
+    { key: 'seen', label: 'Seen', ok: seen, title: seen ? `Seen ${state?.seen?.at ? new Date(state.seen.at).toLocaleString() : ''}` : (state?.seen?.reason || 'Not picked up yet') },
+    { key: 'replied', label: 'Replied', ok: replied, href: repliedId ? `#message-${repliedId}` : undefined,
+      title: replied ? `Replied${state?.replied?.at ? ' ' + new Date(state.replied.at).toLocaleString() : ''}` : (state?.replied?.reason || 'No reply yet') },
+  ];
+}
+
+// Last reply and median reply time for this channel, from the loaded messages
+// (owner messages whose answer_id points at an agent brief also loaded).
+function replyTimes(items) {
+  const byId = new Map(items.map(m => [m.id, m]));
+  const waits = items.filter(m => m.role === 'owner' && m.answer_id && byId.has(m.answer_id))
+    .map(m => (new Date(byId.get(m.answer_id).created_at) - new Date(m.created_at)) / 1000)
+    .filter(n => n >= 0).sort((a, b) => a - b);
+  const lastAgent = [...items].reverse().find(m => m.role !== 'owner');
+  const fmt = sec => sec < 90 ? `${Math.round(sec)}s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`;
+  const ago = lastAgent ? fmt(Math.max(0, (Date.now() - new Date(lastAgent.created_at)) / 1000)) + ' ago' : 'no reply yet';
+  const median = waits.length ? ` · median reply ${fmt(waits[Math.floor(waits.length / 2)])} (${waits.length})` : '';
+  return `last reply ${ago}${median}`;
+}
+
+function MessageSteps({ item, state }) {
+  return <span className="message-steps" aria-label="Message status">{messageSteps(item, state).map(step => {
+    const cls = `message-step ${step.bad ? 'bad' : step.ok ? 'done' : 'todo'}`;
+    const mark = step.bad ? '✕' : step.ok ? '✓' : '·';
+    return step.href && step.ok
+      ? <a key={step.key} className={cls} href={step.href} title={step.title}>{mark} {step.label}</a>
+      : <span key={step.key} className={cls} title={step.title}>{mark} {step.label}</span>;
+  })}</span>;
+}
+
+function MessageCard({ item, state, highlight, onSendNow, onInspect }) {
   const owner = item.role === 'owner';
   const [expanded, setExpanded] = useState(false);
   const long = String(item.body || '').length > 1200;
@@ -155,7 +201,7 @@ function MessageCard({ item, highlight, onSendNow, onInspect }) {
   const waitingMinutes = Math.floor(waitingSeconds / 60);
   const heldForDraft = item.delivery_detail?.includes('someone is typing') || item.delivery_detail?.includes('input box contains a draft');
   return <div className={`message-wrap ${owner ? 'owner' : 'agent'} ${highlight ? 'highlight' : ''}`} id={`message-${item.id}`}>
-    <div className="message-meta"><strong>{owner ? 'YOU' : 'AGENT'}</strong><span>{new Date(item.created_at).toLocaleString()}</span>{owner && <><span className={`delivery ${item.delivery}`} title={item.delivery_detail}>{deliveryLabel}</span><a className={`answer-state ${answerState}`} href={item.answer_id ? `#message-${item.answer_id}` : undefined} title={answerState === 'answered' ? `Answered by brief #${item.answer_id}` : answerState === 'acknowledged' ? 'Read/acknowledged, but no brief links this message yet' : 'Not read or answered yet'}>{answerLabel}</a></>}</div>
+    <div className="message-meta"><strong>{owner ? 'YOU' : 'AGENT'}</strong><span>{new Date(item.created_at).toLocaleString()}</span>{owner && <MessageSteps item={item} state={state} />}</div>
     <Message model={{ message: '', direction: owner ? 'outgoing' : 'incoming', position: 'single', sender: owner ? 'You' : 'Agent' }}>
       <Message.CustomContent><div className={`markdown ${long && !expanded ? 'clamped' : ''}`}><ReactMarkdown>{item.body}</ReactMarkdown></div>
         {long && <button className="message-expand" onClick={() => setExpanded(value => !value)}>{expanded ? 'Show less' : `Show full message (${String(item.body || '').length.toLocaleString()} chars)`}</button>}
@@ -401,7 +447,22 @@ function VpStandalone({ channel = 'vp' }) {
   const listRef = useRef(null);
   const nearBottomRef = useRef(true); const lastIdRef = useRef(null); const ownSendRef = useRef(null);
   const [showLatest, setShowLatest] = useState(false);
+  const [states, setStates] = useState({});
   const selected = channels.find(c => c.id === channel);
+  const pendingIds = items.filter(m => m.role === 'owner' && !m.answer_id).slice(-12).map(m => m.id).join(',');
+  useEffect(() => {
+    if (!pendingIds) return undefined;
+    let live = true;
+    const loadStates = async () => {
+      try {
+        const data = await api(`/message-state?ids=${pendingIds}`);
+        if (live) setStates(old => ({ ...old, ...Object.fromEntries((data.messages || []).filter(m => m.found).map(m => [m.id, m])) }));
+      } catch (_) { /* fall back to the desk's own delivery fields */ }
+    };
+    loadStates();
+    const timer = setInterval(loadStates, 10000);
+    return () => { live = false; clearInterval(timer); };
+  }, [pendingIds]);
   useEffect(() => {
     let live = true;
     const load = async () => {
@@ -425,6 +486,8 @@ function VpStandalone({ channel = 'vp' }) {
     lastIdRef.current = latest;
     const ownSend = ownSendRef.current != null && items.some(item => item.id === ownSendRef.current);
     const incoming = previous != null && latest != null && latest > previous;
+    const firstLoad = previous == null && latest != null;
+    if (firstLoad) { pane.scrollTop = pane.scrollHeight; return; }
     if (!incoming && !ownSend) return;
     if (incoming && !ownSend && !nearBottomRef.current) { setShowLatest(true); return; }
     nearBottomRef.current = true; setShowLatest(false);
@@ -450,6 +513,7 @@ function VpStandalone({ channel = 'vp' }) {
     <div className="dash-presence">
       <strong>{route.title}</strong>
       {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
+      <span className="dash-meta">{replyTimes(items)}</span>
       <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
     </div>
     <div className="dash-body dash-conversation">
@@ -457,7 +521,7 @@ function VpStandalone({ channel = 'vp' }) {
       <div className="conversation" ref={listRef} onScroll={onScroll}>
         <div className="conversation-inner">
           {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here.</p></div>}
-          <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
+          <MessageList>{items.map(item => <MessageCard key={item.id} item={item} state={states[item.id]} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
       {showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}
