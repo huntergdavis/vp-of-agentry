@@ -76,11 +76,11 @@ All three deleted after recording. The daemon that served these is 2.68.1, code 
 
 | # | gate | result | evidence |
 |---|---|---|---|
-| G1 | delivery into a previously unreachable lane, proven from inside the lane | NOT RUN | needs a herdr lane to echo a message id; dunkies |
-| G2 | idle/typing hold: delivery must not type over a busy agent | NOT RUN | needs a busy lane; dunkies |
+| G1 | a real message delivered to a live pane and quoted back from inside | **PASS 13:15:04** | Probe i23278 sent to %4; dunkies read it with its own `dunkingsheep inbox read` (not the daemon, not inbox.db) and quoted id + mailbox + timestamp. It then corrected its own first stamp (13:20 from memory -> 13:15:04 from the clock), which is the same "quote the clock, not the intention" failure this file records for itself. Limits stated by the lane: it is a fresh twin, so this proves delivery and reading, NOT that a restored lane with history reads its mail - that stays with the resume proof. Sender attribution also correct (%2 shows as %2). |
+| G2 | idle/typing hold: delivery must not type over a busy agent | NOT RUN | needs a deliberately busy lane and a delivery attempt; not run, and not claimed. |
 | G3 | a pane resolves to its OWN mailbox | PASS 12:32 | from %2: `inbox count` -> "π - chief-of-staff: 1 unread of 12". Before the fix the same call answered "vp of agentry: 0 unread of 2071". This is a real improvement and it is the first gate to pass. |
 | G4 | save-state capture usable for resume | FAIL | 33 lanes captured, but all five live tmux panes have session_id, model and thinking NULL, with model_reason "the launching argv carries no model flag". That reason is wrong for session_id - the true cause is a bare launch with no --session - so the field is null WITH A MISLEADING REASON, which is worse than null with no reason. Unusable for resume. |
-| G5 | herdr not in the path (stopped, not merely unused) | NOT RUN | fleet action; 40 agents still in herdr panes |
+| G5 | herdr not in the path (stopped, not merely unused) | NOT RUN | herdr is still installed and running, now holding shells rather than agents since the 12:37 exit. One positive datum: a one-shot dunk fired into %1 at 12:34:33 and was read there, so the tmux path can deliver scheduled work. Gate 5 itself needs herdr stopped, which is a fleet decision, not a test. |
 
 ## Note on the clock
 
