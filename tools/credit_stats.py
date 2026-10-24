@@ -82,19 +82,23 @@ def strict_events(repo, since):
     return events
 
 
-def value_at(events, moment):
+def value_at(events, moment, floor=None):
+    """The count pinned at `moment`; `floor` before the first event (None = unknown)."""
     known = [e for e in events if e[0] <= moment]
-    return known[-1][2] if known else None
+    return known[-1][2] if known else floor
 
 
-def daily(events, now, days=DAYS):
-    """Net change per Los Angeles calendar day, oldest first, from the event series."""
+def daily(events, now, days=DAYS, floor=None):
+    """Net change per Los Angeles calendar day, oldest first, from the event series.
+
+    floor is the value before the first event: unknown (None) for the checkpoint,
+    which did not exist; 0 for replaced, since nothing is replaced before its proof."""
     today = now.astimezone(LOCAL).replace(hour=0, minute=0, second=0, microsecond=0)
     rows = []
     for back in range(days - 1, -1, -1):
         start = today - timedelta(days=back)
         end = min(start + timedelta(days=1), now)
-        before, after = value_at(events, start), value_at(events, end)
+        before, after = value_at(events, start, floor), value_at(events, end, floor)
         rows.append({"day": start.strftime("%Y-%m-%d"),
                      "net": (after - before) if before is not None and after is not None else None,
                      "events": sum(1 for e in events if start <= e[0] < end)})
@@ -202,7 +206,7 @@ def collect(repo=None, *, now=None):
                   "(credited) and proven_at records (replaced). Not a difference of snapshots.",
         "credited": daily(credit_events, now) if credit_events else None,
         "credited_reason": None if credit_events else (credited.get("reason") or "no checkpoint events in the window"),
-        "replaced": daily(replace_events, now) if replace_events else None,
+        "replaced": daily(replace_events, now, floor=0) if replace_events else None,
         "replaced_reason": None if replace_events else (replaced.get("reason") or "no proven replacements yet"),
         "source": f"git log of {CHECKPOINT}; {REPLACED_FILE} proven_at",
     }

@@ -47,7 +47,8 @@ class GuardTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=240,
                 env={**os.environ, "VP_COST_HOME": str(empty), "VP_OPS_DB": str(empty / "ops.sqlite3"),
                      "FREE_MODEL_LEDGER": str(empty / "ledger.md"),
-                     "POOLRAD_CHECKPOINT": str(empty / "repo" / "docs" / "re" / "checkpoint.json")})
+                     "POOLRAD_CHECKPOINT": str(empty / "repo" / "docs" / "re" / "checkpoint.json"),
+                     "VP_FREE_RUNS": str(empty / "free_runs"), "VP_BAKEOFF": str(empty / "bakeoff")})
             self.assertEqual(0, proc.returncode, proc.stderr)
             self.assertNotIn(str(production), proc.stdout,
                              "--out must be honoured; the production path must not be written")
@@ -66,6 +67,8 @@ class GuardTests(unittest.TestCase):
             self.assertIsNone(snapshot["free_model"]["outcomes_recorded"]["value"])
             self.assertEqual("nulled", snapshot["usage"]["status"])
             self.assertEqual("nulled", snapshot["credited"]["status"])
+            self.assertEqual("nulled", snapshot["free_leaderboard"]["status"])
+            self.assertEqual("nulled", snapshot["reply_leaderboard"]["status"])
             self.assertIn("not yet collected", snapshot["replaced"]["reason"])
             for name in ("dunks", "inbox", "delivery_latency", "delivery_health"):
                 self.assertEqual("nulled", snapshot[name]["status"], name)

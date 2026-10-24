@@ -55,7 +55,7 @@ export function FreeModelVolume({ section }) {
   if (section.status !== 'ok') return <div className="snapshot-costs" data-panel="free-model-volume"><h3>Free-model work volume</h3><div className="snapshot-missing">{section.reason}</div></div>;
   const models = section.models || [];
   return <div className="snapshot-costs" data-panel="free-model-volume">
-    <h3>Free-model work volume</h3>
+    <h3>Free-model sessions (harness logs)</h3>
     <div className="snapshot-backlog-counts">
       <span><b>{num(section.runs_month)}</b> runs this month</span>
       <span><b>{num(section.runs_24h)}</b> in 24h</span>

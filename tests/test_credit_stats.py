@@ -99,6 +99,8 @@ class CreditRules(unittest.TestCase):
         self.assertEqual(result["replaced"]["not_counted"]["value"], 1)
         days = {d["day"]: d["net"] for d in result["rate"]["replaced"]}
         self.assertEqual(days["2026-10-23"], 1)
+        self.assertEqual(days["2026-10-22"], 1, "the first proof day counts from zero, not from unknown")
+        self.assertEqual(days["2026-10-20"], 0, "before any proof, replaced is a known zero")
 
     def test_a_missing_repo_is_null_with_reason(self):
         result = self.mod.collect(Path(self.tmp.name) / "nope", now=NOW)
