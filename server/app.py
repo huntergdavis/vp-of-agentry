@@ -514,8 +514,23 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
     if not cap.get("alive"):
         raise HTTPException(status_code=409, detail=f"{pane} is not alive: nothing to send to")
     route = cap.get("send")
+    desk_token = (os.environ.get("DUNKINGSHEEP_DESK_TOKEN") or "").strip()
+    token_file = Path("data/desk-token.txt")
+    if not desk_token and token_file.exists():
+        try:
+            desk_token = token_file.read_text().strip()
+        except OSError:
+            desk_token = ""
+    if route == "guarded" and not desk_token:
+        raise HTTPException(
+            status_code=409,
+            detail=("no desk credential is configured yet: the daemon grants typed sends "
+                    "only through a narrow desk token (send to listed panes). Issue one with "
+                    "`dunkingsheep desk-token --panes ...` and put it in data/desk-token.txt "
+                    "or DUNKINGSHEEP_DESK_TOKEN. Until then this lane cannot be typed into."))
     argv = (["dunkingsheep", "owner", "push", pane, text] if route == "owner_push"
-            else ["dunkingsheep", "send", pane, text] if route == "guarded"
+            else ["dunkingsheep", "send", pane, text, "--desk-token", desk_token]
+            if route == "guarded"
             else None)
     if argv is None:
         raise HTTPException(status_code=409,
