@@ -87,11 +87,22 @@ refuse on, which is exactly how a bare twin can look like a resumed lane.
 - **Two refusal tokens, not three.** `unknown_name` (never a lane) and `dead_lane` (a lane
   with no live reader). The operator has two actions, fix the typo or restore the lane; a
   third token describing which backend a lane was never housed on encoded an implementation
-  detail, not a situation. History footnote, because the code went the other way for exactly
-  one commit: `unhoused_lane` shipped in `edb6dae` (2.69.3) and was withdrawn in `17760dd`
-  (2.69.4). It is recorded here so the record reads as a correction rather than a mystery -
-  and because the acceptance run at 13:04:39 shows behaviour green with the wrong vocabulary,
-  which is why the vocabulary was tested separately from the behaviour.
+  detail, not a situation - but the final answer is three, and the churn is recorded rather
+  than tidied. Two tokens were ruled; `edb6dae` (2.69.3) shipped `unhoused_lane`; the VP
+  reversed to three states at 13:06; `17760dd` (2.69.4) committed two again; the reversal was
+  then withdrawn and `d6b995e` (2.69.5) committed three, which is what is verified now:
+  `unknown_name` (never a lane), `dead_lane` (marked dead with `dead_since`), `unhoused_lane`
+  (exists, not marked dead, no live pane on this backend, no invented date). The word flipped
+  twice in ten minutes and the reversal was the VP's, not the lane's. Kept because the
+  acceptance run at 13:04:39 shows behaviour green with the wrong vocabulary, which is why
+  vocabulary is tested separately from behaviour.
+
+- **`dead_lane` has no producer yet, and that is a procedure rather than a gap.** Nothing is
+  marked dead today: the refusal for a lane with no live pane is `unhoused_lane`, which means
+  "not running here". When the owner declines a lane group at revival, those registry rows
+  get `alive=false` with `dead_since=<date>`, and from then on mail to them says dead since a
+  date rather than merely not running. The owner's revival decision is therefore what feeds
+  the registry - parked and gone are different states, and only a decision makes a lane gone.
 
 ## 4. Revival runbook - one lane, start to finish
 
