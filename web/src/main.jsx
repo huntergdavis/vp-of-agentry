@@ -21,6 +21,8 @@ import { CreditedPanel, RatePanel, ReplacedPanel } from './credit-panels.jsx';
 import { BOARD_NOTE, hiddenNote, isHidden, visible } from './hidden.js';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+// Store exactly what the owner typed: turndown's default escaping turns "[x]" into "\[x\]".
+td.escape = text => text;
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options });
   if (!response.ok) {
@@ -142,6 +144,20 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
 // Four owner-message steps. The meaning of delivered/seen/replied comes from
 // Dunking Sheep (/api/message-state); with no state yet, fall back to the
 // desk's own delivery fields and never show a bare "queued".
+function fmtLatency(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return '?';
+  return sec < 90 ? `${Math.round(sec)}s` : sec < 5400 ? `${Math.round(sec / 60)} min` : `${(sec / 3600).toFixed(1)} h`;
+}
+
+// Channel line: how fast the latest owner message was seen (sent -> seen, from Dunking Sheep).
+function lastSeenLine(items, states) {
+  const mine = items.filter(m => m.role === 'owner').reverse();
+  const hit = mine.find(m => states[m.id]?.seen?.at);
+  if (!hit) return '';
+  const st = states[hit.id];
+  return ` · last message seen in ${fmtLatency((new Date(st.seen.at) - new Date(st.sent?.at || hit.created_at)) / 1000)}`;
+}
+
 function messageSteps(item, state) {
   const sentAt = state?.sent?.at || item.created_at;
   const delivered = state ? state.delivered?.ok === true
@@ -155,7 +171,7 @@ function messageSteps(item, state) {
     { key: 'sent', label: 'Sent', ok: true, title: `Sent ${new Date(sentAt).toLocaleString()}` },
     { key: 'delivered', label: failed ? 'Not delivered' : 'Delivered', ok: delivered, bad: failed,
       title: state?.delivered?.detail || state?.delivered?.reason || item.delivery_detail || (delivered ? 'Delivered' : 'Waiting for delivery') },
-    { key: 'seen', label: 'Seen', ok: seen, title: seen ? `Seen ${state?.seen?.at ? new Date(state.seen.at).toLocaleString() : ''}` : (state?.seen?.reason || 'Not picked up yet') },
+    { key: 'seen', label: seen && state?.seen?.at && sentAt ? `Seen +${fmtLatency((new Date(state.seen.at) - new Date(sentAt)) / 1000)}` : 'Seen', ok: seen, title: seen ? `Seen ${state?.seen?.at ? new Date(state.seen.at).toLocaleString() : ''}` : (state?.seen?.reason || 'Not picked up yet') },
     { key: 'replied', label: 'Replied', ok: replied, href: repliedId ? `#message-${repliedId}` : undefined,
       title: replied ? `Replied${state?.replied?.at ? ' ' + new Date(state.replied.at).toLocaleString() : ''}` : (state?.replied?.reason || 'No reply yet') },
   ];
@@ -449,7 +465,7 @@ function VpStandalone({ channel = 'vp' }) {
   const [showLatest, setShowLatest] = useState(false);
   const [states, setStates] = useState({});
   const selected = channels.find(c => c.id === channel);
-  const pendingIds = items.filter(m => m.role === 'owner' && !m.answer_id).slice(-12).map(m => m.id).join(',');
+  const pendingIds = items.filter(m => m.role === 'owner').slice(-12).map(m => m.id).join(',');
   useEffect(() => {
     if (!pendingIds) return undefined;
     let live = true;
@@ -513,7 +529,7 @@ function VpStandalone({ channel = 'vp' }) {
     <div className="dash-presence">
       <strong>{route.title}</strong>
       {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
-      <span className="dash-meta">{replyTimes(items)}</span>
+      <span className="dash-meta">{replyTimes(items)}{lastSeenLine(items, states)}</span>
       <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
     </div>
     <div className="dash-body dash-conversation">

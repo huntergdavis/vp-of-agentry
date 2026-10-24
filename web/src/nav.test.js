@@ -27,3 +27,8 @@ test('no page renders its own row of dashboard links (the left bar is the only n
   assert.ok(!source.includes('dash-nav-links'), 'no link row above or inside page content');
 });
 
+
+test('the composer stores what was typed: turndown escaping stays off', () => {
+  const source = readFileSync(join(here, 'main.jsx'), 'utf8');
+  assert.ok(source.includes('td.escape = text => text'), 'turndown would turn [x] into \\[x\\] and eat markdown characters');
+});

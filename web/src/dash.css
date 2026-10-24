@@ -458,3 +458,6 @@ tr.delivery-late td { background: rgba(181, 84, 27, .08); }
 .message-step.bad { color: #ef8a8a; font-weight: 600; }
 .dash-root .message-wrap { max-width: 100%; }
 .dash-root .message-wrap .cs-message__content-wrapper { width: 100%; max-width: 100% !important; }
+
+/* Show stored text faithfully: single newlines stay line breaks, long tokens wrap instead of overflowing. */
+.dash-root .message-wrap .markdown p { white-space: pre-line; overflow-wrap: anywhere; }
