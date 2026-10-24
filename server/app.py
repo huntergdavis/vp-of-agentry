@@ -552,6 +552,13 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
             sent_flag = None
         if sent_flag is False:
             refused = True
+    # The sender reports a failed submit in its own words AND still exits 0, so the exit code
+    # is not the verdict. "FAILED" / "did not submit" is the sender's protocol, not a guess:
+    # if the text is still in the pane's box, the owner must not be told it was delivered.
+    if not refused and detail.upper().startswith("FAILED"):
+        refused = True
+    if not refused and "did not submit" in detail.lower():
+        refused = True
     if refused:
         raise HTTPException(status_code=409, detail=detail or "refused")
     note = ("stored for the lane to drain; nothing typed into the pane"
