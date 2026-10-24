@@ -402,6 +402,10 @@ def channels(_: Annotated[str, Depends(require_auth)]):
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
+_FLEET_CACHE = {"at": 0.0, "payload": None}
+_FLEET_TTL_S = 3.0
+
+
 @app.get("/api/fleet")
 def api_fleet():
     """The live fleet as the owner needs to see it: who is running, doing what, and what is
@@ -411,6 +415,13 @@ def api_fleet():
     herdr pane list, which still reports ~40 shells and made the desk say "idle" while nine
     agents were working. A pane with no agent is not a lane and is not shown; it is a shell.
     """
+    # Cached for a few seconds on purpose: the view polls, and without this every open tab
+    # would spawn a `dunkingsheep panes` CLI process per poll - three tabs, three processes,
+    # every five seconds. The cache is what makes the poll honest.
+    cached = _FLEET_CACHE
+    if cached["payload"] is not None and (time.time() - cached["at"]) < _FLEET_TTL_S:
+        return cached["payload"]
+
     cfg = Path(os.path.expanduser("~/.config/dunkingsheep"))
     try:
         raw = subprocess.run(["dunkingsheep", "panes", "--json"], capture_output=True,
@@ -490,8 +501,10 @@ def api_fleet():
             "session": sessions.get(pane_id),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
-    return {"rows": rows, "count": len(rows),
-            "note": "shells and dead panes are not lanes and are not listed"}
+    payload = {"rows": rows, "count": len(rows),
+               "note": "shells and dead panes are not lanes and are not listed"}
+    _FLEET_CACHE["at"], _FLEET_CACHE["payload"] = time.time(), payload
+    return payload
 
 
 @app.get("/api/ops-metrics")

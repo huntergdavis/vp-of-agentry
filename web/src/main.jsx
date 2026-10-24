@@ -27,7 +27,7 @@ const api = async (path, options = {}) => {
 
 const DASH_ROUTES = {
   poolrad: { eyebrow: 'POOLRAD', title: 'Original C bodies', subtitle: 'Completion against the PM-reviewed 815 upper bound' },
-  fleet: { eyebrow: 'FLEET', title: 'Terminals', subtitle: 'Live lanes, what they are doing, what is waiting for them' },
+  fleet: { eyebrow: 'FLEET', title: 'Lanes', subtitle: 'Live lanes, what they are doing, what is waiting for them' },
   operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
@@ -457,7 +457,7 @@ function Fleet({ standalone = false }) {
   }
   useEffect(() => {
     load();
-    const timer = setInterval(load, 5000);
+    const timer = setInterval(load, 10000);
     return () => clearInterval(timer);
   }, []);
   const age = value => {
