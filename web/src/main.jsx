@@ -442,7 +442,7 @@ function HerdrWebUi() {
     <DashHeader eyebrow="OLD PANE MANAGER" title="Herdr web UI (rollback)" subtitle="The retired pane manager, kept only as the rollback for one week" />
     <div className="dash-body" style={{ padding: 0, display: 'flex' }}>
       {error && <div className="dash-error" role="alert">{error}</div>}
-      {config && !config.available && <div className="dash-empty" style={{ margin: 20 }}>The Herdr web UI is not configured on this host yet.</div>}
+      {config && !config.available && <div className="dash-empty" style={{ margin: 20 }}>The old pane manager is not configured on this host.</div>}
       {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
     </div>
   </DashShell>;
@@ -451,6 +451,8 @@ function HerdrWebUi() {
 function Fleet({ standalone = false }) {
   const [fleet, setFleet] = useState(null);
   const [error, setError] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [paneText, setPaneText] = useState(null);
   async function load() {
     try { setFleet(await api('/fleet')); setError(''); }
     catch (e) { setError(e.message); }
@@ -460,6 +462,19 @@ function Fleet({ standalone = false }) {
     const timer = setInterval(load, 10000);
     return () => clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (!selected) { setPaneText(null); return; }
+    let alive = true;
+    async function loadText() {
+      try {
+        const data = await api(`/pane-text?pane=${encodeURIComponent(selected)}&lines=40`);
+        if (alive) setPaneText(data);
+      } catch (e) { if (alive) setPaneText({ pane: selected, text: '', reason: e.message }); }
+    }
+    loadText();
+    const timer = setInterval(loadText, 3000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [selected]);
   const age = value => {
     if (value === null || value === undefined) return 'no activity recorded';
     if (value < 90) return `${value}s ago`;
@@ -474,7 +489,10 @@ function Fleet({ standalone = false }) {
     {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
       <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last activity</th><th>unread</th><th>pane</th></tr></thead>
       <tbody>
-        {fleet.rows.map(row => <tr key={row.pane_id}>
+        {fleet.rows.map(row => <tr key={row.pane_id}
+            onClick={() => setSelected(row.pane_id)}
+            aria-selected={selected === row.pane_id}
+            style={{ cursor: 'pointer' }}>
           <td>{row.name}</td>
           <td>{row.project || '-'}</td>
           <td>{row.agent}</td>
@@ -484,6 +502,13 @@ function Fleet({ standalone = false }) {
         </tr>)}
       </tbody>
     </table>}
+    {selected && <section className="dash-terminal" data-testid="pane-text">
+      <h2>Terminal <code>{selected}</code> <span className="dash-muted">read-only</span></h2>
+      <p className="dash-lead">This is the terminal's own text. Typing arrives with the delivery path - until then there is no box here on purpose, rather than a box that cannot deliver.</p>
+      {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
+      {paneText && !paneText.reason && <pre className="dash-terminal-text">{paneText.text}</pre>}
+      {!paneText && <p className="dash-empty">Reading the pane…</p>}
+    </section>}
   </DashShell>;
 }
 
