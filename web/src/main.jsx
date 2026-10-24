@@ -541,6 +541,14 @@ function Fleet({ standalone = false }) {
           {lane.pending ? ` ${lane.pending} message(s) pushed and not yet taken.` : ''}
         </p>;
       })()}
+      {(() => {
+        const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
+        if (!lane || lane.send !== 'guarded') return null;
+        return <p className="dash-error" role="status">
+          Typing into this lane is not yet available: it needs a narrow send capability the daemon does not grant the desk yet.
+          The refusal below is shown exactly as delivered - it is a permission boundary, not a bug in your browser.
+        </p>;
+      })()}
       <form onSubmit={send}>
         <label htmlFor="lane-draft">Message this lane</label>
         <textarea id="lane-draft" rows={3} value={draft}
