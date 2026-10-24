@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_costs  # noqa: E402
 import delivery_stats  # noqa: E402
 import credit_stats  # noqa: E402
+import free_leaderboard  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "data" / "ops-snapshot.json"
@@ -579,6 +580,7 @@ def main(argv=None):
     free = costs["free_model"]
     delivery = delivery_stats.collect(DUNK_DIR)
     credit = credit_stats.collect(CHECKPOINT.parents[2])
+    leaderboard = free_leaderboard.collect()
 
     agents = []
     for lane in sorted(rows):
@@ -669,6 +671,8 @@ def main(argv=None):
         # expected state until a lane writes the file, not a broken source.
         "credited": {"status": credit["credited"]["status"], "reason": credit["credited"].get("reason")},
         "credit_rate": {"status": credit["rate"]["status"], "reason": credit["rate"].get("credited_reason")},
+        "free_leaderboard": {"status": leaderboard["status"],
+                             "reason": leaderboard.get("reason") or "; ".join(leaderboard.get("problems") or []) or None},
     }
     context = collect_context()
     dispatch = collect_dispatch()
@@ -702,6 +706,7 @@ def main(argv=None):
         "credited": credit["credited"],
         "replaced": credit["replaced"],
         "credit_rate": credit["rate"],
+        "free_leaderboard": leaderboard,
         "attribution": {
             "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
             "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),

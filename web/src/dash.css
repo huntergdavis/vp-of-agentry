@@ -435,3 +435,9 @@ tr.delivery-late td { background: rgba(181, 84, 27, .08); }
 .credit-bars rect.neg { fill: #b5541b; }
 .credit-bars .credit-gap, .credit-bars .credit-axis { font-size: 9px; fill: currentColor; opacity: .6; }
 .credit-bars figcaption { font-size: 11px; opacity: .7; }
+
+/* Free-model leaderboard (leaderboard-panel.jsx, owner #1426) */
+.leader-null { font-style: italic; opacity: .6; }
+.leader-tier.free { color: #4d8a3a; font-weight: 600; }
+.leader-tier.metered { color: #b5541b; font-weight: 600; }
+.leader-truth { margin-top: 8px; padding: 6px 10px; border-left: 3px solid #b5541b; font-size: 13px; }
