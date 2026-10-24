@@ -27,6 +27,7 @@ const api = async (path, options = {}) => {
 
 const DASH_ROUTES = {
   poolrad: { eyebrow: 'POOLRAD', title: 'Original C bodies', subtitle: 'Completion against the PM-reviewed 815 upper bound' },
+  fleet: { eyebrow: 'FLEET', title: 'Terminals', subtitle: 'Live lanes, what they are doing, what is waiting for them' },
   operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
@@ -444,6 +445,45 @@ function HerdrWebUi() {
       {config && !config.available && <div className="dash-empty" style={{ margin: 20 }}>The Herdr web UI is not configured on this host yet.</div>}
       {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
     </div>
+  </DashShell>;
+}
+
+function Fleet({ standalone = false }) {
+  const [fleet, setFleet] = useState(null);
+  const [error, setError] = useState('');
+  async function load() {
+    try { setFleet(await api('/fleet')); setError(''); }
+    catch (e) { setError(e.message); }
+  }
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, []);
+  const age = value => {
+    if (value === null || value === undefined) return 'no activity recorded';
+    if (value < 90) return `${value}s ago`;
+    if (value < 5400) return `${Math.round(value / 60)}m ago`;
+    return `${(value / 3600).toFixed(1)}h ago`;
+  };
+  return <DashShell standalone={standalone} view="fleet">
+    <p className="dash-lead">Every live lane, from the lane registry. Shells and dead panes are not listed - a pane with no agent is not a terminal anyone is working in.</p>
+    {error && <p className="dash-error">{error}</p>}
+    {!fleet && !error && <p className="dash-empty">Loading the fleet…</p>}
+    {fleet && !fleet.rows.length && <p className="dash-empty">No live lanes right now. That is a real zero, not a failed fetch - the fleet list came back empty.</p>}
+    {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
+      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last activity</th><th>unread</th><th>pane</th></tr></thead>
+      <tbody>
+        {fleet.rows.map(row => <tr key={row.pane_id}>
+          <td>{row.name}</td>
+          <td>{row.project || '-'}</td>
+          <td>{row.agent}</td>
+          <td>{age(row.last_activity_s)}</td>
+          <td>{row.unread || ''}</td>
+          <td><code>{row.pane_id}</code></td>
+        </tr>)}
+      </tbody>
+    </table>}
   </DashShell>;
 }
 
@@ -951,6 +991,7 @@ function StandaloneDesk({ view, known }) {
     </DashShell>;
   }
   if (view === 'poolrad') return <PoolradProgress standalone />;
+  if (view === 'fleet') return <Fleet standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
   if (view === 'play') return <PoolradPlay standalone />;
   return <VpStandalone />;

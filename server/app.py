@@ -402,6 +402,98 @@ def channels(_: Annotated[str, Depends(require_auth)]):
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
+@app.get("/api/fleet")
+def api_fleet():
+    """The live fleet as the owner needs to see it: who is running, doing what, and what is
+    waiting for them.
+
+    Source is the pinned lane registry and the daemon's own view of the panes - never the
+    herdr pane list, which still reports ~40 shells and made the desk say "idle" while nine
+    agents were working. A pane with no agent is not a lane and is not shown; it is a shell.
+    """
+    cfg = Path(os.path.expanduser("~/.config/dunkingsheep"))
+    try:
+        raw = subprocess.run(["dunkingsheep", "panes", "--json"], capture_output=True,
+                             text=True, timeout=15).stdout
+        panes = (json.loads(raw or "{}") or {}).get("panes") or []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        panes = []
+    try:
+        registry = json.loads((cfg / "lanes.json").read_text())
+    except (OSError, ValueError):
+        registry = {}
+
+    activity, waiting, sessions = {}, {}, {}
+    try:
+        db = sqlite3.connect(f"file:{cfg / 'agent-state.db'}?mode=ro", uri=True)
+        db.row_factory = sqlite3.Row
+        for row in db.execute(
+                "select pane_id, max(at) at, session_id from agent_state group by pane_id"):
+            activity[row["pane_id"]] = row["at"]
+            sessions[row["pane_id"]] = row["session_id"]
+    except sqlite3.Error:
+        pass
+    try:
+        db = sqlite3.connect(f"file:{cfg / 'inbox.db'}?mode=ro", uri=True)
+        for box, count in db.execute(
+                "select mailbox, count(*) from messages where state='queued' group by mailbox"):
+            waiting[box] = count
+    except sqlite3.Error:
+        pass
+
+    # Last TURN, not last capture: the capture age says when the row was written, which is
+    # every few minutes for every lane and therefore tells the owner nothing. The session
+    # file's mtime is when that lane last did something.
+    turn_at = {}
+    for root in ("~/.pi/agent/sessions", "~/.claude/projects"):
+        base = Path(os.path.expanduser(root))
+        if not base.exists():
+            continue
+        for path in base.glob("*/*.jsonl"):
+            stem = path.stem
+            sid = stem.split("_")[-1] if "_" in stem else stem
+            try:
+                turn_at[sid] = path.stat().st_mtime
+            except OSError:
+                continue
+
+    now = time.time()
+    rows = []
+    for pane in panes:
+        pane_id = pane.get("pane_id")
+        if not pane_id:
+            continue
+        agent = pane.get("agent") or ""
+        # The lane registry's values may be a plain mailbox name or a dict extended with
+        # liveness ({"mailbox": ..., "alive": false, "dead_since": ...}). Both shapes occur
+        # in the same file, so normalise here rather than trusting one.
+        recorded = registry.get(pane_id)
+        if isinstance(recorded, dict):
+            recorded = recorded.get("mailbox") or recorded.get("name")
+        name = recorded or pane.get("label") or pane_id
+        if not agent:
+            continue          # a shell is not a lane
+        sid = sessions.get(pane_id) or ""
+        last = turn_at.get(sid) or turn_at.get(sid.split("-")[0])
+        age = (now - last) if last else None
+        if age is None and activity.get(pane_id):
+            age = now - activity[pane_id]
+        rows.append({
+            "pane_id": pane_id,
+            "name": name,
+            "project": (pane.get("cwd") or "").rstrip("/").split("/")[-1],
+            "cwd": pane.get("cwd"),
+            "agent": agent,
+            "alive": True,
+            "last_activity_s": int(age) if age is not None else None,
+            "unread": waiting.get(name, 0) + waiting.get(pane_id, 0),
+            "session": sessions.get(pane_id),
+        })
+    rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
+    return {"rows": rows, "count": len(rows),
+            "note": "shells and dead panes are not lanes and are not listed"}
+
+
 @app.get("/api/ops-metrics")
 def operations_metrics(_: Annotated[str, Depends(require_auth)]):
     from ops_metrics import connect, summary
