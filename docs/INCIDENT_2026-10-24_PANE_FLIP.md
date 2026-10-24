@@ -140,3 +140,18 @@ refuse on, which is exactly how a bare twin can look like a resumed lane.
 - **The ungated owner releases (2.68.0, 2.68.1).** No gate results exist for either. The
   five gates were run against the current build instead, so t50 does not cite an ungated
   release.
+
+## 6. A process hazard found while making this PR
+
+The first version of this branch was cut from **local** `main`, which was carrying enough
+unpushed commits that the pull request for a two-file incident report listed 66 files and
+began with brief-style and handoff notes that had nothing to do with the incident. Nothing
+was wrong with the content; the branch was simply built on a base that did not exist on the
+remote.
+
+Rule that follows, and it belongs to anyone making an incident or evidence PR: **cut the
+branch from `origin/main`, not from local `main`, and check the file list before asking for
+review.** A PR is reviewed by its diff, so a diff with unrelated work in it looks reviewed
+without being reviewed - which is the same failure shape as a production change made without
+running the detector. The rebuilt branch here has five commits and three files, which is what
+was agreed.
