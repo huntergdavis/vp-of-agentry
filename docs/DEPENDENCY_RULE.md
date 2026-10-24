@@ -229,3 +229,19 @@ The rule, now fleet-wide:
 The generalisation is the same as rule 13: *a signal that can fire on the control is not a signal.*
 A mutant kill, a citation, an exclusion window, and a delivery nudge all fail this test in the same
 way - they look like evidence until you check what the unperturbed case does.
+
+## 15. A harness's queue behaviour is a MEASURED property, not an assumption
+
+Measured 2026-10-24 on a 54-minute codex turn: four `[inbox]` notices reported **sent** in the
+metrics, the composer ended at its placeholder, and the scrollback contained exactly **one**
+`[inbox]` line - a composer line, not a user turn. **Codex accepts text into the composer during a
+turn and then discards it.** Claude and pi both queue natively (proven with `PROBE-ACK-1` and
+`PI-ACK-1` processed after their turns); codex does not.
+
+The fix is per-harness and evidence-named: `HARNESS_QUEUES_WHILE_BUSY = {claude, pi}`; every other
+harness - **including an unknown one** - keeps a hold whose reason names the harness and the
+measurement that motivates it.
+
+The generalisation matters beyond delivery: *"the harness queues it"* was a plausible, widely-believed
+claim that was true for two of three tools and silently false for the third. It was caught only by
+counting what arrived. Every capability we assume of a tool should have a case count behind it.
