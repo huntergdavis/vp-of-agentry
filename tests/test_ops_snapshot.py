@@ -68,6 +68,7 @@ class GuardTests(unittest.TestCase):
             self.assertEqual("nulled", snapshot["usage"]["status"])
             self.assertEqual("nulled", snapshot["credited"]["status"])
             self.assertEqual("nulled", snapshot["free_leaderboard"]["status"])
+            self.assertEqual("nulled", snapshot["reply_leaderboard"]["status"])
             self.assertIn("not yet collected", snapshot["replaced"]["reason"])
             for name in ("dunks", "inbox", "delivery_latency", "delivery_health"):
                 self.assertEqual("nulled", snapshot[name]["status"], name)

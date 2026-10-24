@@ -15,6 +15,7 @@ import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { CostPerAgent, FreeModelVolume, UsagePanel } from './cost-panels.jsx';
 import { FreeLeaderboard } from './leaderboard-panel.jsx';
+import { ReplyLeaderboard } from './reply-panel.jsx';
 import { DeliveryPanel, DunksPanel, InboxPanel } from './delivery-panels.jsx';
 import { CreditedPanel, RatePanel, ReplacedPanel } from './credit-panels.jsx';
 import { BOARD_NOTE, hiddenNote, isHidden, visible } from './hidden.js';
@@ -361,7 +362,10 @@ function OwnerSnapshot() {
     <DunksPanel section={snap.dunks} />
     <InboxPanel section={snap.inbox} />
     <UsagePanel section={snap.usage} />
-    <CostPerAgent section={snap.cost_per_agent} />
+    <div className="speed-cost">
+      <ReplyLeaderboard section={snap.reply_leaderboard} />
+      <CostPerAgent section={snap.cost_per_agent} />
+    </div>
     <FreeLeaderboard section={snap.free_leaderboard} />
     <FreeModelVolume section={snap.free_model} />
     <div className="snapshot-activity">

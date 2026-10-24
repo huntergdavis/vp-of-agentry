@@ -441,3 +441,8 @@ tr.delivery-late td { background: rgba(181, 84, 27, .08); }
 .leader-tier.free { color: #4d8a3a; font-weight: 600; }
 .leader-tier.metered { color: #b5541b; font-weight: 600; }
 .leader-truth { margin-top: 8px; padding: 6px 10px; border-left: 3px solid #b5541b; font-size: 13px; }
+
+/* Reply-speed leaderboard beside the cost board (reply-panel.jsx) */
+.speed-cost { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 0 24px; align-items: start; }
+.speed-cost > * { min-width: 0; }
+.reply-deterministic { font-size: 12px; font-weight: 600; margin: 2px 0 6px; }
