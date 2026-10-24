@@ -508,7 +508,7 @@ function Fleet({ standalone = false }) {
     {!fleet && !error && <p className="dash-empty">Loading the fleet…</p>}
     {fleet && !fleet.rows.length && <p className="dash-empty">No live lanes right now. That is a real zero, not a failed fetch - the fleet list came back empty.</p>}
     {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
-      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last turn</th><th>unread</th><th>pane</th></tr></thead>
+      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last turn</th><th>unread</th><th>send</th><th>waiting</th><th>pane</th></tr></thead>
       <tbody>
         {fleet.rows.map(row => <tr key={row.pane_id} onClick={() => setSelected(row.pane_id)}
             aria-selected={selected === row.pane_id} style={{ cursor: 'pointer' }}>
@@ -517,6 +517,8 @@ function Fleet({ standalone = false }) {
           <td>{row.agent}</td>
           <td>{age(row.last_activity_s)}</td>
           <td>{row.unread || ''}</td>
+          <td>{row.send === 'owner_push' ? 'push' : row.send === 'guarded' ? 'typed' : '?'}</td>
+          <td>{row.pending ? `${row.pending} not taken` : ''}</td>
           <td><code>{row.pane_id}</code></td>
         </tr>)}
       </tbody>
@@ -526,6 +528,19 @@ function Fleet({ standalone = false }) {
       {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
       {paneText && !paneText.reason && <pre className="dash-terminal-text">{paneText.text}</pre>}
       {!paneText && <p className="dash-empty">Reading the pane…</p>}
+      {(() => {
+        const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
+        if (!lane) return null;
+        return <p className="dash-muted">
+          Send route for this lane: <strong>{lane.send || 'unknown'}</strong>
+          {lane.send === 'owner_push'
+            ? ' - stored, the lane drains it itself.'
+            : lane.send === 'guarded'
+              ? ' - typed into the box immediately; "sent" means it left the box, not that the agent acted.'
+              : ' - the daemon did not describe this lane, so the box will refuse.'}
+          {lane.pending ? ` ${lane.pending} message(s) pushed and not yet taken.` : ''}
+        </p>;
+      })()}
       <form onSubmit={send}>
         <label htmlFor="lane-draft">Message this lane</label>
         <textarea id="lane-draft" rows={3} value={draft}

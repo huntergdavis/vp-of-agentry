@@ -402,6 +402,8 @@ def channels(_: Annotated[str, Depends(require_auth)]):
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
+_CAP_CACHE: dict[str, tuple[float, dict]] = {}
+_CAP_TTL_S = 20.0
 _FLEET_CACHE = {"at": 0.0, "payload": None}
 _FLEET_TTL_S = 3.0
 
@@ -439,12 +441,62 @@ def api_pane_text(pane: str, lines: int = 40):
             "note": "read-only: typing goes through the delivery path, not this endpoint"}
 
 
+def _pending_by_pane() -> dict:
+    """How many pushed messages a lane has not taken yet - the honest 'delivered?' number."""
+    try:
+        result = subprocess.run(["dunkingsheep", "owner", "stats", "--json"],
+                                capture_output=True, text=True, timeout=10)
+        payload = json.loads(result.stdout or "{}")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+    counts = {}
+    for item in payload.get("pending") or []:
+        pane = item.get("pane_id")
+        if pane:
+            counts[pane] = counts.get(pane, 0) + 1
+    return counts
+
+
+def _capability(pane: str) -> dict:
+    """The daemon owns lane capability; the desk must not branch on agent names.
+
+    Returns {} when the daemon cannot answer, so callers can refuse rather than guess.
+    """
+    try:
+        result = subprocess.run(["dunkingsheep", "capability", pane, "--json"],
+                                capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            payload = json.loads(result.stdout)
+            _CAP_CACHE[pane] = (time.time(), payload)
+            return payload
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return {}
+
+
+@app.get("/api/capability")
+def api_capability(pane: str):
+    """What would happen if the desk sent to this lane, in the daemon's own words."""
+    pane = (pane or "").strip()
+    cached = _CAP_CACHE.get(pane)
+    if cached and (time.time() - cached[0]) < _CAP_TTL_S:
+        return cached[1]
+    cap = _capability(pane)
+    if not cap:
+        raise HTTPException(status_code=502, detail="the daemon could not describe this lane")
+    return cap
+
+
 @app.post("/api/pane-send")
 async def api_pane_send(request: Request):
-    """Send one line to a live lane through the delivery path, not through tmux typing.
+    """Send to a lane the way that lane can receive it, decided by the daemon.
 
-    Calls `dunkingsheep owner push <pane> <text>`, which stores the message for the lane to
-    DRAIN itself: no inbox row, nothing typed into the pane.
+    Two transports, never one fallback:
+      send == "owner_push" -> the lane drains pushed messages itself; store, do not type.
+      send == "guarded"    -> an immediate guarded send (Enter, then C-m); 'sent' means it
+                              left the box, not that the agent acted on it.
+    Branching on the agent name here would be the desk guessing at a mapping the daemon
+    owns - so this asks, and refuses if the answer is missing.
     """
     body = await request.json()
     pane = str(body.get("pane") or "").strip()
@@ -455,16 +507,32 @@ async def api_pane_send(request: Request):
         raise HTTPException(status_code=400, detail="nothing to send")
     if len(text) > 4000:
         raise HTTPException(status_code=400, detail="keep it under 4000 characters")
+
+    cap = _capability(pane)
+    if not cap:
+        raise HTTPException(status_code=502, detail="the daemon could not describe this lane")
+    if not cap.get("alive"):
+        raise HTTPException(status_code=409, detail=f"{pane} is not alive: nothing to send to")
+    route = cap.get("send")
+    argv = (["dunkingsheep", "owner", "push", pane, text] if route == "owner_push"
+            else ["dunkingsheep", "send", pane, text] if route == "guarded"
+            else None)
+    if argv is None:
+        raise HTTPException(status_code=409,
+                            detail=f"{pane} declares no send route ({route!r}); not guessing")
     try:
-        result = subprocess.run(["dunkingsheep", "owner", "push", pane, text],
-                                capture_output=True, text=True, timeout=15)
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=25)
     except (OSError, subprocess.SubprocessError) as error:
         raise HTTPException(status_code=502, detail=f"delivery path unavailable: {error}")
-    if result.returncode != 0:
-        raise HTTPException(status_code=409,
-                            detail=(result.stderr or result.stdout or "refused").strip()[:300])
-    return {"ok": True, "pane": pane, "via": "owner_push",
-            "note": "stored for the lane to drain; nothing typed into the pane"}
+    detail = (result.stdout or result.stderr or "").strip()[:300]
+    refused = result.returncode != 0 or "sent=false" in detail or '"sent": false' in detail
+    if refused:
+        raise HTTPException(status_code=409, detail=detail or "refused")
+    return {"ok": True, "pane": pane, "route": route,
+            "expect": cap.get("expect"), "detail": detail,
+            "note": ("stored for the lane to drain; nothing typed into the pane"
+                     if route == "owner_push"
+                     else "typed and confirmed into the box; that is not proof the agent acted")}
 
 
 @app.get("/api/fleet")
@@ -529,6 +597,7 @@ def api_fleet():
             except OSError:
                 continue
 
+    pending = _pending_by_pane()
     now = time.time()
     rows = []
     for pane in panes:
@@ -560,6 +629,11 @@ def api_fleet():
             "last_activity_s": int(age) if age is not None else None,
             "unread": waiting.get(name, 0) + waiting.get(pane_id, 0),
             "session": sessions.get(pane_id),
+            # What the desk may honestly offer for this lane, answered by the daemon:
+            # "owner_push" = it drains pushes; "guarded" = immediate typed send.
+            "send": (_capability(pane_id) or {}).get("send"),
+            "drains": (_capability(pane_id) or {}).get("drains"),
+            "pending": pending.get(pane_id, 0),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
     payload = {"rows": rows, "count": len(rows),
