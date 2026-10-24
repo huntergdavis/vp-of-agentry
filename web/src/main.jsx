@@ -453,6 +453,9 @@ function Fleet({ standalone = false }) {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
   const [paneText, setPaneText] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [sent, setSent] = useState('');
+  const [sendError, setSendError] = useState('');
   async function load() {
     try { setFleet(await api('/fleet')); setError(''); }
     catch (e) { setError(e.message); }
@@ -508,6 +511,27 @@ function Fleet({ standalone = false }) {
       {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
       {paneText && !paneText.reason && <pre className="dash-terminal-text">{paneText.text}</pre>}
       {!paneText && <p className="dash-empty">Reading the pane…</p>}
+      <form onSubmit={async event => {
+        event.preventDefault();
+        setSent(''); setSendError('');
+        if (!draft.trim()) return;
+        try {
+          const data = await api('/pane-send', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pane: selected, text: draft }),
+          });
+          setDraft('');
+          setSent(`Sent to ${data.pane} through the delivery path - the lane drains it itself; nothing was typed into the pane.`);
+        } catch (e) { setSendError(e.message); }
+      }}>
+        <label htmlFor="lane-draft">Message this lane</label>
+        <textarea id="lane-draft" rows={3} value={draft}
+          onChange={event => setDraft(event.target.value)}
+          placeholder="goes through the delivery path: stored, not typed over the agent" />
+        <button type="submit" disabled={!draft.trim()}>Send</button>
+        {sent && <p className="dash-muted" role="status">{sent}</p>}
+        {sendError && <p className="dash-error">{sendError}</p>}
+      </form>
     </section>}
   </DashShell>;
 }

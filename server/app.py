@@ -410,6 +410,36 @@ _PANE_TEXT_TTL_S = 1.5
 _PANE_TEXT_CACHE: dict[str, tuple[float, str]] = {}
 
 
+@app.post("/api/pane-send")
+async def api_pane_send(request: Request):
+    """Send one line to a live lane through the delivery path, not through tmux typing.
+
+    Calls `dunkingsheep owner push <pane> <text>`, which stores the message for the lane to
+    DRAIN itself: no inbox row, nothing typed into the pane. That matters - a textarea wired
+    to send-keys types over whatever the agent is doing, which is the failure this desk exists
+    to stop repeating.
+    """
+    body = await request.json()
+    pane = str(body.get("pane") or "").strip()
+    text = str(body.get("text") or "").strip()
+    if not pane.startswith("%"):
+        raise HTTPException(status_code=400, detail="a tmux pane id looks like %9")
+    if not text:
+        raise HTTPException(status_code=400, detail="nothing to send")
+    if len(text) > 4000:
+        raise HTTPException(status_code=400, detail="keep it under 4000 characters")
+    try:
+        result = subprocess.run(["dunkingsheep", "owner", "push", pane, text],
+                                capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise HTTPException(status_code=502, detail=f"delivery path unavailable: {error}")
+    if result.returncode != 0:
+        raise HTTPException(status_code=409,
+                            detail=(result.stderr or result.stdout or "refused").strip()[:300])
+    return {"ok": True, "pane": pane, "via": "owner_push",
+            "note": "stored for the lane to drain; nothing typed into the pane"}
+
+
 @app.get("/api/pane-text")
 def api_pane_text(pane: str, lines: int = 40):
     """The last N lines of a live pane, read server-side with tmux capture-pane.
