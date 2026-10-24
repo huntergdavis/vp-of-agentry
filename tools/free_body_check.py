@@ -90,12 +90,15 @@ def main(argv: list[str]) -> int:
     rep = Path(argv[1])
     ovr = DEFAULT_OVR
     expect: int | None = None
+    expect_len: int | None = None
     rest = argv[2:]
     while rest:
         if rest[0] == "--ovr" and len(rest) > 1:
             ovr = Path(rest[1]); rest = rest[2:]
         elif rest[0] == "--expect-offset" and len(rest) > 1:
             expect = int(rest[1], 0); rest = rest[2:]
+        elif rest[0] == "--expect-length" and len(rest) > 1:
+            expect_len = int(rest[1], 0); rest = rest[2:]
         else:
             rest = rest[1:]
     if not rep.exists():

@@ -48,8 +48,24 @@ except Exception:
     pass
 PYEOF
 )
+EXPLEN=$(cd "$REPO" && python3 - "$BODY" <<'PYEOF2'
+import json,sys
+body=sys.argv[1]; seg=body.split('_')[1]; off=int(body.split('_')[2],16)
+try:
+    inv=json.load(open('resources/review-pr276-accounting/overlay_inventory.json'))
+    want=int(seg,16)
+    for u in inv['units']:
+        if int(str(u.get('stub_para')),0)==want:
+            for f in (u.get('functions') or []):
+                if f.get('rel')==off:
+                    print(f.get('size_upper_bound') or 0); break
+            break
+except Exception:
+    pass
+PYEOF2
+)
 if [ -n "${EXPECT:-}" ]; then
-  ( cd "$REPO" && python3 "$HERE/tools/free_body_check.py" "$OUT/report.md" --expect-offset "$EXPECT" ) >"$OUT/bytes.txt" 2>&1
+  ( cd "$REPO" && python3 "$HERE/tools/free_body_check.py" "$OUT/report.md" --expect-offset "$EXPECT" ${EXPLEN:+--expect-length "$EXPLEN"} ) >"$OUT/bytes.txt" 2>&1
 else
   ( cd "$REPO" && python3 "$HERE/tools/free_body_check.py" "$OUT/report.md" ) >"$OUT/bytes.txt" 2>&1
 fi
