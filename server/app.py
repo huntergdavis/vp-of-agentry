@@ -406,6 +406,67 @@ _FLEET_CACHE = {"at": 0.0, "payload": None}
 _FLEET_TTL_S = 3.0
 
 
+_PANE_TEXT_TTL_S = 1.5
+_PANE_TEXT_CACHE: dict[str, tuple[float, str]] = {}
+
+
+@app.get("/api/pane-text")
+def api_pane_text(pane: str, lines: int = 40):
+    """The last N lines of a live pane, read server-side with tmux capture-pane. READ ONLY.
+
+    Typing travels on the delivery path (see /api/pane-send); a textarea wired to tmux
+    send-keys would type over whatever the agent is doing.
+    """
+    pane = (pane or "").strip()
+    if not pane.startswith("%"):
+        raise HTTPException(status_code=400, detail="a tmux pane id looks like %9")
+    now = time.time()
+    hit = _PANE_TEXT_CACHE.get(pane)
+    if hit and (now - hit[0]) < _PANE_TEXT_TTL_S:
+        return {"pane": pane, "text": hit[1], "readonly": True}
+    try:
+        result = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"pane": pane, "text": "", "readonly": True,
+                "reason": f"tmux could not be read: {error}"}
+    if result.returncode != 0:
+        return {"pane": pane, "text": "", "readonly": True,
+                "reason": (result.stderr or "capture-pane failed").strip()}
+    text = "\n".join(result.stdout.splitlines()[-max(1, min(lines, 200)):])
+    _PANE_TEXT_CACHE[pane] = (now, text)
+    return {"pane": pane, "text": text, "readonly": True,
+            "note": "read-only: typing goes through the delivery path, not this endpoint"}
+
+
+@app.post("/api/pane-send")
+async def api_pane_send(request: Request):
+    """Send one line to a live lane through the delivery path, not through tmux typing.
+
+    Calls `dunkingsheep owner push <pane> <text>`, which stores the message for the lane to
+    DRAIN itself: no inbox row, nothing typed into the pane.
+    """
+    body = await request.json()
+    pane = str(body.get("pane") or "").strip()
+    text = str(body.get("text") or "").strip()
+    if not pane.startswith("%"):
+        raise HTTPException(status_code=400, detail="a tmux pane id looks like %9")
+    if not text:
+        raise HTTPException(status_code=400, detail="nothing to send")
+    if len(text) > 4000:
+        raise HTTPException(status_code=400, detail="keep it under 4000 characters")
+    try:
+        result = subprocess.run(["dunkingsheep", "owner", "push", pane, text],
+                                capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise HTTPException(status_code=502, detail=f"delivery path unavailable: {error}")
+    if result.returncode != 0:
+        raise HTTPException(status_code=409,
+                            detail=(result.stderr or result.stdout or "refused").strip()[:300])
+    return {"ok": True, "pane": pane, "via": "owner_push",
+            "note": "stored for the lane to drain; nothing typed into the pane"}
+
+
 @app.get("/api/fleet")
 def api_fleet():
     """The live fleet as the owner needs to see it: who is running, doing what, and what is

@@ -451,6 +451,12 @@ function HerdrWebUi() {
 function Fleet({ standalone = false }) {
   const [fleet, setFleet] = useState(null);
   const [error, setError] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [paneText, setPaneText] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [sent, setSent] = useState('');
+  const [sendError, setSendError] = useState('');
+
   async function load() {
     try { setFleet(await api('/fleet')); setError(''); }
     catch (e) { setError(e.message); }
@@ -460,21 +466,52 @@ function Fleet({ standalone = false }) {
     const timer = setInterval(load, 10000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!selected) { setPaneText(null); return undefined; }
+    let alive = true;
+    async function loadText() {
+      try {
+        const data = await api(`/pane-text?pane=${encodeURIComponent(selected)}&lines=40`);
+        if (alive) setPaneText(data);
+      } catch (e) { if (alive) setPaneText({ pane: selected, text: '', reason: e.message }); }
+    }
+    loadText();
+    const timer = setInterval(loadText, 3000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [selected]);
+
   const age = value => {
     if (value === null || value === undefined) return 'no activity recorded';
     if (value < 90) return `${value}s ago`;
     if (value < 5400) return `${Math.round(value / 60)}m ago`;
     return `${(value / 3600).toFixed(1)}h ago`;
   };
+
+  async function send(event) {
+    event.preventDefault();
+    setSent(''); setSendError('');
+    if (!draft.trim()) return;
+    try {
+      const data = await api('/pane-send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pane: selected, text: draft }),
+      });
+      setDraft('');
+      setSent(`Sent to ${data.pane} through the delivery path - the lane drains it itself; nothing was typed into the pane.`);
+    } catch (e) { setSendError(e.message); }
+  }
+
   return <DashShell standalone={standalone} view="fleet">
-    <p className="dash-lead">Every live lane, from the lane registry. Shells and dead panes are not listed - a pane with no agent is not a terminal anyone is working in.</p>
+    <p className="dash-lead">Every live lane, from the lane registry. Shells and dead panes are not listed - a pane with no agent is not a terminal anyone is working in. Click a lane to see its terminal.</p>
     {error && <p className="dash-error">{error}</p>}
     {!fleet && !error && <p className="dash-empty">Loading the fleet…</p>}
     {fleet && !fleet.rows.length && <p className="dash-empty">No live lanes right now. That is a real zero, not a failed fetch - the fleet list came back empty.</p>}
     {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
-      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last activity</th><th>unread</th><th>pane</th></tr></thead>
+      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last turn</th><th>unread</th><th>pane</th></tr></thead>
       <tbody>
-        {fleet.rows.map(row => <tr key={row.pane_id}>
+        {fleet.rows.map(row => <tr key={row.pane_id} onClick={() => setSelected(row.pane_id)}
+            aria-selected={selected === row.pane_id} style={{ cursor: 'pointer' }}>
           <td>{row.name}</td>
           <td>{row.project || '-'}</td>
           <td>{row.agent}</td>
@@ -484,6 +521,21 @@ function Fleet({ standalone = false }) {
         </tr>)}
       </tbody>
     </table>}
+    {selected && <section className="dash-terminal" data-testid="pane-text">
+      <h2>Terminal <code>{selected}</code></h2>
+      {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
+      {paneText && !paneText.reason && <pre className="dash-terminal-text">{paneText.text}</pre>}
+      {!paneText && <p className="dash-empty">Reading the pane…</p>}
+      <form onSubmit={send}>
+        <label htmlFor="lane-draft">Message this lane</label>
+        <textarea id="lane-draft" rows={3} value={draft}
+          onChange={event => setDraft(event.target.value)}
+          placeholder="goes through the delivery path: stored for the lane to drain, not typed over the agent" />
+        <button type="submit" disabled={!draft.trim()}>Send</button>
+        {sent && <p className="dash-muted" role="status">{sent}</p>}
+        {sendError && <p className="dash-error">{sendError}</p>}
+      </form>
+    </section>}
   </DashShell>;
 }
 
