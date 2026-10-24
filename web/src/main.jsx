@@ -15,6 +15,7 @@ import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { CostPerAgent, FreeModelVolume, UsagePanel } from './cost-panels.jsx';
 import { DeliveryPanel, DunksPanel, InboxPanel } from './delivery-panels.jsx';
+import { BOARD_NOTE, hiddenNote, isHidden, visible } from './hidden.js';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const api = async (path, options = {}) => {
@@ -253,22 +254,31 @@ function OwnerSnapshot() {
   const pct = p => p.denominator?.value ? Math.max(0, Math.min(100, 100 * (p.value?.value ?? 0) / p.denominator.value)) : 0;
   const latency = snap.reply_latency || {};
   const build = typeof __BUILD__ === 'object' ? __BUILD__ : {};
+  // Owner #1381: Crackdown is hidden from the board, not from the data (hidden.js).
+  const projects = visible(snap.projects, p => [p.id, p.label]);
+  const topTasks = visible(snap.backlog?.top, t => [t.title]);
+  const nowTasks = visible(agentList?.in_progress, t => [t.task]);
+  const nowAgents = visible((agentList?.agents || []).filter(a => a.status === 'working'), a => [a.name, a.doing]);
+  const activity = visible(Object.entries(snap.agent_activity || {}).filter(([, v]) => v && typeof v === 'object' && !v.error), ([pane]) => [pane]);
+  const agentRows = visible(snap.agents, a => [a.agent]);
   return <div className="snapshot">
     <div className="snapshot-head"><div><div className="eyebrow">OWNER SNAPSHOT</div><h2>One page, auto-calculated</h2></div>
       <div className="snapshot-clock">oldest number <b>{snap.oldest_as_of ? new Date(snap.oldest_as_of).toLocaleString() : '—'}</b><small>reply p50 {latency.p50_s ?? '—'}s · p90 {latency.p90_s ?? '—'}s · max {latency.max_s ?? '—'}s · n {latency.n ?? '—'} · unanswered {latency.unanswered ?? '—'}</small></div></div>
+    <small className="snapshot-hidden">{BOARD_NOTE}</small>
     {snap.warnings?.length > 0 && <div className="snapshot-warn" role="alert">{snap.warnings.map((w, i) => <span key={i}>{w.source}: {w.reason}</span>)}</div>}
     {agentList && <div className="snapshot-now">
       <h3>In progress now</h3>
       <div className="snapshot-now-rows">
-        {(agentList.in_progress || []).map(item => <div className="snapshot-now-row" key={item.task_id}>
+        {nowTasks.shown.map(item => <div className="snapshot-now-row" key={item.task_id}>
           <b>{item.task_id}</b><span>{item.task}</span>
           {item.since ? <small>since {new Date(item.since * 1000).toLocaleString()}</small> : null}
         </div>)}
-        {(agentList.agents || []).filter(a => a.status === 'working').map(a => <div className="snapshot-now-row agent" key={a.id}>
+        {nowAgents.shown.map(a => <div className="snapshot-now-row agent" key={a.id}>
           <b>{a.name}</b><span>{a.doing || `${a.status.toUpperCase()}${a.status_reason ? ` - ${a.status_reason}` : ''}`}</span>
           {a.since ? <small>since {new Date(a.since * 1000).toLocaleString()}</small> : null}
         </div>)}
-        {!(agentList.in_progress || []).length && !(agentList.agents || []).some(a => a.status === 'working') && <div className="muted">Nothing is working right now.</div>}
+        {!nowTasks.shown.length && !nowAgents.shown.length && <div className="muted">Nothing is working right now.</div>}
+        {hiddenNote(nowTasks.hidden + nowAgents.hidden) && <small>{hiddenNote(nowTasks.hidden + nowAgents.hidden)}</small>}
       </div>
     </div>}
     <div className="snapshot-topline">
@@ -277,7 +287,7 @@ function OwnerSnapshot() {
         <div className="snapshot-backlog-counts">
           <span>{num(snap.backlog.open)} open</span><span>{num(snap.backlog.in_progress)} in progress</span><span>{num(snap.backlog.blocked)} blocked</span>
         </div>
-        {snap.backlog.oldest_open && <div className="snapshot-backlog-oldest">oldest open <b>{snap.backlog.oldest_open.id}</b> · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</div>}
+        {snap.backlog.oldest_open && !isHidden(snap.backlog.oldest_open.title) && <div className="snapshot-backlog-oldest">oldest open <b>{snap.backlog.oldest_open.id}</b> · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</div>}
         <div className="snapshot-held">held on owner decisions: <b>{snap.backlog.held?.count ?? '—'}</b>{snap.backlog.held?.oldest_days != null ? ` · oldest ${snap.backlog.held.oldest_days} d` : ''}</div>
       </div>
       <div className="snapshot-wiki">
@@ -328,7 +338,7 @@ function OwnerSnapshot() {
         {'never opened: ' + snap.context.entries.filter(e => !e.reads).map(e => e.subject || e.slug).join(', ')}
       </small>}
     </div>}
-    <div className="snapshot-projects">{(snap.projects || []).map(p => <div className="snapshot-project" key={p.id}>
+    <div className="snapshot-projects">{projects.shown.map(p => <div className="snapshot-project" key={p.id}>
       <div className="snapshot-project-head"><b>{p.label}</b><span>{p.metric}</span></div>
       <div className="snapshot-bar"><i style={{ width: `${pct(p)}%` }} /></div>
       <div className="snapshot-value">{num(p.value)} <small>/ {num(p.denominator)} {p.denominator_label}</small></div>
@@ -349,15 +359,15 @@ function OwnerSnapshot() {
     <div className="snapshot-activity">
       <h3>Agent activity · last 24h</h3>
       <div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Messages</th><th>Median answer</th><th>Tasks done</th><th>Unread now</th></tr></thead>
-        <tbody>{Object.entries(snap.agent_activity || {}).filter(([, v]) => v && typeof v === 'object' && !v.error).map(([pane, v]) => <tr key={pane}>
+        <tbody>{activity.shown.map(([pane, v]) => <tr key={pane}>
           <td>{pane}</td><td>{num(v.messages_24h)}</td>
           <td>{v.median_answer_s?.value != null ? `${v.median_answer_s.value}s` : <span title={v.median_answer_s?.reason || ''}>—</span>}</td>
           <td>{num(v.tasks_completed)}</td><td>{num(v.unread)}</td>
         </tr>)}{!Object.keys(snap.agent_activity || {}).length && <tr><td colSpan="5">No agent activity source.</td></tr>}</tbody></table></div>
     </div>
     <div className="snapshot-cols">
-      <div><h3>Agents</h3><div className="snapshot-attribution"><b>attributed {snap.attribution?.attributed ?? '—'} PRs</b> <span>unattributed {snap.attribution?.unattributed ?? '—'} PRs</span><small>{snap.attribution?.method}</small></div><div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Type</th><th>PRs</th><th>Bodies</th><th>Tasks</th><th>Msgs</th></tr></thead><tbody>{(snap.agents || []).map(a => <tr key={a.agent}><td>{a.agent}</td><td>{a.type}</td><td>{num(a.merged_prs)}</td><td>{num(a.bodies_credited)}</td><td>{num(a.tasks_completed)}</td><td>{num(a.messages_handled)}</td></tr>)}{!(snap.agents || []).length && <tr><td colSpan="6">No attributed agents yet.</td></tr>}</tbody></table></div><small>PRs carry their lane in the branch name from 2026-10-21.</small></div>
-      <div><h3>Backlog · age is the number</h3><div className="snapshot-backlog"><span>{snap.backlog.open} open · {snap.backlog.in_progress} in progress · {snap.backlog.blocked} blocked</span>{snap.backlog.oldest_open && <b>oldest open {snap.backlog.oldest_open.id} · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</b>}</div><ol>{(snap.backlog?.top || []).map(t => <li key={t.id}>{t.id} {t.title} <small>{t.priority} · {(t.age_s / 86400).toFixed(1)} d</small></li>)}</ol>{snap.backlog.reason && <div className="snapshot-missing">{snap.backlog.reason}</div>}</div>
+      <div><h3>Agents</h3><div className="snapshot-attribution"><b>attributed {snap.attribution?.attributed ?? '—'} PRs</b> <span>unattributed {snap.attribution?.unattributed ?? '—'} PRs</span><small>{snap.attribution?.method}</small></div><div className="snapshot-table"><table><thead><tr><th>Agent</th><th>Type</th><th>PRs</th><th>Bodies</th><th>Tasks</th><th>Msgs</th></tr></thead><tbody>{agentRows.shown.map(a => <tr key={a.agent}><td>{a.agent}</td><td>{a.type}</td><td>{num(a.merged_prs)}</td><td>{num(a.bodies_credited)}</td><td>{num(a.tasks_completed)}</td><td>{num(a.messages_handled)}</td></tr>)}{!(snap.agents || []).length && <tr><td colSpan="6">No attributed agents yet.</td></tr>}</tbody></table></div><small>PRs carry their lane in the branch name from 2026-10-21.</small></div>
+      <div><h3>Backlog · age is the number</h3><div className="snapshot-backlog"><span>{snap.backlog.open} open · {snap.backlog.in_progress} in progress · {snap.backlog.blocked} blocked</span>{snap.backlog.oldest_open && !isHidden(snap.backlog.oldest_open.title) && <b>oldest open {snap.backlog.oldest_open.id} · {(snap.backlog.oldest_open.age_s / 86400).toFixed(1)} d</b>}</div><ol>{topTasks.shown.map(t => <li key={t.id}>{t.id} {t.title} <small>{t.priority} · {(t.age_s / 86400).toFixed(1)} d</small></li>)}</ol>{hiddenNote(topTasks.hidden) && <small>{hiddenNote(topTasks.hidden)}; the counts above still include them</small>}{snap.backlog.reason && <div className="snapshot-missing">{snap.backlog.reason}</div>}</div>
       <div><h3>Context store</h3>
         {snap.context?.status === 'ok'
           ? <div className="snapshot-backlog"><span>{num(snap.context.articles)} articles · {num(snap.context.ground_truths)} ground truths · {num(snap.context.never_read)} never opened</span>

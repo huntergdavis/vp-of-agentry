@@ -69,3 +69,7 @@ Every panel prints its as_of and source and says STALE when the reading is older
 ## Network exposure (an open decision, not a default)
 
 `run.sh` binds the desk to `0.0.0.0` unless `VP_BIND` is set, so every page above, including mailbox names, dunk texts and costs, is reachable from the LAN behind the desk login. The VP rule is loopback only. It is left as it is (2026-10-23) because the owner may need LAN access. Set `VP_BIND=127.0.0.1` in the service environment to change it, and record whoever decides here.
+
+## Hidden projects
+
+Crackdown panels hidden 2026-10-23 at owner request (#1381); data retained; reason: port shelved. The collector still writes every Crackdown field (the project card, cost rows, dunks, mailboxes) and the operations database keeps its history; `web/src/hidden.js` filters the rendering only, and each table says how many rows it hid. Totals and percentiles still include the hidden rows. Delete the entry in `HIDDEN_PROJECTS` to show it again.

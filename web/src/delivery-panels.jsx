@@ -1,6 +1,7 @@
 import React from 'react';
 import { age, num, stale, wait, why } from './format.js';
 import { Absent } from './cost-panels.jsx';
+import { hiddenNote, visible } from './hidden.js';
 
 // Owner #1358: current dunks, inbox metrics, delivery latency and health,
 // rendered from the snapshot (tools/delivery_stats.py). Every panel names its
@@ -27,7 +28,8 @@ function when(stamp) {
 
 export function DunksPanel({ section }) {
   if (!section) return <Absent title="Current dunks" panel="dunks" />;
-  const rows = section.rows || [];
+  const kept = visible(section.rows, d => [d.name, d.target?.workspace, d.target?.label]);
+  const rows = kept.shown;
   return <div className="snapshot-costs" data-panel="dunks">
     <h3>Current dunks · {rows.length}</h3>
     <Stamp section={section} /><Unavailable section={section} />
@@ -45,13 +47,15 @@ export function DunksPanel({ section }) {
         <td className="delivery-text" title={d.text}>{d.text}</td>
       </tr>)}{!rows.length && <tr><td colSpan="9">{section.status === 'ok' ? 'No dunks are defined.' : 'Dunk list unreadable.'}</td></tr>}</tbody>
     </table></div>
+    {hiddenNote(kept.hidden) && <small className="cost-reason">{hiddenNote(kept.hidden)}.</small>}
     {section.truth && <div className="snapshot-truth">{section.truth}</div>}
   </div>;
 }
 
 export function InboxPanel({ section }) {
   if (!section) return <Absent title="Inbox" panel="inbox" />;
-  const boxes = section.mailboxes || [];
+  const keptBoxes = visible(section.mailboxes, b => [b.mailbox]);
+  const boxes = keptBoxes.shown;
   const total = section.total || {};
   const notice = total.notice || {};
   return <div className="snapshot-costs" data-panel="inbox">
@@ -71,6 +75,7 @@ export function InboxPanel({ section }) {
         <td>{num(b.arrived_24h)}</td><td>{b.notice?.sent ?? 0}</td><td>{b.notice?.queued ?? 0}</td><td>{b.notice?.failed ?? 0}</td>
       </tr>)}{!boxes.length && <tr><td colSpan="7">No mailboxes.</td></tr>}</tbody>
     </table></div>
+    {hiddenNote(keptBoxes.hidden) && <small className="cost-reason">{hiddenNote(keptBoxes.hidden)}; the totals above still include them.</small>}
     {section.truth && <div className="snapshot-truth">{section.truth}</div>}
   </div>;
 }
@@ -79,7 +84,9 @@ export function DeliveryPanel({ latency, health }) {
   if (!latency && !health) return <Absent title="Delivery · arrival to delivery" panel="delivery" />;
   const all = latency?.all || {};
   const waiting = latency?.still_waiting || {};
-  const held = health?.held || [];
+  const keptHeld = visible(health?.held, h => [h.target]);
+  const held = keptHeld.shown;
+  const keptBoxes = visible(latency?.per_mailbox, m => [m.mailbox]);
   return <div className="snapshot-costs" data-panel="delivery">
     <h3>Delivery · arrival to delivery, last 24 h</h3>
     <Stamp section={latency} /><Unavailable section={latency} />
@@ -92,10 +99,11 @@ export function DeliveryPanel({ latency, health }) {
       <span>failed <b>{num(latency.failed_24h)}</b></span>
     </div>}
     {why(all.p50_s) && <small className="cost-reason">{why(all.p50_s)}</small>}
-    {(latency?.per_mailbox || []).length > 0 && <div className="snapshot-table"><table>
+    {keptBoxes.shown.length > 0 && <div className="snapshot-table"><table>
       <thead><tr><th>Mailbox</th><th>Sends</th><th>p50</th><th>p90</th><th>Max</th></tr></thead>
-      <tbody>{latency.per_mailbox.map(m => <tr key={m.mailbox}><td>{m.mailbox}</td><td>{num(m.n)}</td><td>{wait(m.p50_s)}</td><td>{wait(m.p90_s)}</td><td>{wait(m.max_s)}</td></tr>)}</tbody>
+      <tbody>{keptBoxes.shown.map(m => <tr key={m.mailbox}><td>{m.mailbox}</td><td>{num(m.n)}</td><td>{wait(m.p50_s)}</td><td>{wait(m.p90_s)}</td><td>{wait(m.max_s)}</td></tr>)}</tbody>
     </table></div>}
+    {hiddenNote(keptBoxes.hidden + keptHeld.hidden) && <small className="cost-reason">{hiddenNote(keptBoxes.hidden + keptHeld.hidden)}; p50/p90/max above still include them.</small>}
     {(latency?.holds_24h || []).length > 0 && <small className="cost-reason">holds in 24 h: {latency.holds_24h.map(h => `${h.reason} ${num(h.count)} (${h.kind === 'dunk.held' ? 'dunk' : 'message'})`).join(' · ')}</small>}
     {latency?.truth && <div className="snapshot-truth">{latency.truth}</div>}
     <h4 className="delivery-sub">Held now · not yet delivered</h4>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { age, num, tokens, usd, why } from './format.js';
+import { hiddenNote, visible } from './hidden.js';
 
 // Three owner panels rendered from the snapshot (tools/agent_costs.py). No
 // live reads: every number is a {value, as_of, reason} cell, and a null cell
@@ -23,7 +24,8 @@ function Truth({ text }) {
 export function CostPerAgent({ section }) {
   const [all, setAll] = useState(false);
   if (!section) return <Absent title="Cost per agent" panel="cost-per-agent" />;
-  const rows = section.rows || [];
+  const kept = visible(section.rows, r => [r.checkout, r.label]);
+  const rows = kept.shown;
   const shown = all ? rows : rows.slice(0, 12);
   const reasons = [...new Set(rows.map(r => why(r.usd_month)).filter(Boolean))];
   return <div className="snapshot-costs" data-panel="cost-per-agent">
@@ -42,6 +44,7 @@ export function CostPerAgent({ section }) {
       </tr>)}{!rows.length && <tr><td colSpan="8">No harness sessions this month.</td></tr>}</tbody>
     </table></div>
     {rows.length > 12 && <button className="cost-more" onClick={() => setAll(!all)}>{all ? 'Show the top 12' : `Show all ${rows.length} (sorted by tokens this month)`}</button>}
+    {hiddenNote(kept.hidden) && <small className="cost-reason">{hiddenNote(kept.hidden)}.</small>}
     {reasons.map(r => <small className="cost-reason" key={r}>"tokens only": {r}.</small>)}
     <Truth text={section.truth} />
   </div>;
