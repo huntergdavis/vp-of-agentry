@@ -19,7 +19,8 @@ copied, so the two cannot drift. The revival input is
 | 12:41-12:53 | Registered-but-dead name still queued. Three independent measurements from two agents (12:52:50, 12:53:00, 12:53:51) | run log |
 | 13:03-13:06 | 2.69.3 refused the third shape, but with a third token (`unhoused_lane`) and no `dead_since`. Behaviour green, vocabulary still being corrected | run log, 13:04:39 |
 | 13:11:12 | 2.69.4 restarted: one token, `dead_lane` | run log |
-| 13:12:21 | **All routing shapes green on committed code**: daemon code hash `eeefc6eb46ed` equals `sha256(dunk_core.py)` on disk, HEAD `17760dd`, clean tree, `code_stale no` | run log, final line |
+| 13:12:21 | All routing shapes green on committed code: daemon code hash `eeefc6eb46ed` equals `sha256(dunk_core.py)` on disk, HEAD `17760dd`, clean tree, `code_stale no` - two tokens at this point | run log |
+| 13:13-13:14 | 2.69.5 (`d6b995e`) restarted: three tokens, because there are three states. Re-verified from %1 by the VP: `unhoused_lane`, `unknown_name`, dead pane id refusal, zero rows created | run log 13:14:56; verified independently by the VP |
 
 Wall-clock discipline: the acceptance file records `code_mtime`, `started_at` and
 `code_stale` on every run because an earlier version of it carried hand-typed times that
@@ -84,7 +85,7 @@ refuse on, which is exactly how a bare twin can look like a resumed lane.
   would replace the operator who is holding the incident, the owner channel and every ruling
   made during it. A later reader will see a candidate row and an unrevived lane and must know
   the two facts are the same decision.
-- **Two refusal tokens, not three.** `unknown_name` (never a lane) and `dead_lane` (a lane
+- **Three refusal tokens, after a reversal.** `unknown_name` (never a lane) and `dead_lane` (a lane
   with no live reader). The operator has two actions, fix the typo or restore the lane; a
   third token describing which backend a lane was never housed on encoded an implementation
   detail, not a situation - but the final answer is three, and the churn is recorded rather
@@ -137,9 +138,15 @@ refuse on, which is exactly how a bare twin can look like a resumed lane.
 - **The parked per-pane herdr delivery sketch.** Cut on purpose: the fleet is exited and
   revival goes into tmux, so herdr-shaped delivery has no live reader to serve. It is kept
   as rollback notes only; re-opening it would be building for a backend we are leaving.
-- **The ungated owner releases (2.68.0, 2.68.1).** No gate results exist for either. The
-  five gates were run against the current build instead, so t50 does not cite an ungated
-  release.
+- **The gates are NOT all green, and this paragraph decides whether the release counts as
+  gated.** Measured on 2.69.5: **G1 PASS** (a message delivered into a live lane and quoted
+  back from inside it), **G3 PASS** (a pane resolves to its own mailbox), **G4 FAIL** (capture
+  still null), **G2 NOT RUN** (idle/typing hold - needs a deliberately busy lane), **G5 NOT
+  RUN** (herdr is still installed and running; it holds shells rather than agents now). So t50
+  cannot cite a fully gated build: two gates pass, one fails, two have never been run.
+- **The ungated owner releases (2.68.0, 2.68.1).** No gate results exist for either, and the
+  run above does not retroactively gate them - it measures the current build, which is the
+  only build anyone can cite.
 
 ## 6. A process hazard found while making this PR
 
