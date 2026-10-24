@@ -46,7 +46,8 @@ class GuardTests(unittest.TestCase):
                 [sys.executable, str(COLLECTOR), "--dunk-dir", str(empty), "--out", str(out)],
                 capture_output=True, text=True, timeout=240,
                 env={**os.environ, "VP_COST_HOME": str(empty), "VP_OPS_DB": str(empty / "ops.sqlite3"),
-                     "FREE_MODEL_LEDGER": str(empty / "ledger.md")})
+                     "FREE_MODEL_LEDGER": str(empty / "ledger.md"),
+                     "POOLRAD_CHECKPOINT": str(empty / "repo" / "docs" / "re" / "checkpoint.json")})
             self.assertEqual(0, proc.returncode, proc.stderr)
             self.assertNotIn(str(production), proc.stdout,
                              "--out must be honoured; the production path must not be written")
@@ -64,6 +65,8 @@ class GuardTests(unittest.TestCase):
             self.assertEqual({"claude", "codex", "pi", "opencode"}, set(costs["failed_sources"]))
             self.assertIsNone(snapshot["free_model"]["outcomes_recorded"]["value"])
             self.assertEqual("nulled", snapshot["usage"]["status"])
+            self.assertEqual("nulled", snapshot["credited"]["status"])
+            self.assertIn("not yet collected", snapshot["replaced"]["reason"])
             for name in ("dunks", "inbox", "delivery_latency", "delivery_health"):
                 self.assertEqual("nulled", snapshot[name]["status"], name)
                 self.assertTrue(snapshot[name]["reason"], name)

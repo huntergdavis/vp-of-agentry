@@ -422,3 +422,16 @@
 .delivery-text { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 tr.delivery-late td { background: rgba(181, 84, 27, .08); }
 .snapshot-hidden { display: block; font-size: 11px; opacity: .7; margin: 4px 0; }
+
+/* Credited / replaced / rate (credit-panels.jsx, owner #1386) */
+.credit-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 24px; }
+.credit-big { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 4px 0 8px; }
+.credit-big b { font-size: 32px; line-height: 1; }
+.credit-big small { flex-basis: 100%; opacity: .75; }
+.credit-rate-row { display: flex; flex-wrap: wrap; gap: 24px; margin: 6px 0; }
+.credit-bars { margin: 0; min-width: 0; }
+.credit-bars svg { width: 252px; max-width: 100%; height: auto; display: block; }
+.credit-bars rect { fill: #4d8a3a; }
+.credit-bars rect.neg { fill: #b5541b; }
+.credit-bars .credit-gap, .credit-bars .credit-axis { font-size: 9px; fill: currentColor; opacity: .6; }
+.credit-bars figcaption { font-size: 11px; opacity: .7; }
