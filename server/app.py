@@ -529,7 +529,7 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
                     "`dunkingsheep desk-token --panes ...` and put it in data/desk-token.txt "
                     "or DUNKINGSHEEP_DESK_TOKEN. Until then this lane cannot be typed into."))
     argv = (["dunkingsheep", "owner", "push", pane, text] if route == "owner_push"
-            else ["dunkingsheep", "send", pane, text, "--desk-token", desk_token]
+            else ["dunkingsheep", "send", pane, text, "--desk-token", desk_token, "--json"]
             if route == "guarded"
             else None)
     if argv is None:
@@ -539,49 +539,48 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
         result = subprocess.run(argv, capture_output=True, text=True, timeout=25)
     except (OSError, subprocess.SubprocessError) as error:
         raise HTTPException(status_code=502, detail=f"delivery path unavailable: {error}")
-    detail = (result.stdout or result.stderr or "").strip()[:300]
-    refused = result.returncode != 0
-    sent_flag = None
-    if route == "guarded":
-        # Read the field, do not pattern-match the text: a refusal message can contain the
-        # word "sent" and a success message can quote a refusal.
-        try:
-            payload = json.loads(result.stdout or "{}")
-            sent_flag = payload.get("sent")
-        except ValueError:
-            sent_flag = None
-        if sent_flag is False:
-            refused = True
-    # "did not submit" is NOT proof of loss: %15 measured two desk sends that the sender
-    # called FAILED and that arrived as turns (i23545). So it is reported as UNCONFIRMED, not
-    # as a failure - a 409 here would invite the owner to resend and double-deliver. Only a
-    # hard refusal (non-zero exit, or sent=false) is an error.
-    # Checked BEFORE the exit code, not after: since 2.70.2 a failed submit exits non-zero,
-    # so an exit-code-first order would turn a delivered-but-unconfirmed message back into a
-    # 409 - which is the double-delivery trap.
-    # A third state the desk must not flatten: the guard HELD the message because a human is
-    # typing in that pane. It is queued, not sent and not failed.
-    if "queued for" in detail.lower() and "typing" in detail.lower():
-        return {"ok": True, "pane": pane, "route": route, "sent": False, "queued": True,
-                "expect": cap.get("expect"), "detail": detail,
-                "note": ("Held by the typing guard: a human is typing in this pane, so the "
-                         "message is queued and will be sent when the box is free. It has "
-                         "NOT arrived yet - do not treat this as delivered.")}
-    if "did not submit" in detail.lower():
-        return {"ok": True, "pane": pane, "route": route, "sent": sent_flag,
-                "unconfirmed": True, "expect": cap.get("expect"), "detail": detail,
-                "note": ("Typed on the lane's behalf, but the sender could not confirm the "
-                         "submit. It may well have arrived - %15 has measured that the "
-                         "detector reports this wrongly for busy lanes. Do NOT resend "
-                         "blindly; check the lane first.")}
-    if refused:
-        raise HTTPException(status_code=409, detail=detail or "refused")
-    note = ("stored for the lane to drain; nothing typed into the pane"
-            if route == "owner_push"
-            else "Entered the box on the lane's behalf. 'sent' means it left this desk's "
-                 "hands, not that the agent acted on it.")
-    return {"ok": True, "pane": pane, "route": route, "sent": sent_flag,
-            "expect": cap.get("expect"), "detail": detail, "note": note}
+    detail = (result.stdout or result.stderr or "").strip()[:400]
+
+    if route == "owner_push":
+        if result.returncode != 0:
+            raise HTTPException(status_code=409, detail=detail or "refused")
+        return {"ok": True, "pane": pane, "route": route, "outcome": "ok",
+                "detail": detail,
+                "note": "stored for the lane to drain; nothing typed into the pane"}
+
+    # Guarded: the daemon answers with a machine-readable outcome. Branch on THAT - not on
+    # the exit code and not on prose. Two earlier versions of this function got the false
+    # success and then the false failure, both by parsing sentences.
+    payload = {}
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except ValueError:
+        payload = {}
+    outcome = str(payload.get("outcome") or "").strip().lower()
+    message_id = payload.get("message_id")
+
+    if outcome == "refused" or (not outcome and result.returncode != 0):
+        raise HTTPException(status_code=409,
+                            detail=(payload.get("message") or detail or "refused")[:300])
+    if outcome == "queued":
+        return {"ok": True, "pane": pane, "route": route, "outcome": "queued",
+                "queued": True, "message_id": message_id, "detail": detail,
+                "note": ("Held by the typing guard or not yet delivered. It has NOT "
+                         "arrived - do not read this as delivered.")}
+    if outcome == "unconfirmed":
+        return {"ok": True, "pane": pane, "route": route, "outcome": "unconfirmed",
+                "unconfirmed": True, "message_id": message_id, "detail": detail,
+                "note": ("Neither witness fired. It may well have arrived - do NOT resend "
+                         "blindly; ask the lane first.")}
+    if outcome in ("ok", "sent"):
+        return {"ok": True, "pane": pane, "route": route, "outcome": "ok",
+                "message_id": message_id, "detail": detail,
+                "note": ("Confirmed by the box clearing or by the turn it started - that is "
+                         "delivery to the lane, not proof the agent acted on it.")}
+    # No outcome field and no error: say so instead of inventing a verdict.
+    raise HTTPException(status_code=502,
+                        detail=("the sender returned no outcome field, so the desk will not "
+                                f"guess: {(detail or '')[:200]}"))
 
 
 @app.get("/api/fleet")
