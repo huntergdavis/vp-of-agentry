@@ -421,3 +421,4 @@
 .delivery-sub { margin: 14px 0 2px; font-size: 13px; }
 .delivery-text { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 tr.delivery-late td { background: rgba(181, 84, 27, .08); }
+.snapshot-hidden { display: block; font-size: 11px; opacity: .7; margin: 4px 0; }

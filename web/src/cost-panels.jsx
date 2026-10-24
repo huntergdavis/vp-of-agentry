@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { age, num, tokens, usd, why } from './format.js';
+import { hiddenNote, visible } from './hidden.js';
 
 // Three owner panels rendered from the snapshot (tools/agent_costs.py). No
 // live reads: every number is a {value, as_of, reason} cell, and a null cell
@@ -10,14 +11,21 @@ function Missing({ cell }) {
   return reason ? <small className="cost-reason">{reason}</small> : null;
 }
 
+/** A section the snapshot does not carry yet says so; an empty space reads as "nothing to report". */
+export function Absent({ title, panel }) {
+  return <div className="snapshot-costs" data-panel={panel}><h3>{title}</h3>
+    <div className="snapshot-missing">Not in this snapshot: the collector that wrote it predates this panel, or the section failed to build. Wait for the next refresh (every 10 minutes).</div></div>;
+}
+
 function Truth({ text }) {
   return text ? <div className="snapshot-truth">{text}</div> : null;
 }
 
 export function CostPerAgent({ section }) {
   const [all, setAll] = useState(false);
-  if (!section) return null;
-  const rows = section.rows || [];
+  if (!section) return <Absent title="Cost per agent" panel="cost-per-agent" />;
+  const kept = visible(section.rows, r => [r.checkout, r.label]);
+  const rows = kept.shown;
   const shown = all ? rows : rows.slice(0, 12);
   const reasons = [...new Set(rows.map(r => why(r.usd_month)).filter(Boolean))];
   return <div className="snapshot-costs" data-panel="cost-per-agent">
@@ -36,13 +44,14 @@ export function CostPerAgent({ section }) {
       </tr>)}{!rows.length && <tr><td colSpan="8">No harness sessions this month.</td></tr>}</tbody>
     </table></div>
     {rows.length > 12 && <button className="cost-more" onClick={() => setAll(!all)}>{all ? 'Show the top 12' : `Show all ${rows.length} (sorted by tokens this month)`}</button>}
+    {hiddenNote(kept.hidden) && <small className="cost-reason">{hiddenNote(kept.hidden)}.</small>}
     {reasons.map(r => <small className="cost-reason" key={r}>"tokens only": {r}.</small>)}
     <Truth text={section.truth} />
   </div>;
 }
 
 export function FreeModelVolume({ section }) {
-  if (!section) return null;
+  if (!section) return <Absent title="Free-model work volume" panel="free-model-volume" />;
   if (section.status !== 'ok') return <div className="snapshot-costs" data-panel="free-model-volume"><h3>Free-model work volume</h3><div className="snapshot-missing">{section.reason}</div></div>;
   const models = section.models || [];
   return <div className="snapshot-costs" data-panel="free-model-volume">
@@ -78,7 +87,7 @@ function resets(at) {
 }
 
 export function UsagePanel({ section }) {
-  if (!section) return null;
+  if (!section) return <Absent title="Overall usage" panel="usage" />;
   const providers = section.providers || [];
   const subs = section.subscriptions || [];
   return <div className="snapshot-costs" data-panel="usage">
