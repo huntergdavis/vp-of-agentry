@@ -212,3 +212,20 @@ A *silent* discard makes two mistakes cost the same: a false positive costs noth
 a false negative costs a duplicated body. The filter must log every candidate it drops, with
 the reason, so the rule can be audited without re-deriving it — and the remaining-work figure
 must say whether it counted discarded candidates as unknown.
+
+## 14. A mutation catch is void unless the unmutated baseline passes the same case set
+
+Found by par-c before any PR left the lane (2026-10-23). In batch P1's mutation run, **20 of 32
+"caught" mutants were caught by a single case that also FAILS ON THE UNMUTATED library** - because
+each case's random world came from one shared stream, so running a subset shifted the worlds and
+the case was simply broken. Those catches proved nothing about the mutants.
+
+The rule, now fleet-wide:
+- a **baseline run on the mutation case set must pass first**, or no catch counts;
+- each case's world is **seeded from its own name**, so a subset cannot shift the others;
+- **an unbuildable mutant is never "equivalent"** - that is an absence of evidence, not evidence of
+  equivalence.
+
+The generalisation is the same as rule 13: *a signal that can fire on the control is not a signal.*
+A mutant kill, a citation, an exclusion window, and a delivery nudge all fail this test in the same
+way - they look like evidence until you check what the unperturbed case does.
