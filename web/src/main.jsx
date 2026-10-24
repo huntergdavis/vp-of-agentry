@@ -27,6 +27,7 @@ const api = async (path, options = {}) => {
 
 const DASH_ROUTES = {
   poolrad: { eyebrow: 'POOLRAD', title: 'Original C bodies', subtitle: 'Completion against the PM-reviewed 815 upper bound' },
+  fleet: { eyebrow: 'FLEET', title: 'Lanes', subtitle: 'Live lanes, what they are doing, what is waiting for them' },
   operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
@@ -438,12 +439,51 @@ function HerdrWebUi() {
     api('/herdr-webui').then(data => setConfig(data)).catch(e => setError(e.message));
   }, []);
   return <DashShell standalone={false} view="herdr">
-    <DashHeader eyebrow="LIVE TERMINALS" title="Herdr web UI" subtitle="The live terminal shell runs as its own service; the desk only frames it" />
+    <DashHeader eyebrow="OLD PANE MANAGER" title="Herdr web UI (rollback)" subtitle="The retired pane manager, kept only as the rollback for one week" />
     <div className="dash-body" style={{ padding: 0, display: 'flex' }}>
       {error && <div className="dash-error" role="alert">{error}</div>}
       {config && !config.available && <div className="dash-empty" style={{ margin: 20 }}>The Herdr web UI is not configured on this host yet.</div>}
       {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
     </div>
+  </DashShell>;
+}
+
+function Fleet({ standalone = false }) {
+  const [fleet, setFleet] = useState(null);
+  const [error, setError] = useState('');
+  async function load() {
+    try { setFleet(await api('/fleet')); setError(''); }
+    catch (e) { setError(e.message); }
+  }
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 10000);
+    return () => clearInterval(timer);
+  }, []);
+  const age = value => {
+    if (value === null || value === undefined) return 'no activity recorded';
+    if (value < 90) return `${value}s ago`;
+    if (value < 5400) return `${Math.round(value / 60)}m ago`;
+    return `${(value / 3600).toFixed(1)}h ago`;
+  };
+  return <DashShell standalone={standalone} view="fleet">
+    <p className="dash-lead">Every live lane, from the lane registry. Shells and dead panes are not listed - a pane with no agent is not a terminal anyone is working in.</p>
+    {error && <p className="dash-error">{error}</p>}
+    {!fleet && !error && <p className="dash-empty">Loading the fleet…</p>}
+    {fleet && !fleet.rows.length && <p className="dash-empty">No live lanes right now. That is a real zero, not a failed fetch - the fleet list came back empty.</p>}
+    {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
+      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last activity</th><th>unread</th><th>pane</th></tr></thead>
+      <tbody>
+        {fleet.rows.map(row => <tr key={row.pane_id}>
+          <td>{row.name}</td>
+          <td>{row.project || '-'}</td>
+          <td>{row.agent}</td>
+          <td>{age(row.last_activity_s)}</td>
+          <td>{row.unread || ''}</td>
+          <td><code>{row.pane_id}</code></td>
+        </tr>)}
+      </tbody>
+    </table>}
   </DashShell>;
 }
 
@@ -873,7 +913,7 @@ function Desk({ onLogout }) {
       <div className="sidebar-section">PROJECT VIEW · {new Set(channels.filter(c => c.online && c.workspace).map(c => c.workspace)).size} live spaces</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'ops' ? 'selected' : ''}`} onClick={() => setDashboardView('ops')}><span aria-hidden="true">▤</span><span>Operations dashboard</span><small>metrics</small></button>
       <button className={`channel dashboard-nav ${dashboardView === 'play' ? 'selected' : ''}`} onClick={() => setDashboardView('play')}><span aria-hidden="true">▶</span><span>Play Poolrad</span><small>live game</small></button>
-      <button className={`channel dashboard-nav ${dashboardView === 'herdr' ? 'selected' : ''}`} onClick={() => setDashboardView('herdr')}><span aria-hidden="true">▦</span><span>Herdr web UI</span><small>live terminals</small></button>
+      <button className={`channel dashboard-nav ${dashboardView === 'herdr' ? 'selected' : ''}`} onClick={() => setDashboardView('herdr')}><span aria-hidden="true">▦</span><span>Herdr (rollback)</span><small>old pane manager</small></button>
       <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.activity_group === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
       <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.activity_group !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
       <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
@@ -951,28 +991,10 @@ function StandaloneDesk({ view, known }) {
     </DashShell>;
   }
   if (view === 'poolrad') return <PoolradProgress standalone />;
+  if (view === 'fleet') return <Fleet standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
   if (view === 'play') return <PoolradPlay standalone />;
   return <VpStandalone />;
-}
-
-function RetiredNotice() {
-  const [shell, setShell] = useState('');
-  useEffect(() => { api('/herdr-webui').then(data => setShell(data.url || '')).catch(() => {}); }, []);
-  const target = shell || `http://${window.location.hostname}:8789/`;
-  return <div className="dash-root dash-standalone">
-    <DashNav view="" />
-    <DashHeader eyebrow="VP OF AGENTRY" title="The desk moved" subtitle="The Herdr web UI is the front door now" />
-    <div className="dash-body">
-      <div className="dash-empty">
-        The old desk interface is retired. Terminals, workspaces and the four dashboards live in the Herdr web UI.
-        <div style={{ marginTop: 12 }}><a className="dash-primary-link" href={target}>Open the Herdr web UI ↗</a></div>
-        <div className="dash-nav-links" style={{ marginTop: 16 }}>
-          {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`}>{route.title}</a>)}
-        </div>
-      </div>
-    </div>
-  </div>;
 }
 
 function App() {
@@ -988,9 +1010,12 @@ function App() {
     return () => { clearInterval(timer); window.removeEventListener('focus', check); };
   }, []);
   if (authorized === null) return <div className="splash">VP OF AGENTRY</div>;
-  const content = route.standalone
-    ? (authorized ? <StandaloneDesk view={route.view} known={route.known} /> : <Login onSuccess={() => setAuthorized(true)} />)
-    : (authorized ? <RetiredNotice /> : <Login onSuccess={() => setAuthorized(true)} />);
+  // The root IS the desk. It used to render a notice telling the owner to go to the Herdr
+  // web UI and that our own interface was retired - which is why he has spent the day on an
+  // interface that lists forty dead shells, and the exact opposite of what he asked for.
+  const content = authorized
+    ? <StandaloneDesk view={route.standalone ? route.view : 'fleet'} known={route.standalone ? route.known : true} />
+    : <Login onSuccess={() => setAuthorized(true)} />;
   return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</>;
 }
 
