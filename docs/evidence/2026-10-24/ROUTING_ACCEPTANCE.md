@@ -37,6 +37,21 @@ Split 12:44 PDT. A single "3B" row let two very different failures share one ver
 
 Registry membership is not liveness. When both shapes refuse, the name path is closed.
 
+## TEST 3C - the two refusals must be DISTINGUISHABLE (VP i23246)
+
+Passing 3B is not enough if both shapes refuse with the same words. This morning the typos were the harmless half; a generic message makes the harmless half indistinguishable from the dangerous one, and the operator reading it needs to know whether they mistyped a name or wrote to a lane that died - those lead to different actions.
+
+| case | required | measured 12:53:51 (2.69.2, code_stale NO) |
+|---|---|---|
+| unknown name | `reason=unknown_name`, wording says nothing was created, no row | **PASS** - refused with `reason=unknown_name` |
+| registered-dead name | `reason=dead_lane`, names the lane, carries `dead_since` or says the date is unknown rather than inventing one, no row | **FAIL** - created row i23249 and queued it; probe deleted |
+
+So 3C-unknown-name already passes and 3C-registered-dead fails for the same reason 3B does: the registry is being consulted as if it were a reader.
+
+**Expected tokens, fixed 13:03 PDT (VP i23262):** `unknown_name` for a name in no registry row; `dead_lane` for a row with no live pane; `dead_since` present when known, and the message saying the date is unknown when it is not. If the output says `unhoused_lane`, the fix is NOT done - the operator has exactly two situations, a wrong name or a dead lane, and the token must not encode which backend a lane was never housed on.
+
+**How `dead_since` is judged: by READING the message, not by grepping a token.** A token can sit inside a sentence that tells the wrong story, and a green test on a plausible-looking string is the same mistake as a green test on a stale daemon. The runner checks the reason token automatically; the date wording is checked by a human reading it, and this line exists so that nobody automates the difference away.
+
     $ printf '...' | dunkingsheep inbox send "nav-fixer2" -s '[PROBE 3b] dead lane NAME as mailbox - expect refusal'
     i23160 -> nav-fixer2; no nudge
 
@@ -154,3 +169,9 @@ So the routing work is not "make delivery work"; it is "make resolution fail clo
 - 12:43:27 3A PASS | 3B FAIL i23218 (deleted) | 2 PASS | G3 PASS | G4 FAIL - daemon 2.69.0 code e12f4615, code_mtime 12:42:04, started 12:42:43, code_stale NO. This run IS attributable to the running code.
 - 12:44:28 3A PASS | 3B-unregistered PASS (reason=unknown_name) | 3B-registered-dead FAIL i23223 (deleted) | 2 PASS | G3 PASS | G4 FAIL - daemon 2.69.0, code_stale NO
 - 12:47:10 3A PASS | 3B-unregistered PASS | 3B-registered-dead FAIL i23228 (deleted) | 2 PASS | G3 PASS | G4 FAIL - daemon 2.69.0 code e12f4615, code_stale NO
+- 12:51:10 3A PASS | 3B-unregistered PASS | 3B-registered-dead FAIL i23237 (deleted) | 2 PASS | G3 PASS | G4 FAIL - daemon 2.69.0 code e12f4615, code_mtime 12:42:04 (545s), started 12:42:43, code_stale NO
+- 12:52:50 3A PASS | 3B-unregistered PASS | 3B-registered-dead FAIL i23240 (deleted) | 2 PASS | G3 PASS | G4 FAIL - daemon RESTARTED to 2.69.2 code 03c7e4850b16, code_mtime 12:51:26, started 12:52:03, code_stale NO (clean provenance, first run on 2.69.2)
+- 12:53:51 3A PASS | 3B-unregistered PASS | 3B-registered-dead FAIL i23248 (deleted) | 2 PASS | 3C-unknown-name PASS | 3C-registered-dead FAIL i23249 (deleted) | G3 PASS | G4 FAIL - daemon 2.69.2 code 03c7e4850b16, code_stale NO
+- 13:04:39 3A PASS | 3B-unregistered PASS | 3B-registered-dead **PASS (first refusal, no row)** | 2 PASS | 3C-unknown-name PASS | 3C-registered-dead FAIL - refused but reason=unhoused_lane, not dead_lane, and no dead_since | G3 PASS | G4 FAIL - daemon 2.69.3 code 20601e2ae19c, code_mtime 13:02:30, started 13:03:09, code_stale NO
+- 13:06:46 3A PASS | 3B-unregistered PASS | 3B-registered-dead PASS (reason=unhoused_lane) | 2 PASS | 3C-unknown-name PASS | 3C-registered-dead PASS (unhoused_lane, three-token ruling) | G3 PASS | G4 FAIL - daemon 2.69.3 code 20601e2ae19c BUT repo HEAD is 8f7ac5c (2.69.2) with dunk_core.py MODIFIED: the greens are on UNCOMMITTED code. RED on provenance, not on behaviour.
+- 13:12:21 **ALL ROUTING GREEN ON COMMITTED CODE** 3A PASS | 3B-unregistered PASS (unknown_name) | 3B-registered-dead PASS (dead_lane) | 2 PASS | 3C-unknown PASS | 3C-registered PASS (dead_lane) | G3 PASS | G4 FAIL (capture, out of routing scope) - daemon 2.69.4 code eeefc6eb46ed == sha256 of dunk_core.py on disk, HEAD 17760dd (13:11:08), tree clean, code_stale NO
