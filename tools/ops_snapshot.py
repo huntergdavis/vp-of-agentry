@@ -23,6 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import agent_costs  # noqa: E402
 import delivery_stats  # noqa: E402
+import credit_stats  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "data" / "ops-snapshot.json"
@@ -577,6 +578,7 @@ def main(argv=None):
     costs = agent_costs.collect(cache_path=out.with_name(out.stem + "-costs-cache.json"))
     free = costs["free_model"]
     delivery = delivery_stats.collect(DUNK_DIR)
+    credit = credit_stats.collect(CHECKPOINT.parents[2])
 
     agents = []
     for lane in sorted(rows):
@@ -663,6 +665,10 @@ def main(argv=None):
         "usage": {"status": costs["usage"]["status"], "reason": costs["usage"].get("reason")},
         **{name: {"status": section.get("status"), "reason": section.get("reason")}
            for name, section in delivery.items()},
+        # REPLACED is absent from sources on purpose: "not yet collected" is its
+        # expected state until a lane writes the file, not a broken source.
+        "credited": {"status": credit["credited"]["status"], "reason": credit["credited"].get("reason")},
+        "credit_rate": {"status": credit["rate"]["status"], "reason": credit["rate"].get("credited_reason")},
     }
     context = collect_context()
     dispatch = collect_dispatch()
@@ -693,6 +699,9 @@ def main(argv=None):
         "free_model": free,
         "usage": costs["usage"],
         **delivery,
+        "credited": credit["credited"],
+        "replaced": credit["replaced"],
+        "credit_rate": credit["rate"],
         "attribution": {
             "attributed": sum(a["merged_prs"]["value"] or 0 for a in agents if not a.get("fallback")),
             "unattributed": sum(a["merged_prs"]["value"] or 0 for a in agents if a.get("fallback")),

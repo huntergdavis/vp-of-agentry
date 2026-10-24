@@ -15,6 +15,7 @@ import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { CostPerAgent, FreeModelVolume, UsagePanel } from './cost-panels.jsx';
 import { DeliveryPanel, DunksPanel, InboxPanel } from './delivery-panels.jsx';
+import { CreditedPanel, RatePanel, ReplacedPanel } from './credit-panels.jsx';
 import { BOARD_NOTE, hiddenNote, isHidden, visible } from './hidden.js';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
@@ -350,6 +351,11 @@ function OwnerSnapshot() {
     {board?.quotas && <div className="snapshot-quotas"><h3>Provider windows</h3>
       <div className="snapshot-quota-row"><QuotaCard provider="codex" quota={board.quotas.codex} /><QuotaCard provider="claude" quota={board.quotas.claude} /></div>
     </div>}
+    <div className="credit-row">
+      <CreditedPanel section={snap.credited} />
+      <ReplacedPanel section={snap.replaced} />
+    </div>
+    <RatePanel section={snap.credit_rate} />
     <DeliveryPanel latency={snap.delivery_latency} health={snap.delivery_health} />
     <DunksPanel section={snap.dunks} />
     <InboxPanel section={snap.inbox} />

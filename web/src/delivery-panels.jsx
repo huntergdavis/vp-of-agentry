@@ -7,7 +7,7 @@ import { hiddenNote, visible } from './hidden.js';
 // rendered from the snapshot (tools/delivery_stats.py). Every panel names its
 // source and as_of, and says STALE when the reading is over 15 minutes old.
 
-function Stamp({ section }) {
+export function Stamp({ section }) {
   if (!section) return null;
   const old = stale(section.as_of);
   return <div className={`delivery-stamp${old ? ' stale' : ''}`}>
