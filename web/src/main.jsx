@@ -554,7 +554,12 @@ function Fleet({ standalone = false }) {
         <textarea id="lane-draft" rows={3} value={draft}
           onChange={event => setDraft(event.target.value)}
           placeholder="goes through the delivery path: stored for the lane to drain, not typed over the agent" />
-        <button type="submit" disabled={!draft.trim()}>Send</button>
+        {(() => {
+          const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
+          const blocked = lane && lane.send !== 'owner_push';
+          return <button type="submit" disabled={!draft.trim() || blocked}
+            title={blocked ? 'this lane cannot be written to from the desk yet' : 'send'}>Send</button>;
+        })()}
         {sent && <p className="dash-muted" role="status">{sent}</p>}
         {sendError && <p className="dash-error">{sendError}</p>}
       </form>

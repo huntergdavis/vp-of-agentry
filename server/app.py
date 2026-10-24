@@ -488,7 +488,7 @@ def api_capability(pane: str):
 
 
 @app.post("/api/pane-send")
-async def api_pane_send(request: Request):
+async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth)]):
     """Send to a lane the way that lane can receive it, decided by the daemon.
 
     Two transports, never one fallback:
@@ -525,14 +525,26 @@ async def api_pane_send(request: Request):
     except (OSError, subprocess.SubprocessError) as error:
         raise HTTPException(status_code=502, detail=f"delivery path unavailable: {error}")
     detail = (result.stdout or result.stderr or "").strip()[:300]
-    refused = result.returncode != 0 or "sent=false" in detail or '"sent": false' in detail
+    refused = result.returncode != 0
+    sent_flag = None
+    if route == "guarded":
+        # Read the field, do not pattern-match the text: a refusal message can contain the
+        # word "sent" and a success message can quote a refusal.
+        try:
+            payload = json.loads(result.stdout or "{}")
+            sent_flag = payload.get("sent")
+        except ValueError:
+            sent_flag = None
+        if sent_flag is False:
+            refused = True
     if refused:
         raise HTTPException(status_code=409, detail=detail or "refused")
-    return {"ok": True, "pane": pane, "route": route,
-            "expect": cap.get("expect"), "detail": detail,
-            "note": ("stored for the lane to drain; nothing typed into the pane"
-                     if route == "owner_push"
-                     else "typed and confirmed into the box; that is not proof the agent acted")}
+    note = ("stored for the lane to drain; nothing typed into the pane"
+            if route == "owner_push"
+            else "Entered the box on the lane's behalf. 'sent' means it left this desk's "
+                 "hands, not that the agent acted on it.")
+    return {"ok": True, "pane": pane, "route": route, "sent": sent_flag,
+            "expect": cap.get("expect"), "detail": detail, "note": note}
 
 
 @app.get("/api/fleet")
@@ -614,6 +626,7 @@ def api_fleet():
         name = recorded or pane.get("label") or pane_id
         if not agent:
             continue          # a shell is not a lane
+        cap = _capability(pane_id)          # cached 20s; one read per row, not three
         sid = sessions.get(pane_id) or ""
         last = turn_at.get(sid) or turn_at.get(sid.split("-")[0])
         age = (now - last) if last else None
@@ -631,8 +644,8 @@ def api_fleet():
             "session": sessions.get(pane_id),
             # What the desk may honestly offer for this lane, answered by the daemon:
             # "owner_push" = it drains pushes; "guarded" = immediate typed send.
-            "send": (_capability(pane_id) or {}).get("send"),
-            "drains": (_capability(pane_id) or {}).get("drains"),
+            "send": (cap or {}).get("send"),
+            "drains": (cap or {}).get("drains"),
             "pending": pending.get(pane_id, 0),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
