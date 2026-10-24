@@ -33,3 +33,14 @@ class ChannelConfigTests(unittest.TestCase):
                 path.write_text(json.dumps([item, item]))
                 with self.assertRaisesRegex(ValueError, "duplicate channel id"):
                     server._load_channels()
+
+    def test_pane_pin_must_be_a_pane_id_and_live_config_pins_cos(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "channels.json"
+            item = {"id": "cos", "name": "Chief", "match": "chief-of-staff", "kind": "active"}
+            with patch.dict("os.environ", {"VP_CHANNELS_FILE": str(path)}):
+                path.write_text(json.dumps([{**item, "pane": "w9:pS"}]))
+                self.assertEqual(server._load_channels()[0]["pane"], "w9:pS")
+                path.write_text(json.dumps([{**item, "pane": "chief-of-staff"}]))
+                with self.assertRaisesRegex(ValueError, "pane must be a herdr pane id"):
+                    server._load_channels()

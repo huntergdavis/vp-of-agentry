@@ -20,8 +20,10 @@ test('the built bundle contains the live dashboard nav', () => {
   }
 });
 
-test('the nav links use the hash form the router reads, not /dash/*', () => {
+test('no page renders its own row of dashboard links (the left bar is the only nav)', () => {
   const source = readFileSync(join(here, 'main.jsx'), 'utf8');
-  assert.ok(!source.includes('href={`/dash/${key}`}'), 'nav must not link /dash/<key> (server 302s without a session)');
-  assert.ok(source.includes('href={`/#${key}`}'), 'nav must link /#<key>');
+  assert.ok(!source.includes('href={`/dash/${key}`}'), 'must not link /dash/<key> (server 302s without a session)');
+  assert.ok(!source.includes('DashNav') && !source.includes('DashHeader'), 'header link layers must stay deleted');
+  assert.ok(!source.includes('dash-nav-links'), 'no link row above or inside page content');
 });
+

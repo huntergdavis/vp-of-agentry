@@ -446,3 +446,7 @@ tr.delivery-late td { background: rgba(181, 84, 27, .08); }
 .speed-cost { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 0 24px; align-items: start; }
 .speed-cost > * { min-width: 0; }
 .reply-deterministic { font-size: 12px; font-weight: 600; margin: 2px 0 6px; }
+
+/* Slim presence line on the owner chat pages (replaces the header layer). */
+.dash-presence { display: flex; gap: 12px; align-items: baseline; padding: 8px 18px; border-bottom: 1px solid var(--dash-border, rgba(255,255,255,.08)); font-size: 13px; }
+.dash-presence strong { font-weight: 600; }

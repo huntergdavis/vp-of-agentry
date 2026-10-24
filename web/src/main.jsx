@@ -37,6 +37,7 @@ const DASH_ROUTES = {
   operations: { eyebrow: 'OPERATIONS', title: 'Operations', subtitle: 'Project progress, reproducibility, backlog and agents · one page, auto-calculated' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
+  cos: { eyebrow: 'CHIEF OF AGENT STAFF', title: 'Chief of Agent Staff', subtitle: 'Fast answers · federates between the owner and the VP' },
   agents: { eyebrow: 'AGENTS', title: 'Agents', subtitle: 'Talk to an agent directly' },
 };
 
@@ -55,29 +56,8 @@ function useDashRoute() {
            view, known: view in DASH_ROUTES };
 }
 
-function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
-  return <header className="dash-header">
-    <div><span className="dash-eyebrow">{eyebrow}</span><h1>{title}</h1>{subtitle && <p className="dash-subtitle">{subtitle}</p>}</div>
-    <div className="dash-side">
-      {side}
-      {view && !standalone && <a className="dash-link" href={`/#${view}`} title="Open this dashboard on its own route">Standalone ↗</a>}
-    </div>
-  </header>;
-}
-
-function DashNav({ view }) {
-  return <nav className="dash-nav" aria-label="Dashboards">
-    <span className="dash-nav-brand"><span className="dash-nav-mark">VA</span>VP OF AGENTRY</span>
-    <span className="dash-nav-links">
-      {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/#${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
-    </span>
-    <span className="dash-nav-right"><a className="dash-link" href="/">Open the desk ↗</a></span>
-  </nav>;
-}
-
 function DashShell({ standalone, view, children }) {
   return <div className={`dash-root ${standalone ? 'dash-standalone' : 'dash-embedded'}`}>
-    {standalone && <DashNav view={view} />}
     {children}
   </div>;
 }
@@ -412,7 +392,7 @@ function AgentList({ onSelect = () => {} }) {
 
 // DEAD: App renders StandaloneDesk, never this. Kept only until its nav,
 // snapshot and agent-list pieces are confirmed live in the standalone path.
-function VpStandalone() {
+function VpStandalone({ channel = 'vp' }) {
   const [channels, setChannels] = useState([]);
   const [items, setItems] = useState([]);
   const [pending, setPending] = useState([]);
@@ -421,12 +401,12 @@ function VpStandalone() {
   const listRef = useRef(null);
   const nearBottomRef = useRef(true); const lastIdRef = useRef(null); const ownSendRef = useRef(null);
   const [showLatest, setShowLatest] = useState(false);
-  const selected = channels.find(c => c.id === 'vp');
+  const selected = channels.find(c => c.id === channel);
   useEffect(() => {
     let live = true;
     const load = async () => {
       try {
-        const [roster, messages] = await Promise.all([api('/channels'), api('/messages?channel=vp&limit=50')]);
+        const [roster, messages] = await Promise.all([api('/channels'), api(`/messages?channel=${channel}&limit=50`)]);
         if (!live) return;
         setChannels(roster.channels || []);
         setItems(messages.items || []);
@@ -461,16 +441,17 @@ function VpStandalone() {
     nearBottomRef.current = true; setShowLatest(false);
   }
   async function send(data) {
-    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'vp', ...data }) });
+    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel, ...data }) });
     ownSendRef.current = item.id;
     setItems(old => [...old, item]);
   }
-  const route = DASH_ROUTES.vp;
+  const route = DASH_ROUTES[channel] || DASH_ROUTES.vp;
   return <DashShell standalone view="vp">
-    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="vp" standalone side={<>
+    <div className="dash-presence">
+      <strong>{route.title}</strong>
       {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
       <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
-    </>} />
+    </div>
     <div className="dash-body dash-conversation">
       {error && <div className="dash-error" role="alert">{error}</div>}
       <div className="conversation" ref={listRef} onScroll={onScroll}>
@@ -480,7 +461,7 @@ function VpStandalone() {
         </div>
       </div>
       {showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}
-      <Composer channel="vp" onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
+      <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>
   </DashShell>;
 }
@@ -488,15 +469,13 @@ function VpStandalone() {
 function StandaloneDesk({ view, known }) {
   if (!known) {
     return <DashShell standalone view={view}>
-      <DashHeader eyebrow="DASHBOARDS" title="Unknown dashboard" subtitle={`No dashboard is registered at /dash/${view}`} />
-      <div className="dash-body"><div className="dash-empty">Pick one of the four dashboards
-        <div className="dash-nav-links" style={{ marginTop: 10 }}>{Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/#${key}`}>{route.title}</a>)}</div>
-      </div></div>
+      <div className="dash-body"><div className="dash-empty">No dashboard is registered at /dash/{view}</div></div>
     </DashShell>;
   }
   if (view === 'operations') return <OwnerSnapshot />;
   if (view === 'agents') return <AgentList onSelect={() => {}} />;
   if (view === 'play') return <PoolradPlay standalone />;
+  if (view === 'cos') return <VpStandalone channel="cos" />;
   return <VpStandalone />;
 }
 
@@ -505,15 +484,10 @@ function RetiredNotice() {
   useEffect(() => { api('/herdr-webui').then(data => setShell(data.url || '')).catch(() => {}); }, []);
   const target = shell || `http://${window.location.hostname}:8789/`;
   return <div className="dash-root dash-standalone">
-    <DashNav view="" />
-    <DashHeader eyebrow="VP OF AGENTRY" title="The desk moved" subtitle="The Herdr web UI is the front door now" />
     <div className="dash-body">
       <div className="dash-empty">
-        The old desk interface is retired. Terminals, workspaces and the four dashboards live in the Herdr web UI.
-        <div style={{ marginTop: 12 }}><a className="dash-primary-link" href={target}>Open the Herdr web UI ↗</a></div>
-        <div className="dash-nav-links" style={{ marginTop: 16 }}>
-          {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/#${key}`}>{route.title}</a>)}
-        </div>
+        The old desk interface is retired.
+        <div style={{ marginTop: 12 }}><a className="dash-primary-link" href={target}>Open the Dunking Sheep Command Center ↗</a></div>
       </div>
     </div>
   </div>;

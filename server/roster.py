@@ -10,6 +10,10 @@ def discovered_id(pane_id: str) -> str:
 
 
 def match_pane(config: dict, panes: list[dict]) -> dict | None:
+    pinned = config.get("pane")
+    if pinned:
+        # A pinned channel names one pane id; never fall back to a label match.
+        return next((pane for pane in panes if pane.get("pane_id") == pinned), None)
     match = config["match"].casefold()
     for pane in panes:
         cwd = pane.get("cwd", "").casefold().rstrip("/")

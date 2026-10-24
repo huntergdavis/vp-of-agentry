@@ -2,7 +2,7 @@
 
 import unittest
 
-from server.roster import build_roster, discovered_id
+from server.roster import build_roster, discovered_id, match_pane
 
 
 class RosterTests(unittest.TestCase):
@@ -29,6 +29,16 @@ class RosterTests(unittest.TestCase):
                          [("vp", "active"), ("old", "standby"), (discovered_id("w2:p3"), "standby")])
         self.assertEqual(rows[-1]["workspace"], "poolrad")
         self.assertTrue(rows[-1]["can_message"])
+
+    def test_pinned_pane_id_wins_over_a_label_match_and_never_falls_back(self):
+        configured = [{"id": "cos", "name": "Chief of Agent Staff", "match": "chief-of-staff", "pane": "w9:pS", "kind": "active"}]
+        panes = [{"pane_id": "w9:pP", "tab_label": "chief-of-staff", "workspace_label": "admin", "agent_status": "unknown"},
+                 {"pane_id": "w9:pS", "tab_label": "chief-of-staff", "workspace_label": "admin",
+                  "agent": "pi", "agent_status": "done"}]
+        rows = build_roster(configured, panes)
+        self.assertEqual(rows[0]["pane_id"], "w9:pS")
+        self.assertTrue(rows[0]["can_message"])
+        self.assertEqual(match_pane(configured[0], panes[:1]), None)
 
 
 if __name__ == "__main__":

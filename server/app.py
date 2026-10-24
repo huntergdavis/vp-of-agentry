@@ -72,6 +72,8 @@ def _load_channels():
             raise ValueError(f"{path}: invalid kind for channel {item['id']!r}")
         if item["id"] in ids:
             raise ValueError(f"{path}: duplicate channel id {item['id']!r}")
+        if "pane" in item and not (isinstance(item["pane"], str) and re.fullmatch(r"[A-Za-z0-9]+:p[A-Za-z0-9]+", item["pane"])):
+            raise ValueError(f"{path}: pane must be a herdr pane id like w9:pS")
         if "dashboard" in item and not isinstance(item["dashboard"], bool):
             raise ValueError(f"{path}: dashboard must be true or false")
         ids.add(item["id"])

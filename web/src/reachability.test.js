@@ -35,7 +35,7 @@ test('every top-level component defined in main.jsx is reachable from App', () =
   assert.deepEqual(dead, [], `components defined but never rendered from App: ${dead.join(', ')}`);
 });
 
-test('the nav lists exactly the four live routes', () => {
+test('the nav lists exactly the five live routes', () => {
   const routes = [...source.matchAll(/^  ([a-z]+): \{ eyebrow:/gm)].map(m => m[1]).sort();
-  assert.deepEqual(routes, ['agents', 'operations', 'play', 'vp']);
+  assert.deepEqual(routes, ['agents', 'cos', 'operations', 'play', 'vp']);
 });
