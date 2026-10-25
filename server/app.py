@@ -983,6 +983,9 @@ def start_delivery_watch():
     DELIVERY_STOP.clear()
     app.state.delivery_thread = threading.Thread(target=_delivery_watch, name="vp-delivery-watch", daemon=True)
     app.state.delivery_thread.start()
+    # Quota reads start immediately and have their own cadence, separate from board data.
+    import ops_budget
+    ops_budget.CACHE.snapshot()
     # The operations board refreshes itself on a timer; no model is involved.
     ops_board.CACHE.start()
 
@@ -994,6 +997,8 @@ def stop_delivery_watch():
     DELIVERY_STOP.set()
     app.state.delivery_thread.join(timeout=6)
     ops_board.CACHE.stop()
+    import ops_budget
+    ops_budget.CACHE.stop()
     GAME.stop()
 
 

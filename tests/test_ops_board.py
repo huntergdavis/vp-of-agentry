@@ -166,6 +166,37 @@ class OpsBoardTests(unittest.TestCase):
         self.assertEqual("RuntimeError", stale["refresh_error"])
         self.assertEqual({}, stale["headline"])
 
+    def test_budget_snapshot_updates_on_each_board_cycle(self):
+        import threading
+        import ops_budget
+        ready = threading.Event()
+        calls = []
+        cache = ops_board.BoardCache(interval_s=0.01)
+
+        def usage():
+            calls.append(1)
+            return [dict(provider="codex", status="ok", meaning="percent_used",
+                         measured_at=NOW.timestamp(), windows=[dict(name="weekly", percent_used=len(calls))])]
+
+        def build(_cache):
+            conn = ops_metrics.connect(Path(self.temporary.name) / "timer.sqlite3")
+            try:
+                result = ops_board.build(sample_client(), conn, now=NOW)
+                if len(calls) >= 2:
+                    ready.set()
+                return result
+            finally:
+                conn.close()
+
+        with patch.object(ops_budget, "read_usage", side_effect=usage), patch.object(ops_board.BoardCache, "_build", build):
+            cache.start()
+            try:
+                self.assertTrue(ready.wait(3), "budget collector did not run on successive cycles")
+            finally:
+                cache.stop()
+        self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(len(calls), cache._snapshot["budget"]["providers"][0]["windows"][0]["percent_used"])
+
     def test_the_timer_refreshes_without_any_model_call(self):
         cache = ops_board.BoardCache(interval_s=10)
         builds = []
