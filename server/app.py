@@ -1,6 +1,6 @@
 """Owner-only LAN dashboard for existing Herdr agents.
 
-The web process stores owner messages through Dunking Sheep's durable inbox.
+The web process sends chat directly through Dunking Sheep and stores local history.
 Herdr pane output is a live view, not a structured transcript; authored briefs
 are stored in SQLite.
 """
@@ -150,6 +150,8 @@ def _initialize():
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempts INTEGER NOT NULL DEFAULT 0")
         if "transport_attempt_at" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempt_at REAL NOT NULL DEFAULT 0")
+        if "direct_transport" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN direct_transport TEXT")
         if "external_id" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS messages_external_id ON messages(channel,external_id) WHERE external_id IS NOT NULL")
@@ -501,7 +503,20 @@ def api_capability(pane: str):
 
 
 @app.post("/api/pane-send")
-async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth)]):
+async def api_pane_send(request: Request, identity: Annotated[str, Depends(require_auth)]):
+    body = await request.json()
+    if body.get("channel"):
+        data = MessageIn(channel=body["channel"], body=body.get("text", ""),
+                         attachment_ids=body.get("attachment_ids", []))
+        pane = _target(data.channel, _panes())
+        if not pane or pane["pane_id"] != body.get("pane"):
+            raise HTTPException(409, "Channel target changed; refresh before sending")
+        return _post_message(data, identity, direct=True)
+    return _send_to_pane(str(body.get("pane") or "").strip(),
+                         str(body.get("text") or "").strip())
+
+
+def _send_to_pane(pane: str, text: str):
     """Send to a lane the way that lane can receive it, decided by the daemon.
 
     Two transports, never one fallback:
@@ -511,15 +526,12 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
     Branching on the agent name here would be the desk guessing at a mapping the daemon
     owns - so this asks, and refuses if the answer is missing.
     """
-    body = await request.json()
-    pane = str(body.get("pane") or "").strip()
-    text = str(body.get("text") or "").strip()
     if not pane.startswith("%"):
         raise HTTPException(status_code=400, detail="a tmux pane id looks like %9")
     if not text:
         raise HTTPException(status_code=400, detail="nothing to send")
-    if len(text) > 4000:
-        raise HTTPException(status_code=400, detail="keep it under 4000 characters")
+    if len(text) > 16000:
+        raise HTTPException(status_code=400, detail="keep it under 16000 characters")
 
     cap = _capability(pane)
     if not cap:
@@ -579,9 +591,11 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
     outcome = str(payload.get("outcome") or "").strip().lower()
     message_id = payload.get("message_id")
 
-    if outcome == "refused" or (not outcome and result.returncode != 0):
-        raise HTTPException(status_code=409,
-                            detail=(payload.get("message") or detail or "refused")[:300])
+    if outcome == "refused":
+        return {"ok": False, "pane": pane, "route": route, "outcome": outcome,
+                "message_id": message_id, "detail": payload.get("message") or detail}
+    if not outcome and result.returncode != 0:
+        raise HTTPException(status_code=409, detail=detail or "No daemon outcome")
     if outcome == "queued":
         return {"ok": True, "pane": pane, "route": route, "outcome": "queued",
                 "queued": True, "message_id": message_id, "detail": detail,
@@ -600,7 +614,7 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
                 "note": ("Stored in a durable queue the lane drains itself. That is NOT "
                          "'read' - it has not arrived until the lane takes it.")}
     if outcome in ("ok", "sent"):
-        return {"ok": True, "pane": pane, "route": route, "outcome": "ok",
+        return {"ok": True, "pane": pane, "route": route, "outcome": outcome,
                 "message_id": message_id, "detail": detail,
                 "note": ("Confirmed by the box clearing or by the turn it started - that is "
                          "delivery to the lane, not proof the agent acted on it.")}
@@ -794,6 +808,10 @@ def refresh_operations_board(_: Annotated[str, Depends(require_auth)]):
 
 def _message(row, conn):
     item = dict(row)
+    direct = item.pop("direct_transport", None)
+    if direct:
+        item["transport"] = json.loads(direct)
+        item["outcome"] = item["transport"].get("outcome")
     item["attachments"] = [dict(r) for r in conn.execute(
         "SELECT id,filename,mime,size FROM attachments WHERE message_id=? ORDER BY created_at", (row["id"],))]
     return item
@@ -850,10 +868,12 @@ def _reconcile(channel: str):
         if not queued:
             return
         client = _flock()
-        legacy = [row for row in queued if not (row["transport_id"] or "").startswith("i")]
+        legacy = [row for row in queued if row["direct_transport"] is None and not (row["transport_id"] or "").startswith("i")]
         recent = client.call("list_messages") if legacy else {"queued": [], "recent": []}
         queued_by_id = {item.get("message_id"): item for item in recent.get("queued", [])}
         for row in queued:
+            if row["direct_transport"] is not None:
+                continue  # Preserve the daemon receipt; legacy inbox reconciliation cannot interpret it.
             record = None
             transport_id = row["transport_id"]
             if transport_id and transport_id.startswith("i"):
@@ -1136,6 +1156,10 @@ class MessageIn(BaseModel):
 
 @app.post("/api/messages")
 def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)]):
+    return _post_message(data, identity)
+
+
+def _post_message(data: MessageIn, identity: str, *, direct: bool = False):
     if not _known_channel(data.channel):
         raise HTTPException(404, "Unknown channel")
     if not data.body.strip() and not data.attachment_ids:
@@ -1166,9 +1190,21 @@ def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)
         message_id = cursor.lastrowid
         for row in attachment_rows:
             conn.execute("UPDATE attachments SET message_id=? WHERE id=?", (message_id, row["id"]))
+        if direct:
+            conn.execute("UPDATE messages SET direct_transport='{}' WHERE id=?", (message_id,))
         row = conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone()
+        prompt = _prompt_for(row, conn) if direct else None
     try:
-        result = _send_saved(row, _flock(), pane)
+        if direct:
+            result = _send_to_pane(pane["pane_id"], prompt)
+            with _db() as conn:
+                conn.execute("UPDATE messages SET delivery=?,delivery_detail=?,transport_id=?,"
+                             "direct_transport=?,transport_attempts=1 WHERE id=?",
+                             (result["outcome"], result.get("detail", ""),
+                              result.get("push_id") or result.get("message_id"),
+                              json.dumps(result), message_id))
+        else:
+            result = _send_saved(row, _flock(), pane)
     except Exception as exc:
         result = {"error": str(exc)}
         with _db() as conn:

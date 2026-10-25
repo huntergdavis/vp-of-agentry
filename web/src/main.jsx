@@ -173,7 +173,7 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
 
 function MessageCard({ item, highlight, onSendNow, onInspect }) {
   const owner = item.role === 'owner';
-  const deliveryLabel = { inbox: 'delivered to inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
+  const deliveryLabel = item.outcome || { inbox: 'delivered to inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
   const waitingSeconds = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 1000));
   const waitingMinutes = Math.floor(waitingSeconds / 60);
   const heldForDraft = item.delivery_detail?.includes('someone is typing') || item.delivery_detail?.includes('input box contains a draft');
@@ -713,6 +713,7 @@ function PoolradPlay({ vpChannel, standalone = false }) {
   const [draft, setDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [chatOutcome, setChatOutcome] = useState('');
   const [code, setCode] = useState(() => { try { return localStorage.getItem('vp-codeword') || ''; } catch { return ''; } });
   const [states, setStates] = useState([]);
   const [saveTag, setSaveTag] = useState('');
@@ -781,7 +782,8 @@ function PoolradPlay({ vpChannel, standalone = false }) {
     if (!body || !channel) return;
     setChatBusy(true); setChatError('');
     try {
-      await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: channel.id, body }) });
+      const receipt = await api('/pane-send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane: channel.pane_id, channel: channel.id, text: body }) });
+      setChatOutcome(receipt.outcome || receipt.delivery);
       setDraft('');
       const data = await api(`/messages?channel=${encodeURIComponent(channel.id)}&limit=15`);
       setChat(data.items || []);
@@ -856,7 +858,8 @@ function PoolradPlay({ vpChannel, standalone = false }) {
         {chat.length === 0 && <div className="game-chat-empty">{channel ? 'No messages yet. Say where you are, or hit Quicksave.' : 'VP channel unavailable.'}</div>}
         {chat.map(m => <div key={m.id} className={`game-chat-item ${m.role === 'owner' ? 'owner' : 'agent'}`}><span className="game-chat-role">{m.role === 'owner' ? 'You' : 'VP'}</span><span className="game-chat-body">{m.body}</span></div>)}
       </div>
-      {chatError && <div className="game-error" role="alert">{chatError}</div>}
+      {chatOutcome && <p role="status">{chatOutcome}</p>}
+        {chatError && <div className="game-error" role="alert">{chatError}</div>}
       <div className="game-chat-input">
         <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="e.g. I am on Sokal Keep first floor, quicksave" rows={2} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } }} aria-label="Message the VP" />
         <div className="game-chat-actions">
@@ -894,7 +897,7 @@ function ChannelStandalone({ channel }) {
   }, [channel]);
   useEffect(() => { const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [items]);
   async function send(data) {
-    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, channel }) });
+    const item = await api('/pane-send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane: selected.pane_id, channel, text: data.body, attachment_ids: data.attachment_ids }) });
     setItems(old => [...old, item]);
   }
   const route = DASH_ROUTES[channel];
@@ -911,6 +914,7 @@ function ChannelStandalone({ channel }) {
           <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
+      <p className="dash-meta-line">Direct from now on · delivery status is the daemon outcome.</p>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>
   </DashShell>;
