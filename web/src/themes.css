@@ -442,3 +442,8 @@
   :root[data-theme="crt"] body::after { display: none; }
   :root[data-theme="crt"] :is(h1, h2, .dash-nav-brand) { text-shadow: none; }
 }
+
+/* ChatScope declares its own font on both wrappers; keep message text CRT too. */
+:root[data-theme="crt"] :is(.cs-message, .cs-message__content) {
+  font-family: var(--font-body);
+}
