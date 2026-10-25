@@ -14,7 +14,9 @@ with sync_playwright() as p:
   page=browser.new_page(viewport={"width":width,"height":height})
   errors=[];posts=[]
   page.on("pageerror",lambda e:errors.append(str(e)))
-  page.route("**/api/fleet",lambda r:r.fulfill(json={"state":"ok","rows":rows}))
+  page.route("**/api/fleet",lambda r:r.fulfill(json={"state":"ok","rows":rows,"unrouted":{
+    "state":"ok","note":"Process presence is not proof of active work",
+    "rows":[{"pid":98765,"agent":"codex","project":"unrouted-fixture","reason":"No pane route found for this process","last_session_write_s":120,"session_age_reason":None}]}}))
   screen="\n".join(f"Screen row {i} "+("."*180) for i in range(40))
   page.route("**/api/pane-text?*",lambda r:r.fulfill(json={"text":screen}))
   def send(route):
@@ -23,6 +25,11 @@ with sync_playwright() as p:
   page.route("**/api/pane-send",send)
   page.goto(BASE+"/dash/fleet")
   page.locator("#password").fill(password);page.get_by_role("button",name="Open desk").click()
+  inventory=page.get_by_role("region",name="Unrouted agent processes")
+  inventory.wait_for()
+  assert "unrouted-fixture" in inventory.inner_text()
+  assert "No pane route" in inventory.inner_text()
+  assert inventory.locator("button").count()==0
   group=page.locator(".fleet-project").last
   group.locator("summary").click();group.locator("button").click()
   page.locator(".dash-terminal-text").wait_for()
@@ -34,7 +41,7 @@ with sync_playwright() as p:
   page.get_by_role("status").filter(has_text="[queued]").wait_for()
   assert posts==[{"pane":"%15","text":"guarded test"}],posts
   assert page.locator("#lane-draft").input_value()==""
-  assert "Current screen only" in page.locator(".dash-terminal").inner_text()
+  assert "Current screen only" in page.get_by_test_id("pane-text").inner_text()
   terminal=page.locator(".dash-terminal-text")
   terminal.scroll_into_view_if_needed()
   terminal.hover();page.mouse.wheel(0,500)

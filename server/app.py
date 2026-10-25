@@ -753,8 +753,10 @@ def api_fleet():
             "can_type": bool(_desk_token()),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
+    import fleet_inventory
+    inventory = fleet_inventory.collect(row["pane_id"] for row in rows)
     payload = {"state": "ok", "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-               "rows": rows, "count": len(rows),
+               "rows": rows, "count": len(rows), "unrouted": inventory,
                "note": "shells and dead panes are not lanes and are not listed"}
     _FLEET_CACHE["at"], _FLEET_CACHE["payload"] = time.time(), payload
     return payload
