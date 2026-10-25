@@ -87,6 +87,34 @@ class PoolradDashboardTests(unittest.TestCase):
         self.assertEqual(401, denied.exception.status_code)
 
 
+class ReplacementSourceTests(unittest.TestCase):
+    def test_count_uses_exact_checkpoint_and_preserves_source(self):
+        from types import SimpleNamespace
+        rows = {"schema": "replaced/1", "truth": "recorded source evidence", "bodies": [
+            {"id": "a", "proven_at": "2026-10-20", "evidence": "report"},
+            {"id": "b", "proven_at": "2026-10-21", "evidence": "report"},
+        ]}
+        with patch.object(server.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(rows))) as run:
+            data = server._replacement_count("a" * 40)
+        self.assertEqual(2, data["count"])
+        self.assertEqual("ok", data["state"])
+        self.assertEqual("a" * 40 + ":docs/re/replaced_bodies.json", run.call_args.args[0][-1])
+        self.assertEqual("a" * 40, data["commit"])
+
+    def test_missing_or_ambiguous_record_is_unknown_not_zero(self):
+        import subprocess
+        from types import SimpleNamespace
+        with patch.object(server.subprocess, "run", side_effect=subprocess.CalledProcessError(128, "git")):
+            self.assertIsNone(server._replacement_count("b" * 40)["count"])
+        rows = {"schema": "replaced/1", "bodies": [
+            {"id": "a", "proven_at": "date", "evidence": "report"},
+            {"id": "a", "proven_at": "date", "evidence": "report"},
+        ]}
+        with patch.object(server.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(rows))):
+            self.assertEqual("unavailable", server._replacement_count("b" * 40)["state"])
+
+
+
 class CompactPoolradProgressTests(unittest.TestCase):
     """The owner view carries two percentages and one evidence line, nothing else."""
 

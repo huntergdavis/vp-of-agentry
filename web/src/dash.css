@@ -417,3 +417,8 @@
 .budget-provider-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
 .budget-provider small { display: block; color: var(--dash-muted); }
 .budget-provider ul { margin: 6px 0; padding-left: 18px; }
+
+.ops-poolrad { margin: 10px 0 !important; padding: 8px 0; border-top: 1px solid var(--dash-border); overflow-wrap: anywhere; }
+.ops-poolrad a, #poolrad-details a { color: var(--dash-accent); }
+#poolrad-details small { display: block; overflow-wrap: anywhere; }
+#poolrad-details li { margin: 8px 0; }

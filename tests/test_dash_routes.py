@@ -61,6 +61,11 @@ class DashRouteTests(unittest.TestCase):
         self.assertEqual("text/html", response.media_type)
         self.assertEqual("no-store", response.headers["cache-control"])
 
+    def test_old_poolrad_route_redirects_to_operations_anchor_after_auth(self):
+        response = server.dash_route("poolrad", build_request(cookie=self.session_cookie()))
+        self.assertEqual(307, response.status_code)
+        self.assertEqual("/dash/operations#poolrad", response.headers["location"])
+
     def test_the_dash_root_and_trailing_slashes_redirect(self):
         self.assertEqual("/dash/cos", server.dash_root().headers["location"])
         response = server.dash_route("play/", build_request(cookie=self.session_cookie()))
