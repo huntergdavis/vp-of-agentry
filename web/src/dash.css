@@ -271,7 +271,6 @@
   font-size: 12.5px;
   line-height: 1.6;
 }
-.dash-meta-line { margin: 7px 0 0; color: var(--dash-muted); font-size: 11px; }
 
 /* Health list on the operations board. */
 .dash-health { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
