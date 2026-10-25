@@ -328,7 +328,7 @@ function RecreationLab({ snapshot, history }) {
       <p><b>TRIAL DECISION:</b> {trialDecision}</p>
       <div className="ops-table-wrap"><table><thead><tr><th>Type / model</th><th>Effort</th><th>Bodies</th><th>Accepted/hr</th><th>$/accepted</th></tr></thead><tbody>{efficiency.map(row => <tr key={`${row.agent_type}-${row.model}-${row.reasoning_effort}`}><td>{row.agent_type}<small>{row.model} · {row.completed_trials}/{row.trials} trials closed</small></td><td>{row.reasoning_effort}</td><td>{row.authored_bodies} / {row.accepted_bodies}</td><td>{unknown(row.accepted_per_hour)}</td><td>{row.usd_per_accepted == null ? 'Unmeasured' : `$${row.usd_per_accepted.toFixed(2)}`}</td></tr>)}{!efficiency.length && <tr><td colSpan="5">No trial recorded yet. Opus/Sonnet and Codex reasoning comparisons are queued.</td></tr>}</tbody></table></div>
       <small>Body counts are distinct authored function outputs per trial / latest exact-head acceptances. Later repairs retain the earlier trial's authored output without assigning its acceptance. Rates use completed trial hours; review time and usage dollars appear only where sourced.</small>
-      <details><summary>Individual trial records</summary><div className="ops-table-wrap"><table><thead><tr><th>Pane</th><th>Model / effort</th><th>Minutes</th><th>Messages</th><th>Review</th></tr></thead><tbody>{trials.map(row => <tr key={row.trial_id}><td>{row.pane_id}</td><td>{row.model}<small>{row.reasoning_effort || 'unspecified'}</small></td><td>{Math.round(row.elapsed_hours * 60)}</td><td>{row.inbox_deliveries} inbox / {row.direct_sends} direct</td><td>{row.correction_minutes == null ? 'Unmeasured' : `${row.correction_minutes} min`}</td></tr>)}</tbody></table></div></details>
+      <section><h2>Individual trial records</h2><div className="ops-table-wrap"><table><thead><tr><th>Pane</th><th>Model / effort</th><th>Minutes</th><th>Messages</th><th>Review</th></tr></thead><tbody>{trials.map(row => <tr key={row.trial_id}><td>{row.pane_id}</td><td>{row.model}<small>{row.reasoning_effort || 'unspecified'}</small></td><td>{Math.round(row.elapsed_hours * 60)}</td><td>{row.inbox_deliveries} inbox / {row.direct_sends} direct</td><td>{row.correction_minutes == null ? 'Unmeasured' : `${row.correction_minutes} min`}</td></tr>)}</tbody></table></div></section>
       <small>Stored per trial: model, provider, reasoning effort, start/end, function IDs and status, review time, delivered messages, host PSI, tokens and measured cost when sourced.</small></div></div>
   </section>;
 }
@@ -411,7 +411,7 @@ function OpsSummary({ auto = true }) {
     {error && <div className="dashboard-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
     <div className="ops-metrics"><div className="ops-heading"><strong>OPERATIONS METRICS</strong><small>{snapshot?.latest_sample_at ? 'Sample ' + new Date(snapshot.latest_sample_at).toLocaleTimeString() : 'Loading…'}</small></div>
     {snapshot && weekHistory && <RecreationLab snapshot={snapshot} history={weekHistory} />}
-    {snapshot && weekHistory && <details className="ops-reference"><summary>Reviewed credit history and fixed-cost planning reference</summary><CoverageEconomics snapshot={snapshot} history={weekHistory} /></details>}
+    {snapshot && weekHistory && <section className="ops-reference"><h2>Reviewed credit history and fixed-cost planning reference</h2><CoverageEconomics snapshot={snapshot} history={weekHistory} /></section>}
     {progress && <p className="ops-source-line">Published main {progress.commit_oid.slice(0, 8)} · checkpoint {new Date(progress.observed_at).toLocaleString()} · {progress.verified_game_identities} verified identities / {progress.ceiling} working ceiling; identity is separate from strict C credit.</p>}
     {history && <><div className="ops-section-head"><h2>Engineering flow · last 24 hours</h2><small>Recorded events and observations; no values are inferred between samples.</small></div>
       <div className="ops-charts">
@@ -509,13 +509,13 @@ function Fleet({ standalone = false }) {
     {!fleet && !error && <p className="dash-empty">Loading agents…</p>}
     {fleet && !fleet.rows.length && <p className="dash-empty">No active agents right now.</p>}
     {Object.entries(projects).sort(([a], [b]) => a.localeCompare(b)).map(([project, rows]) =>
-      <details key={project} className="fleet-project">
-        <summary>{project} <span className="dash-muted">· {rows.length} lanes</span></summary>
+      <section key={project} className="fleet-project">
+        <h2>{project} <span className="dash-muted">· {rows.length} lanes</span></h2>
         <div className="fleet-lanes">{rows.map(row => <button key={row.pane_id}
           aria-pressed={selected === row.pane_id} onClick={() => setSelected(row.pane_id)}>
           {row.name} <small>{row.agent} · {age(row.last_activity_s)}</small>
         </button>)}</div>
-      </details>)}
+      </section>)}
     <section className="dash-terminal" aria-label="Unrouted agent processes">
       <h2>Agent processes without a desk route</h2>
       {fleet?.unrouted?.state !== 'ok'
@@ -613,7 +613,6 @@ function Budget({ data }) {
 
 function OpsBoard({ standalone = false }) {
   const poolrad = usePoolradProgress();
-  const referenceRef = useRef(null);
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -625,6 +624,9 @@ function OpsBoard({ standalone = false }) {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   useEffect(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer); }, []);
+  const taskRank = row => row.status === 'blocked' ? 0 : row.assignees.includes('owner') ? 1 : row.status === 'in_progress' ? 2 : 3;
+  const taskRows = [...(board?.reference.tasks.items || [])].sort((a, b) => taskRank(a) - taskRank(b));
+  const taskAge = seconds => seconds == null ? 'unknown' : seconds < 3600 ? Math.floor(seconds / 60) + 'm' : Math.floor(seconds / 3600) + 'h';
   const tasks = board?.brief.tasks;
   const lanes = board?.brief.lanes;
   const alarms = board?.attention.alarms || [];
@@ -650,7 +652,7 @@ function OpsBoard({ standalone = false }) {
             ? <>{poolrad.data.strict_full_c ?? 'unknown'}/{poolrad.data.ceiling ?? 'unknown'} credited strict C ({poolrad.data.strict_percent ?? 'unknown'}%) · {poolrad.data.identities ?? 'unknown'}/{poolrad.data.ceiling ?? 'unknown'} identities ({poolrad.data.identity_percent ?? 'unknown'}%) · CEILING {poolrad.data.ceiling ?? 'unknown'} ({String(poolrad.data.bound_kind || 'unknown').replaceAll('_', ' ')}) · {poolrad.data.replacements?.count ?? 'unknown'} recorded replacements · not whole-game completion. </>
             : poolrad.error ? 'Source unavailable. ' : 'Loading checkpoint… '}
           {poolrad.error && poolrad.data && <span>Refresh failed; showing previous checkpoint. </span>}
-          <a href="#poolrad-details" onClick={() => { if (referenceRef.current) referenceRef.current.open = true; }}>Evidence and timestamps</a>
+          <a href="#poolrad-details">Evidence and timestamps</a>
         </p>
         <section data-ops-section="attention" className="ops-attention">
           {alarms.slice(0, 3).map((alarm, i) => <p key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</p>)}
@@ -660,13 +662,13 @@ function OpsBoard({ standalone = false }) {
           {owner?.state === 'ok' && !owner.items.length && <p className="dash-muted">No tasks explicitly assigned to you.</p>}
         </section>
         {board.budget && <Budget data={board.budget} />}
-        <details ref={referenceRef} className="ops-reference" data-ops-section="reference">
-          <summary>Reference: Poolrad evidence, tasks, lanes and schedules</summary>
+        <section className="ops-reference" data-ops-section="reference">
+          <h2>Reference: Poolrad evidence, tasks, lanes and schedules</h2>
           <PoolradReference data={poolrad.data} error={poolrad.error} />
           {alarms.length > 3 && <ul>{alarms.map((alarm, i) => <li key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</li>)}</ul>}
           {[
-            ['Tasks', board.reference.tasks, ['ID', 'Task', 'Status', 'Assignee'],
-              row => [row.id, row.title, row.status, row.assignees.join(', ') || '—']],
+            ['Tasks', {...board.reference.tasks, items: taskRows}, ['ID', 'Task / status', 'Age', 'Assignee'],
+              row => [row.id, <>{row.title}<small>{row.status}</small></>, taskAge(row.age_s), row.assignees.join(', ') || '—']],
             ['Lanes', board.reference.lanes, ['Pane', 'Lane', 'Status'],
               row => [row.pane_id, row.tab_label, row.agent_status]],
             ['Schedules', board.reference.schedules, ['ID', 'Schedule', 'Target', 'Status'],
@@ -678,7 +680,7 @@ function OpsBoard({ standalone = false }) {
                 <tbody>{source.items.map((row, i) => <tr key={row.id || row.pane_id || i}>{cells(row).map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody>
               </table></div>}
           </div>)}
-        </details>
+        </section>
       </>}
     </div>
   </DashShell>;

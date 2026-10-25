@@ -24,7 +24,7 @@ with sync_playwright() as p:
         assert page.locator(".dash-root").count() == 1
         assert page.locator(".dash-nav a[href='/dash/poolrad']").count() == 0
         assert page.locator("[data-ops-section]").count() == 4
-        assert page.locator("details").count() == 1
+        assert page.locator("details").count() == 0
         assert page.locator("details[open]").count() == 0
         assert page.locator(".ops-budget").count() == 1
         progress = page.request.get(BASE + "/api/poolrad-dashboard/progress").json()
@@ -33,7 +33,7 @@ with sync_playwright() as p:
         assert "upper bound" in text and "not whole-game completion" in text
         assert f"{progress['identities']}/{progress['ceiling']}" in text
         page.get_by_role("link", name="Evidence and timestamps").click()
-        assert page.locator("details[open]").count() == 1
+        assert page.locator("details[open]").count() == 0
         evidence = page.locator("#poolrad-details").inner_text()
         assert progress["generated"] in evidence
         assert progress["observed_at"] in evidence
@@ -44,7 +44,6 @@ with sync_playwright() as p:
         assert "not rerun by dashboard" in evidence
         assert page.locator("details details").count() == 0
         page.screenshot(path=str(ROOT / "data" / f"poolrad-ops-evidence-{width}.png"), full_page=True)
-        page.locator(".ops-reference summary").click()
         page.locator(".dash-body").evaluate("e => e.scrollTop=0")
         page.screenshot(path=str(ROOT / "data" / f"poolrad-ops-{width}.png"), full_page=True)
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")

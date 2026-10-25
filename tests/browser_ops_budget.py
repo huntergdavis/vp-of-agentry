@@ -30,7 +30,7 @@ with sync_playwright() as p:
         assert board["budget"]["source"] == "dunkingsheep --json usage"
         assert len(board["budget"]["providers"]) >= 3
         assert page.locator("[data-ops-section]").count() == 4
-        assert page.locator("details").count() == 1
+        assert page.locator("details").count() == 0
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         page.screenshot(path=str(ROOT / "data" / f"budget-live-{width}.png"), full_page=True)
 
