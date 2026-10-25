@@ -417,3 +417,12 @@
 .budget-provider-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
 .budget-provider small { display: block; color: var(--dash-muted); }
 .budget-provider ul { margin: 6px 0; padding-left: 18px; }
+
+/* Terminals must scroll inside the viewport; the root intentionally clips overflow. */
+.fleet-body > .fleet-project { margin: 4px 0; }
+.dash-terminal { margin-top: 16px; padding: 14px; border: 1px solid var(--dash-border); border-radius: 8px; }
+.dash-terminal h2 { font-size: 16px; margin: 0 0 12px; }
+.dash-terminal form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.dash-terminal textarea { width: 100%; min-height: 88px; padding: 10px; resize: vertical; background: var(--dash-panel); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: 6px; }
+.dash-terminal-text { max-height: 55vh; overflow: auto; white-space: pre; padding: 12px; border: 1px solid var(--dash-border); background: var(--dash-panel); font-size: 12px; line-height: 1.45; }
+.dash-terminal .dash-error, .dash-terminal .dash-muted { overflow-wrap: anywhere; }
