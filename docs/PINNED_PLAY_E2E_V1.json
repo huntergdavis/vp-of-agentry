@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "case": "new-tag-restored-then-right",
+  "result": "FAIL",
+  "comparison_performed": false,
+  "phases": {
+    "producer": {
+      "exit_code": 0,
+      "emulator_exit_code": -15,
+      "shutdown_method": "SIGTERM"
+    },
+    "original": {
+      "exit_code": 1,
+      "load_verified": true,
+      "emulator_exit_code": 139,
+      "restored_route_completed": false,
+      "shutdown_method": "already exited"
+    },
+    "replacement": {
+      "exit_code": 1,
+      "load_verified": true,
+      "emulator_exit_code": 139,
+      "restored_route_completed": false,
+      "shutdown_method": "already exited"
+    }
+  },
+  "not_verified": [
+    "Native exercise incomplete; no frame/register/VGA/RAM comparison established.",
+    "Live desk transport/audio/video, old-state migration, full-game parity or replacement credit."
+  ],
+  "emulator": {
+    "kind": "checkpoint",
+    "build_id": "dosbox-x-5a9c7c53-parity-o1",
+    "sha256": "fc66e91e8e8d48cc0b176bc350febab753bff297f2d93fc6c1e9d1f21cb6efae",
+    "release": "2026.01.02"
+  },
+  "tagged_snapshot": {
+    "tag": "t140 pinned build new snapshot",
+    "slot": 1,
+    "size": 283572,
+    "sha256": "b4980ba9482de594451b4fb9d8422686dfdbff99b23dbf28c53827e7bd383507",
+    "zip_crc_pass": true
+  },
+  "producer_pr_environment_present": false,
+  "producer_observer_outputs": []
+}

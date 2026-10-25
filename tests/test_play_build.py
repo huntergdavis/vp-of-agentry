@@ -25,6 +25,7 @@ class PlayBuildTests(unittest.TestCase):
         binary = hybrid / 'bin/dosbox-x'
         binary.write_text('#!/bin/sh\nexit 0\n')
         binary.chmod(0o700)
+        os.environ['VP_REPLACEMENT_DOSBOX_X'] = str(binary)
         (hybrid / 'registry_all.tsv').write_text('RES_0709_01DF\t01DF\t1\t00\tff\tunique\n')
         (hybrid / 'play-dispatch.txt').write_text('RES_0709_01DF\n')
         run = self.root / 'run'
@@ -61,6 +62,7 @@ class PlayBuildTests(unittest.TestCase):
 
     def test_missing_replacement_fails(self):
         os.environ['VP_PLAY_BUILD'] = 'replacement'
+        os.environ['VP_REPLACEMENT_DOSBOX_X'] = str(self.root / 'absent-binary')
         with self.assertRaisesRegex(GameError, 'binary'):
             self.session()._play_environment(self.root)
 
