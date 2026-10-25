@@ -32,6 +32,8 @@ def openrouter_free():
         if str(row["id"]).endswith(":free") or (
                 pricing.get("prompt") == "0" and pricing.get("completion") == "0"):
             ids.add("openrouter/" + row["id"])
+    if not ids:
+        raise RuntimeError(f"parsed zero free models from {len(rows)} OpenRouter rows")
     return ids
 
 
@@ -39,8 +41,11 @@ def opencode_free():
     """OpenCode models: free-tier ids, plus every opencode-go id (plan-included)."""
     out = subprocess.run(["opencode", "models"], capture_output=True, text=True,
                          timeout=60, check=True).stdout.split()
-    return {m for m in out if m.startswith("opencode-go/") or m.endswith("-free")
-            or m.endswith(":free")}
+    models = {m for m in out if m.startswith("opencode-go/") or m.endswith("-free")
+              or m.endswith(":free")}
+    if not models:  # an unparseable answer is a source error, never "no models"
+        raise RuntimeError(f"parsed zero models from {len(out)} tokens of `opencode models`")
+    return models
 
 
 def main():

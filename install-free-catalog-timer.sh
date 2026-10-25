@@ -7,11 +7,13 @@ cat > "$unit_dir/vp-free-catalog.service" <<UNIT
 [Unit]
 Description=Watch free models on OpenRouter and OpenCode, update the context article
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=$root
-ExecStart=/usr/bin/python3 -I $root/tools/free_catalog.py
+ExecStart=/usr/bin/python3 -I "$root/tools/free_catalog.py"
+TimeoutStartSec=300
 Environment=PATH=%h/.local/bin:/snap/bin:/usr/local/bin:/usr/bin:/bin
 UMask=0077
 UNIT
