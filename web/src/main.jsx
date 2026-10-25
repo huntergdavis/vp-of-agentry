@@ -26,11 +26,12 @@ const api = async (path, options = {}) => {
 };
 
 const DASH_ROUTES = {
-  poolrad: { eyebrow: 'POOLRAD', title: 'Original C bodies', subtitle: 'Completion against the PM-reviewed 815 upper bound' },
-  fleet: { eyebrow: 'FLEET', title: 'Lanes', subtitle: 'Live lanes, what they are doing, what is waiting for them' },
-  operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
+  cos: { eyebrow: 'CONVERSATION', title: 'Chief of Agent Staff', subtitle: 'Ask, decide, and follow up' },
+  vp: { eyebrow: 'CONVERSATION', title: 'VP of Agentry', subtitle: 'Engineering direction and progress' },
+  poolrad: { eyebrow: 'POOLRAD', title: 'Poolrad board', subtitle: 'Completion against the PM-reviewed CEILING of 815' },
+  fleet: { eyebrow: 'TERMINALS', title: 'Terminals', subtitle: 'See active agents and send a message' },
+  operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Tasks, progress, and service health' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
-  vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
 };
 
 function useDashRoute() {
@@ -41,7 +42,7 @@ function useDashRoute() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
   const match = /^\/dash\/([a-z]+)\/?$/.exec(path);
-  const view = match ? match[1] : 'poolrad';
+  const view = match ? match[1] : 'cos';
   return { standalone: path === '/dash' || path.startsWith('/dash/'), view, known: view in DASH_ROUTES };
 }
 
@@ -111,7 +112,7 @@ function PasswordSettings({ onClose }) {
     <form onSubmit={submit}><label>Current password<input type="password" autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} required /></label>
       <label>New password<input type="password" autoComplete="new-password" minLength={12} value={next} onChange={e => setNext(e.target.value)} required /></label>
       <label>Confirm new password<input type="password" autoComplete="new-password" minLength={12} value={confirm} onChange={e => setConfirm(e.target.value)} required /></label>
-      {error && <div className="form-error" role="alert">{error}</div>}{saved && <div className="settings-success" role="status">Password changed. Other browser sessions were signed out.</div>}
+      {error && <div className="form-error" role="alert">{error}</div>}{saved && <div className="settings-success" role="status">Password changed. Other browsers were signed out.</div>}
       <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button></form>
   </div></div>;
 }
@@ -164,7 +165,7 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
       <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
     </div>
     <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}><EditorContent editor={editor} /></div>
-    <div className="composer-footer"><span>{disabled ? 'Agent unavailable in Herdr' : 'Enter to send · Shift+Enter for a new line · files stay on this host'}</span>
+    <div className="composer-footer"><span>{disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'}</span>
       {error && <span className="form-error" role="alert">{error}</span>}
       <button className="primary send" disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send message ↗'}</button></div>
   </section>;
@@ -417,35 +418,19 @@ function OpsSummary({ auto = true }) {
       <div className="ops-charts">
         <LineTrend title="Reviewed strict C" points={strictSeries} color="#a9db7d" unit="functions" step note="Dated verified credit events; no credit from PR count or candidate rows." />
         <MergeTrend merges={history.pr_merges} start={history.window_start} end={history.generated_at} />
-        <LineTrend title="Working coder panes" points={coderSeries} color="#83c6ed" unit="panes" note="Sampled process presence, not verified productive work; missing samples are gaps." />
+        <LineTrend title="Active coding agents" points={coderSeries} color="#83c6ed" unit="agents" note="Sampled process presence, not verified productive work; missing samples are gaps." />
         <LineTrend title="Verified game identities" points={identitySeries} color="#d6a6e8" unit="identities" step note="Dated verified identity events; distinct from strict C credit." />
       </div><p className="ops-dora">DORA deployment frequency, change failure rate, and recovery time: unavailable until deployment and incident records exist. PR merges above measure review throughput.</p></>}
     {snapshot && <div className="ops-grid">
-      <div><b>STAFFING</b><strong>{coders} tracked coder panes</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
+      <div><b>STAFFING</b><strong>{coders} tracked coding agents</strong><small>{Object.entries(coderStates).map(([state, count]) => state + ' ' + count).join(' · ') || 'No coder sample'}</small></div>
       <div><b>PLAYABLE GAME GATE</b><strong>{playable?.status || 'Unverified'}</strong><small>{playable?.observed_at ? `Last manual checkpoint ${new Date(playable.observed_at).toLocaleString()} · ` : ''}A same-state DOS/C full frame is still required; no whole-game completion percentage is available</small></div>
       <QuotaCard provider="codex" quota={quotas.codex} />
       <QuotaCard provider="claude" quota={quotas.claude} />
       <div><b>FIXED SUBSCRIPTIONS</b><strong>{snapshot.monthly_fixed_usd == null ? 'Unavailable' : '$' + snapshot.monthly_fixed_usd.toFixed(2) + '/mo'}</strong><small>{subscriptions.map(item => item.provider + ' $' + item.monthly_usd.toFixed(2) + '/mo').join(' · ') || 'No owner cost record'} · owner reported</small></div>
-      <div><b>OPENCODE MODEL COST</b><strong>{opencodeUsage ? '$' + opencodeUsage.month_estimated_usd.toFixed(4) + ' this month' : 'Unavailable'}</strong><small>{opencodeUsage ? `All local sessions $${opencodeUsage.all_time_estimated_usd.toFixed(4)} · ${opencodeUsage.session_count} sessions · observed ${new Date(opencodeUsage.observed_at).toLocaleString()} · ${opencodeUsage.scope}` : 'Local OpenCode cost source unavailable'} · no metered billing source</small></div>
+      <div><b>OPENCODE MODEL COST</b><strong>{opencodeUsage ? '$' + opencodeUsage.month_estimated_usd.toFixed(4) + ' this month' : 'Unavailable'}</strong><small>{opencodeUsage ? `All recorded runs $${opencodeUsage.all_time_estimated_usd.toFixed(4)} · ${opencodeUsage.session_count} runs · observed ${new Date(opencodeUsage.observed_at).toLocaleString()} · ${opencodeUsage.scope}` : 'Local OpenCode cost source unavailable'} · no metered billing source</small></div>
       <div><b>HOST HEALTH</b><strong>{hostHealth ? `${hostHealth.stale ? 'STALE · ' : ''}/tmp ${Math.round(hostHealth.tmp_used_fraction * 100)}% · ${hostHealth.levels.tmp || 'unknown'}` : 'Unavailable'}</strong><small>{hostHealth ? `${hostHealth.tmp_free_gib.toFixed(2)} GiB free · inodes ${Math.round(hostHealth.tmp_inode_used_fraction * 100)}% · load ${hostHealth.load1.toFixed(1)}/${hostHealth.load5.toFixed(1)} on ${hostHealth.cpus} CPUs · CPU pressure ${hostHealth.cpu_psi_some_avg60.toFixed(1)}% · ${hostHealth.process_count ?? '—'} processes, ${hostHealth.zombie_count ?? '—'} zombies · observed ${Math.round(hostHealth.age_s / 60)} min ago` : 'Host watcher has no saved sample'}</small></div>
     </div>}</div>
   </section>;
-}
-
-function HerdrWebUi() {
-  const [config, setConfig] = useState(null);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    api('/herdr-webui').then(data => setConfig(data)).catch(e => setError(e.message));
-  }, []);
-  return <DashShell standalone={false} view="herdr">
-    <DashHeader eyebrow="OLD PANE MANAGER" title="Herdr web UI (rollback)" subtitle="The retired pane manager, kept only as the rollback for one week" />
-    <div className="dash-body" style={{ padding: 0, display: 'flex' }}>
-      {error && <div className="dash-error" role="alert">{error}</div>}
-      {config && !config.available && <div className="dash-empty" style={{ margin: 20 }}>The Herdr web UI is not configured on this host yet.</div>}
-      {config?.available && <iframe title="Herdr web UI" src={config.url} allow="clipboard-read; clipboard-write" />}
-    </div>
-  </DashShell>;
 }
 
 function Fleet({ standalone = false }) {
@@ -506,12 +491,12 @@ function Fleet({ standalone = false }) {
   }
 
   return <DashShell standalone={standalone} view="fleet">
-    <p className="dash-lead">Every live lane, from the lane registry. Shells and dead panes are not listed - a pane with no agent is not a terminal anyone is working in. Click a lane to see its terminal.</p>
+    <p className="dash-lead">Select an agent to view its terminal and send a message.</p>
     {error && <p className="dash-error">{error}</p>}
-    {!fleet && !error && <p className="dash-empty">Loading the fleet…</p>}
-    {fleet && !fleet.rows.length && <p className="dash-empty">No live lanes right now. That is a real zero, not a failed fetch - the fleet list came back empty.</p>}
+    {!fleet && !error && <p className="dash-empty">Loading agents…</p>}
+    {fleet && !fleet.rows.length && <p className="dash-empty">No active agents right now.</p>}
     {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
-      <thead><tr><th>lane</th><th>project</th><th>agent</th><th>last turn</th><th>unread</th><th>send</th><th>waiting</th><th>pane</th></tr></thead>
+      <thead><tr><th>Agent</th><th>Project</th><th>Tool</th><th>Last activity</th><th>Unread</th><th>Waiting</th></tr></thead>
       <tbody>
         {fleet.rows.map(row => <tr key={row.pane_id} onClick={() => setSelected(row.pane_id)}
             aria-selected={selected === row.pane_id} style={{ cursor: 'pointer' }}>
@@ -520,51 +505,42 @@ function Fleet({ standalone = false }) {
           <td>{row.agent}</td>
           <td>{age(row.last_activity_s)}</td>
           <td>{row.unread || ''}</td>
-          <td>{row.send === 'owner_push' ? 'push' : row.send === 'guarded' ? 'typed' : '?'}</td>
-          <td>{row.pending ? `${row.pending} not taken` : ''}</td>
-          <td><code>{row.pane_id}</code></td>
+          <td>{row.pending ? `${row.pending} awaiting receipt` : ''}</td>
         </tr>)}
       </tbody>
     </table>}
     {selected && <section className="dash-terminal" data-testid="pane-text">
-      <h2>Terminal <code>{selected}</code></h2>
+      <h2>{(fleet?.rows || []).find(row => row.pane_id === selected)?.name || 'Agent'} · Terminal</h2>
       {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
       {paneText && !paneText.reason && <pre className="dash-terminal-text">{paneText.text}</pre>}
-      {!paneText && <p className="dash-empty">Reading the pane…</p>}
+      {!paneText && <p className="dash-empty">Loading terminal…</p>}
       {(() => {
         const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
         if (!lane) return null;
         return <p className="dash-muted">
-          Send route for this lane: <strong>{lane.send || 'unknown'}</strong>
-          {lane.send === 'owner_push'
-            ? ' - stored, the lane drains it itself.'
-            : lane.send === 'guarded'
-              ? ' - typed into the box immediately; "sent" means it left the box, not that the agent acted.'
-              : ' - the daemon did not describe this lane, so the box will refuse.'}
-          {lane.pending ? ` ${lane.pending} message(s) pushed and not yet taken.` : ''}
+          {lane.pending ? `${lane.pending} message(s) awaiting receipt.` : 'Delivery status appears after sending.'}
         </p>;
       })()}
       {(() => {
         const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
         if (!lane || lane.send !== 'guarded' || lane.can_type) return null;
         return <p className="dash-error" role="status">
-          Typing into this lane is not available: it needs the narrow desk credential, which is not configured on this host yet.
-          The refusal below is shown exactly as delivered - it is a permission boundary, not a bug in your browser.
+          Messaging is unavailable for this agent. Contact the VP or chief of staff to restore it.
         </p>;
       })()}
       <form onSubmit={send}>
-        <label htmlFor="lane-draft">Message this lane</label>
+        <label htmlFor="lane-draft">Message this agent</label>
         <textarea id="lane-draft" rows={3} value={draft}
           onChange={event => setDraft(event.target.value)}
-          placeholder="goes through the delivery path: stored for the lane to drain, not typed over the agent" />
+          placeholder="Write a message" />
         {(() => {
           const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
           const needsToken = lane && lane.send !== 'owner_push';
           const blocked = needsToken && !lane.can_type;
           return <button type="submit" disabled={!draft.trim() || blocked}
             title={blocked
-              ? 'this lane needs the narrow desk credential, which is not configured yet'
-              : 'send - the outcome will say whether it was stored, typed, or refused'}>Send</button>;
+              ? 'Messaging is unavailable for this agent'
+              : 'Send message'}>Send</button>;
         })()}
         {sent && <p className="dash-muted" role="status">{sent}</p>}
         {sendError && <p className="dash-error">{sendError}</p>}
@@ -640,9 +616,9 @@ function OpsBoard({ standalone = false }) {
           <div className="dash-stat"><b>TASK QUEUE</b><strong>{head.task_depth ?? '—'}</strong><small>{head.task_open ?? '—'} open · {head.task_in_progress ?? '—'} active · {head.task_blocked ?? '—'} blocked</small></div>
           <div className="dash-stat"><b>INBOX</b><strong>{head.inbox_unread ?? '—'}</strong><small>unread · oldest {ago(head.inbox_oldest_s)}</small></div>
           <div className="dash-stat"><b>DUNKS</b><strong>{head.dunks_running ?? '—'}/{head.dunks_total ?? '—'}</strong><small>schedules running</small></div>
-          <div className="dash-stat"><b>AGENT PANES</b><strong>{head.panes_total ?? '—'}</strong><small>{head.panes_working ?? '—'} working</small></div>
+          <div className="dash-stat"><b>AGENTS</b><strong>{head.panes_total ?? '—'}</strong><small>{head.panes_working ?? '—'} working</small></div>
           <div className="dash-stat"><b>HOST /TMP</b><strong>{head.tmp_used_fraction == null ? '—' : `${Math.round(head.tmp_used_fraction * 100)}%`}</strong><small>{head.tmp_free_gib == null ? 'host sample unavailable' : `${head.tmp_free_gib} GiB free · load ${(head.load1 ?? 0).toFixed(1)} on ${head.cpus ?? '—'} CPUs`}</small></div>
-          <div className="dash-stat"><b>DAEMON</b><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available === false ? 'herdr unavailable' : `up ${duration(daemon.uptime_s)}`} · {daemon.queued_messages ?? 0} queued</small></div>
+          <div className="dash-stat"><b>DAEMON</b><strong>{daemon.version ?? '—'}</strong><small>{daemon.state === 'ok' ? `up ${duration(daemon.uptime_s)}` : 'status unavailable'} · {daemon.queued_messages ?? 0} queued</small></div>
         </div>
         <div className="dash-grid">
           <div className="dash-panel"><div className="dash-panel-head"><h3>Task queue</h3><span>{tasks.depth ?? '—'} active</span></div>
@@ -668,7 +644,7 @@ function OpsBoard({ standalone = false }) {
           </div>
           <div className="dash-panel"><div className="dash-panel-head"><h3>Host and daemon health</h3><span>{health.state === 'ok' ? (health.ok ? 'healthy' : 'problems') : 'unavailable'}</span></div>
             <ul className="dash-health">
-              <li><span>Daemon</span><strong>{daemon.version ?? '—'}</strong><small>{daemon.herdr_available ? 'herdr connected' : `herdr unavailable: ${daemon.herdr_hint || 'unknown'}`}</small></li>
+              <li><span>Daemon</span><strong>{daemon.version ?? '—'}</strong><small>{daemon.state === 'ok' ? `up ${duration(daemon.uptime_s)}` : 'status unavailable'}</small></li>
               <li><span>Memory index</span><strong>{health.memory_chunks ?? '—'} chunks</strong><small>{health.memory_sources ?? '—'} sources · queue depth {health.queue_depth ?? '—'}</small></li>
               <li><span>Host sample</span><strong>{head.tmp_used_fraction == null ? 'unavailable' : `${Math.round(head.tmp_used_fraction * 100)}% /tmp`}</strong><small>{head.tmp_free_gib == null ? 'no saved sample' : `${head.tmp_free_gib} GiB free · inodes and CPU pressure in the reference view`}</small></li>
               <li><span>Published checkpoint</span><strong>{poolrad.commit_oid ? poolrad.commit_oid.slice(0, 8) : 'unavailable'}</strong><small>{poolrad.observed_at ? `observed ${ago(poolrad.age_s)}` : 'no reviewed accounting snapshot'}</small></li>
@@ -892,146 +868,19 @@ function PoolradPlay({ vpChannel, standalone = false }) {
   </DashShell>;
 }
 
-function Desk({ onLogout }) {
-  const [channels, setChannels] = useState([]); const [channel, setChannel] = useState('vp');
-  const [dashboardView, setDashboardView] = useState(null);
-  const dashboardOpen = dashboardView !== null;
-  const [channelUpdated, setChannelUpdated] = useState(null);
-  const [items, setItems] = useState([]); const [older, setOlder] = useState(false); const [loadingOlder, setLoadingOlder] = useState(false);
-  const [pending, setPending] = useState([]); const [activity, setActivity] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [jumpId, setJumpId] = useState(null);
-  const [forceTarget, setForceTarget] = useState(null); const [forceBusy, setForceBusy] = useState(false);
-  const [activityStatus, setActivityStatus] = useState('connecting'); const [activityUpdated, setActivityUpdated] = useState(null); const [activityConnected, setActivityConnected] = useState(false); const [showActivity, setShowActivity] = useState(false);
-  const [error, setError] = useState(''); const listRef = useRef(null); const sentinelRef = useRef(null); const cursorRef = useRef(null); const activityRef = useRef(null); const activityRequest = useRef(0); const itemsRef = useRef([]); const scrollToSentRef = useRef(null);
-  const [showLatest, setShowLatest] = useState(false); const nearBottomRef = useRef(true); const lastMessageIdRef = useRef(null);
-  const selected = channels.find(c => c.id === channel);
-  const dashboardChannel = channels.find(c => c.dashboard);
-  useEffect(() => { itemsRef.current = items; }, [items]);
-  useLayoutEffect(() => {
-    if (dashboardOpen) return;
-    const latestId = items.at(-1)?.id ?? null;
-    const previousId = lastMessageIdRef.current;
-    lastMessageIdRef.current = latestId;
-    const wanted = scrollToSentRef.current;
-    const ownSend = wanted && items.some(item => item.id === wanted);
-    const incoming = jumpId == null && previousId != null && latestId != null && latestId > previousId;
-    if (!listRef.current || (!ownSend && !incoming)) return;
-    if (incoming && !ownSend && !nearBottomRef.current) { setShowLatest(true); return; }
-    const pane = listRef.current;
-    const follow = () => { if (ownSend || nearBottomRef.current) pane.scrollTop = pane.scrollHeight; };
-    nearBottomRef.current = true;
-    setShowLatest(false);
-    follow();
-    const frame = requestAnimationFrame(() => requestAnimationFrame(follow));
-    const observer = new ResizeObserver(follow);
-    observer.observe(pane.querySelector('.conversation-inner'));
-    const finish = setTimeout(() => { observer.disconnect(); if (ownSend) scrollToSentRef.current = null; }, 1800);
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); clearTimeout(finish); };
-  }, [items, jumpId, dashboardOpen]);
-  function onConversationScroll() {
-    const pane = listRef.current;
-    if (!pane) return;
-    nearBottomRef.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80;
-    if (nearBottomRef.current) setShowLatest(false);
-  }
-  function jumpToLatest() {
-    if (jumpId != null) { setJumpId(null); return; }
-    const pane = listRef.current;
-    if (pane) pane.scrollTop = pane.scrollHeight;
-    nearBottomRef.current = true;
-    setShowLatest(false);
-  }
-  async function refreshChannels() { try { const data = await api('/channels'); setChannels(data.channels); setChannelUpdated(new Date(data.checked_at)); } catch (e) { setError(e.message); } }
-  async function refreshMessages(reset = false) {
-    try {
-      const data = await api(`/messages?channel=${channel}&limit=50`);
-      if (reset) { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before; requestAnimationFrame(() => requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; })); }
-      else setItems(old => { const byId = new Map(old.map(item => [item.id, item])); for (const item of data.items) byId.set(item.id, item); return [...byId.values()].sort((a, b) => a.id - b.id); });
-      const queued = itemsRef.current.filter(item => item.role === 'owner' && ['queued', 'inbox', 'read'].includes(item.delivery)).slice(0, 100);
-      if (queued.length) {
-        const states = await api(`/deliveries?channel=${channel}&ids=${queued.map(item => item.id).join(',')}`);
-        setItems(old => old.map(item => states.deliveries[item.id] ? { ...item, ...states.deliveries[item.id] } : item));
-      }
-    } catch (e) { setError(e.message); }
-  }
-  async function loadOlder() {
-    if (loadingOlder || !older || !cursorRef.current) return;
-    setLoadingOlder(true);
-    try { const oldHeight = listRef.current?.scrollHeight || 0; const oldTop = listRef.current?.scrollTop || 0;
-      const data = await api(`/messages?channel=${channel}&limit=50&before=${cursorRef.current}`);
-      setItems(old => [...data.items, ...old]); setOlder(data.has_more); cursorRef.current = data.next_before;
-      requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = oldTop + listRef.current.scrollHeight - oldHeight; });
-    } catch (e) { setError(e.message); } finally { setLoadingOlder(false); }
-  }
-  async function refreshActivity() {
-    const ticket = ++activityRequest.current;
-    try {
-      const data = await api(`/activity?channel=${channel}`);
-      if (ticket !== activityRequest.current) return;
-      const pane = activityRef.current;
-      const follow = !pane || pane.scrollHeight - pane.scrollTop - pane.clientHeight < 80;
-      setActivity(data.text || 'No recent output.');
-      setActivityStatus(data.status || 'unknown'); setActivityUpdated(new Date()); setActivityConnected(true);
-      if (follow) requestAnimationFrame(() => { if (activityRef.current) activityRef.current.scrollTop = activityRef.current.scrollHeight; });
-    } catch {
-      if (ticket === activityRequest.current) { setActivityConnected(false); setActivityStatus('disconnected'); }
-    }
-  }
-  useEffect(() => { refreshChannels(); const timer = setInterval(refreshChannels, 12000); return () => clearInterval(timer); }, []);
-  useEffect(() => { lastMessageIdRef.current = null; nearBottomRef.current = true; setShowLatest(false); setItems([]); setPending([]); setActivity(''); setActivityUpdated(null); setActivityStatus('connecting'); setActivityConnected(false);
-    if (jumpId != null) {
-      api(`/messages/${jumpId}/context`).then(data => { setItems(data.items); setOlder(data.has_more); cursorRef.current = data.next_before;
-        requestAnimationFrame(() => document.getElementById(`message-${jumpId}`)?.scrollIntoView({ block: 'center' }));
-      }).catch(e => setError(e.message));
-    } else refreshMessages(true);
-    refreshActivity();
-    const timer = setInterval(() => { if (jumpId == null) refreshMessages(); refreshActivity(); }, 5000);
-    return () => { clearInterval(timer); activityRequest.current++; };
-  }, [channel, jumpId]);
-  useEffect(() => { if (!sentinelRef.current) return; const observer = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) loadOlder(); }, { root: listRef.current, rootMargin: '100px' }); observer.observe(sentinelRef.current); return () => observer.disconnect(); }, [older, loadingOlder, channel, dashboardOpen]);
-  useEffect(() => { if (!dashboardOpen && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [dashboardOpen]);
-  useEffect(() => { const handler = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearchOpen(true); } if (e.key === 'Escape') setSearchOpen(false); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, []);
-  async function send(data) { const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); scrollToSentRef.current = item.id; if (jumpId != null) setJumpId(null); else setItems(old => [...old, item]); }
-  async function confirmSendNow(item) { setForceBusy(true); setError(''); try { const updated = await api(`/messages/${item.id}/send-now`, { method: 'POST' }); setItems(old => old.map(current => current.id === updated.id ? updated : current)); setForceTarget(null); } catch (e) { setError(e.message); setForceTarget(null); } finally { setForceBusy(false); } }
-  function selectChannel(id) { setDashboardView(null); setChannel(id); setJumpId(null); }
-  function jumpTo(item) { setDashboardView(null); setChannel(item.channel); setJumpId(item.id); }
-  return <div className={`shell ${dashboardOpen ? 'dashboard-mode' : ''}`}>
-    <aside className="sidebar"><div className="identity"><div className="brand-mark small">VA</div><div><strong>VP OF AGENTRY</strong><span>Executive desk</span></div></div>
-      <div className="sidebar-section">PROJECT VIEW · {new Set(channels.filter(c => c.online && c.workspace).map(c => c.workspace)).size} live spaces</div><button className={`channel dashboard-nav ${dashboardView === 'poolrad' ? 'selected' : ''}`} onClick={() => setDashboardView('poolrad')}><span aria-hidden="true">▦</span><span>Poolrad dashboard</span><small>evidence</small></button>
-      <button className={`channel dashboard-nav ${dashboardView === 'ops' ? 'selected' : ''}`} onClick={() => setDashboardView('ops')}><span aria-hidden="true">▤</span><span>Operations dashboard</span><small>metrics</small></button>
-      <button className={`channel dashboard-nav ${dashboardView === 'play' ? 'selected' : ''}`} onClick={() => setDashboardView('play')}><span aria-hidden="true">▶</span><span>Play Poolrad</span><small>live game</small></button>
-      <button className={`channel dashboard-nav ${dashboardView === 'herdr' ? 'selected' : ''}`} onClick={() => setDashboardView('herdr')}><span aria-hidden="true">▦</span><span>Herdr (rollback)</span><small>old pane manager</small></button>
-      <div className="sidebar-section">ACTIVE WORK</div>{channels.filter(c => c.activity_group === 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
-      <div className="sidebar-section">ON STANDBY</div>{channels.filter(c => c.activity_group !== 'active').map(c => <button key={c.id} className={`channel ${!dashboardOpen && channel === c.id ? 'selected' : ''}`} onClick={() => selectChannel(c.id)}><span className={`status-dot ${c.status}`}/><span>{c.name}</span><small title={c.workspace || ''}>{c.workspace || c.status}</small></button>)}
-      <div className="sidebar-bottom"><button onClick={() => setSearchOpen(true)}>⌕ <span>Search all messages</span><kbd>⌘K</kbd></button><button onClick={() => setSettingsOpen(true)}>⚙ <span>Change password</span></button><button onClick={async () => { await api('/logout', { method: 'POST' }); onLogout(); }}>↪ <span>Sign out</span></button></div>
-    </aside>
-    <main className="center"><header className="topbar"><div>{dashboardOpen ? <div className="eyebrow">VP OF AGENTRY · DASHBOARD</div> : <><div className="eyebrow">{dashboardView === 'poolrad' ? 'PROJECT VIEW / POOLRAD' : dashboardView === 'ops' ? 'PROJECT VIEW / OPERATIONS' : dashboardView === 'play' ? 'PROJECT VIEW / LIVE GAME' : `COMMAND CHANNEL / ${selected?.kind?.toUpperCase() || 'ACTIVE'}`}</div><h1>{selected?.name || 'VP of Agentry'}</h1></>}</div><div className="topbar-right">{dashboardOpen ? <button className="message-cta" onClick={() => dashboardChannel && selectChannel(dashboardChannel.id)} disabled={!dashboardChannel}>{dashboardChannel?.name || 'Project'} chat</button> : <><div className="presence"><span className={`status-badge ${selected?.status}`}>{selected?.online ? selected.status : 'offline'}</span><small title="Agent presence, not project health">Agent presence · {channelUpdated ? channelUpdated.toLocaleTimeString() : 'checking'}</small></div><button className="message-cta" onClick={() => document.querySelector('.editor')?.focus()} disabled={!selected?.can_message}>Message agent</button><button className="activity-toggle" onClick={() => setShowActivity(true)}>Live signal</button></>}<button className="icon-button" onClick={() => setSearchOpen(true)} title="Search">⌕</button><button className="icon-button" onClick={() => setSettingsOpen(true)} title="Change password">⚙</button></div></header>
-      {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>×</button></div>}
-      {dashboardView === 'herdr' ? <HerdrWebUi /> : dashboardView === 'poolrad' ? <PoolradProgress /> : dashboardView === 'ops' ? <OpsBoard /> : dashboardView === 'play' ? <PoolradPlay vpChannel={channels.find(c => c.id === 'vp')} /> : <><div className="conversation-frame"><div className="conversation" ref={listRef} onScroll={onConversationScroll}><div className="conversation-inner">{jumpId != null && <div className="jump-banner">Showing search result <button onClick={() => setJumpId(null)}>Return to latest ↗</button></div>}<div ref={sentinelRef} className="older-marker">{older ? (loadingOlder ? 'Loading earlier messages…' : <button onClick={loadOlder}>Load earlier messages</button>) : 'Beginning of recorded history'}</div>
-        {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here; the live pane is visible at right.</p></div>}
-        <MessageList>{items.map(item => <MessageCard key={item.id} item={item} highlight={item.id === jumpId} onSendNow={setForceTarget} onInspect={() => setShowActivity(true)} />)}</MessageList>
-      </div></div>{showLatest && <button className="jump-latest" onClick={jumpToLatest} aria-label="Jump to latest messages">New messages <span aria-hidden="true">↓</span></button>}</div>
-      <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} /></>}
-    </main>
-    {!dashboardOpen && <aside className={`activity ${showActivity ? 'open' : ''}`}><div className="activity-head"><button className="close-activity" onClick={() => setShowActivity(false)} aria-label="Close live signal">×</button><div className="eyebrow">LIVE SIGNAL</div><h2>Agent activity</h2><p>Recent terminal output from the existing pane</p><div className="activity-live"><span className={`status-dot ${activityConnected ? 'working' : ''}`}/><strong>{activityConnected ? 'Connected' : 'Reconnecting'}</strong><span>· agent {activityStatus}</span><span>· {activityUpdated ? `refreshed ${activityUpdated.toLocaleTimeString()}` : 'waiting for first refresh'}</span></div></div><div className="activity-body" ref={activityRef}><pre>{activity || (activityConnected ? 'No recent output.' : 'Connecting to Herdr…')}</pre></div><div className="activity-foot">Recent terminal view · refreshes every 5 seconds. Agent presence is not project health; actual decisions are in posted briefs.</div></aside>}
-    {searchOpen && <Search onClose={() => setSearchOpen(false)} onJump={jumpTo} />}
-    {settingsOpen && <PasswordSettings onClose={() => setSettingsOpen(false)} />}
-    {forceTarget && <ForceSendDialog item={forceTarget} busy={forceBusy} onClose={() => setForceTarget(null)} onConfirm={confirmSendNow} />}
-  </div>;
-}
-
-function VpStandalone() {
+function ChannelStandalone({ channel }) {
   const [channels, setChannels] = useState([]);
   const [items, setItems] = useState([]);
   const [pending, setPending] = useState([]);
   const [error, setError] = useState('');
   const [updated, setUpdated] = useState(null);
   const listRef = useRef(null);
-  const selected = channels.find(c => c.id === 'vp');
+  const selected = channels.find(c => c.id === channel);
   useEffect(() => {
     let live = true;
     const load = async () => {
       try {
-        const [roster, messages] = await Promise.all([api('/channels'), api('/messages?channel=vp&limit=50')]);
+        const [roster, messages] = await Promise.all([api('/channels'), api(`/messages?channel=${encodeURIComponent(channel)}&limit=50`)]);
         if (!live) return;
         setChannels(roster.channels || []);
         setItems(messages.items || []);
@@ -1042,15 +891,15 @@ function VpStandalone() {
     load();
     const timer = setInterval(load, 5000);
     return () => { live = false; clearInterval(timer); };
-  }, []);
+  }, [channel]);
   useEffect(() => { const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [items]);
   async function send(data) {
-    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'vp', ...data }) });
+    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, channel }) });
     setItems(old => [...old, item]);
   }
-  const route = DASH_ROUTES.vp;
-  return <DashShell standalone view="vp">
-    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="vp" standalone side={<>
+  const route = DASH_ROUTES[channel];
+  return <DashShell standalone view={channel}>
+    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view={channel} standalone side={<>
       {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
       <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
     </>} />
@@ -1058,11 +907,11 @@ function VpStandalone() {
       {error && <div className="dash-error" role="alert">{error}</div>}
       <div className="conversation" ref={listRef}>
         <div className="conversation-inner">
-          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here.</p></div>}
+          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Your messages and the agent’s replies appear here.</p></div>}
           <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
-      <Composer channel="vp" onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
+      <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>
   </DashShell>;
 }
@@ -1080,7 +929,7 @@ function StandaloneDesk({ view, known }) {
   if (view === 'fleet') return <Fleet standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
   if (view === 'play') return <PoolradPlay standalone />;
-  return <VpStandalone />;
+  return <ChannelStandalone key={view} channel={view} />;
 }
 
 function App() {
@@ -1096,11 +945,9 @@ function App() {
     return () => { clearInterval(timer); window.removeEventListener('focus', check); };
   }, []);
   if (authorized === null) return <div className="splash">VP OF AGENTRY</div>;
-  // The root IS the desk. It used to render a notice telling the owner to go to the Herdr
-  // web UI and that our own interface was retired - which is why he has spent the day on an
-  // interface that lists forty dead shells, and the exact opposite of what he asked for.
+  // Keep the owner on the conversations and boards in this desk.
   const content = authorized
-    ? <StandaloneDesk view={route.standalone ? route.view : 'fleet'} known={route.standalone ? route.known : true} />
+    ? <StandaloneDesk view={route.standalone ? route.view : 'cos'} known={route.standalone ? route.known : true} />
     : <Login onSuccess={() => setAuthorized(true)} />;
   return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</>;
 }

@@ -62,7 +62,7 @@ class DashRouteTests(unittest.TestCase):
         self.assertEqual("no-store", response.headers["cache-control"])
 
     def test_the_dash_root_and_trailing_slashes_redirect(self):
-        self.assertEqual("/dash/poolrad", server.dash_root().headers["location"])
+        self.assertEqual("/dash/cos", server.dash_root().headers["location"])
         response = server.dash_route("play/", build_request(cookie=self.session_cookie()))
         self.assertEqual(307, response.status_code)
         self.assertEqual("/dash/play", response.headers["location"])
@@ -84,18 +84,18 @@ class DashRouteTests(unittest.TestCase):
         self.assertIsNone(server._safe_next("", request))
         self.assertIsNone(server._safe_next(None, request))
 
-    def test_the_herdr_web_ui_port_is_allowed_as_a_return_target(self):
+    def test_the_retired_ui_port_is_not_a_return_target(self):
         with patch.dict(os.environ, {"VP_HERDR_WEBUI_URL": "http://cell:8789/"}):
             request = build_request()
-            self.assertEqual("http://cell:8789/", server._safe_next("http://cell:8789/", request))
+            self.assertIsNone(server._safe_next("http://cell:8789/", request))
             self.assertIsNone(server._safe_next("http://cell:8790/", request))
 
-    def test_the_allowed_return_port_follows_the_configured_web_ui_url(self):
+    def test_configuring_old_ui_does_not_change_allowed_return_port(self):
         # The frame address and the allowed return port come from one variable,
         # so they cannot drift apart: move the proxy and both move together.
         with patch.dict(os.environ, {"VP_HERDR_WEBUI_URL": "http://cell:8791/"}):
             request = build_request()
-            self.assertEqual("http://cell:8791/", server._safe_next("http://cell:8791/", request))
+            self.assertIsNone(server._safe_next("http://cell:8791/", request))
             self.assertIsNone(server._safe_next("http://cell:8789/", request))
 
     def test_login_returns_the_safe_target_only(self):
@@ -106,10 +106,10 @@ class DashRouteTests(unittest.TestCase):
                                 request, response)
             refused = server.login(server.Login(password=PASSWORD, next="http://evil.example/"),
                                    request, response)
-        self.assertEqual("http://cell:8789/dash/vp", good["next"])
+        self.assertEqual("/dash/cos", good["next"])
         # A refused target falls back to the herdr web UI, never to an outside
         # site and never to a dead end (owner #956 retired the desk UI).
-        self.assertEqual("http://cell:8789/", refused["next"])
+        self.assertEqual("/dash/cos", refused["next"])
 
 
 if __name__ == "__main__":

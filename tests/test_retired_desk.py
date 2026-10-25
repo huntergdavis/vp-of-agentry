@@ -1,10 +1,4 @@
-"""The old desk UI is retired: :8787 keeps only what the shell needs.
-
-Owner #956: the herdr web UI on :8789 is the front door. :8787 keeps the
-four standalone dashboards, their assets, the API and the login page; every
-other path is a permanent redirect to the shell, and no redirect can bounce
-back to the desk.
-"""
+"""Current desk navigation must never bounce owners into the retired manager."""
 
 import asyncio
 import importlib
@@ -61,84 +55,41 @@ class RetiredDeskTests(unittest.TestCase):
         request = build_request(path, host=host, cookie=cookie, query=query)
         return asyncio.run(server.retire_the_desk_ui(request, passthrough))
 
-    def test_the_root_serves_the_login_page_without_a_session(self):
-        response = self.redirect_for("/")
-        self.assertEqual(200, response.status_code)
+    def test_root_stays_on_desk_with_or_without_login(self):
+        for cookie in (None, self.session_cookie()):
+            response = self.redirect_for("/", cookie=cookie)
+            self.assertEqual(200, response.status_code)
+            self.assertNotIn("location", response.headers)
 
-    def test_the_root_redirects_to_the_shell_when_signed_in(self):
-        response = self.redirect_for("/", cookie=self.session_cookie())
-        self.assertEqual(308, response.status_code)
-        self.assertEqual("http://cell:8789/", response.headers["location"])
-
-    def test_every_retired_path_redirects_to_the_shell(self):
-        for path in ("/conversation", "/search", "/activity", "/editor", "/roster",
-                     "/nonsense", "/api-unknown", "/dashboards", "/index.html"):
-            response = self.redirect_for(path)
-            self.assertEqual(308, response.status_code, f"{path} did not redirect")
-            self.assertEqual("http://cell:8789/", response.headers["location"], path)
-
-    def test_the_old_aliases_land_on_their_dashboard_in_the_shell(self):
-        for alias, dashboard in (("/poolrad", "poolrad"), ("/operations", "operations"),
-                                 ("/play", "play"), ("/vp", "vp")):
-            response = self.redirect_for(alias)
-            self.assertEqual(308, response.status_code, alias)
-            self.assertEqual(f"http://cell:8789/#dash/{dashboard}",
-                             response.headers["location"], alias)
-            # The deep link is a fragment: the shell reads it, the browser
-            # never sends it, and it can never redirect again.
-            self.assertIn(":8789/", response.headers["location"])
-            self.assertNotIn(":8787", response.headers["location"])
-
-    def test_the_alias_deep_link_follows_the_request_host(self):
-        for host in ("cell", "localhost", "192.168.0.209"):
-            response = self.redirect_for("/poolrad", host=host)
-            self.assertEqual(f"http://{host}:8789/#dash/poolrad",
-                             response.headers["location"])
-
-    def test_paths_the_shell_owns_keep_their_path_and_query(self):
-        for path in ("/session", "/session/default", "/session/default/workspace/w1",
-                     "/session/default/workspace/w1/tab/t1/pane/p1"):
+    def test_legacy_paths_return_to_cos_without_old_manager(self):
+        for path in ("/conversation", "/session/default", "/session/default/workspace/w1",
+                     "/index.html", "/nonsense"):
             response = self.redirect_for(path, query="x=1")
-            self.assertEqual(308, response.status_code)
-            self.assertEqual(f"http://cell:8789{path}?x=1", response.headers["location"])
+            self.assertEqual(307, response.status_code)
+            self.assertEqual("/dash/cos", response.headers["location"])
 
-    def test_the_target_follows_the_host_the_owner_used(self):
-        for host in ("cell", "localhost", "192.168.0.209"):
-            response = self.redirect_for("/conversation", host=host)
-            self.assertEqual(f"http://{host}:8789/", response.headers["location"])
+    def test_old_board_and_chat_aliases_keep_their_destination(self):
+        for name in ("poolrad", "operations", "play", "vp", "cos", "fleet"):
+            response = self.redirect_for("/" + name)
+            self.assertEqual("/dash/" + name, response.headers["location"])
 
-    def test_what_the_shell_needs_is_still_served_here(self):
-        for path in ("/dash", "/dash/poolrad", "/dash/operations", "/dash/play", "/dash/vp",
-                     "/api", "/api/health", "/api/login", "/api/ops-board", "/assets/index-x.js"):
-            response = self.redirect_for(path)
-            self.assertEqual(200, response.status_code, f"{path} was redirected away")
+    def test_current_routes_are_not_redirected(self):
+        for path in ("/dash/cos", "/dash/vp", "/dash/fleet", "/api/channels",
+                     "/api/messages", "/assets/index-x.js"):
+            self.assertEqual(200, self.redirect_for(path).status_code)
 
-    def test_the_bundle_file_itself_is_retired(self):
-        # The bundle is reachable at "/" (the password page) and at the /dash/*
-        # documents; a direct hit on the file is retired like everything else.
-        response = self.redirect_for("/index.html")
-        self.assertEqual(308, response.status_code)
-        self.assertEqual("http://cell:8789/", response.headers["location"])
+    def test_login_defaults_to_cos_even_with_old_manager_configured(self):
+        request = build_request("/api/login")
+        response = type("Response", (), {"set_cookie": lambda self, *a, **kw: None})()
+        with patch.dict(os.environ, {"VP_HERDR_WEBUI_URL": "http://cell:8789/"}):
+            for target in (None, "http://cell:8789/session/default"):
+                result = server.login(server.Login(password=PASSWORD, next=target), request, response)
+                self.assertEqual("/dash/cos", result["next"])
 
-    def test_no_redirect_can_bounce_back_to_the_desk(self):
-        for path in ("/", "/conversation", "/session/default", "/nonsense", "/poolrad"):
-            response = self.redirect_for(path, cookie=self.session_cookie())
-            if response.status_code == 308:
-                location = response.headers["location"]
-                self.assertIn(":8789/", location)
-                self.assertNotIn(":8787", location)
-    def test_signing_in_without_a_target_lands_on_the_shell(self):
-        request = build_request("/")
-        response = type("Response", (), {"set_cookie": lambda self, *args, **kwargs: None})()
-        with patch.dict(os.environ, {"VP_HERDR_WEBUI_URL": "http://192.168.0.209:8789/"}):
-            result = server.login(server.Login(password=PASSWORD), request, response)
-        self.assertEqual("http://cell:8789/", result["next"])
-
-    def test_signing_in_keeps_an_accepted_return_target(self):
-        request = build_request("/")
-        response = type("Response", (), {"set_cookie": lambda self, *args, **kwargs: None})()
-        with patch.dict(os.environ, {"VP_HERDR_WEBUI_URL": "http://192.168.0.209:8789/"}):
-            result = server.login(server.Login(password=PASSWORD, next="/dash/vp"), request, response)
+    def test_login_keeps_an_explicit_current_chat_target(self):
+        request = build_request("/api/login")
+        response = type("Response", (), {"set_cookie": lambda self, *a, **kw: None})()
+        result = server.login(server.Login(password=PASSWORD, next="/dash/vp"), request, response)
         self.assertEqual("/dash/vp", result["next"])
 
 

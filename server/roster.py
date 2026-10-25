@@ -10,6 +10,11 @@ def discovered_id(pane_id: str) -> str:
 
 
 def match_pane(config: dict, panes: list[dict]) -> dict | None:
+    # A declared handoff target must win over labels and shared working dirs.
+    # If it is gone, stay offline rather than silently selecting another agent.
+    pinned = config.get("pane")
+    if pinned:
+        return next((pane for pane in panes if pane.get("pane_id") == pinned), None)
     match = config["match"].casefold()
     for pane in panes:
         cwd = pane.get("cwd", "").casefold().rstrip("/")
