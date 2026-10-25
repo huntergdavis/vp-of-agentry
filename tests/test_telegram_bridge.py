@@ -1,4 +1,4 @@
-"""Private Telegram pairing and VP inbox delivery."""
+"""Private Telegram pairing and direct VP delivery."""
 
 import importlib
 import importlib.machinery
@@ -71,6 +71,10 @@ class TelegramBridgeTests(unittest.TestCase):
             context = patch.object(desk, name, replacement)
             context.start()
             self.addCleanup(context.stop)
+        direct = patch.object(desk, "_send_to_pane", return_value={
+            "outcome": "ok", "message_id": "m-test", "route": "guarded"})
+        self.direct = direct.start()
+        self.addCleanup(direct.stop)
         self.bot = FakeBot()
         self.config = {"bot_token": "private", "pair_code": "pair-code", "chat_id": None,
                        "last_brief_id": None, "update_offset": None}
@@ -84,7 +88,7 @@ class TelegramBridgeTests(unittest.TestCase):
         self.assertEqual(42, self.config["chat_id"])
         self.assertEqual(0o600, bridge.CONFIG.stat().st_mode & 0o777)
 
-    def test_only_paired_chat_reaches_durable_inbox_once(self):
+    def test_only_paired_chat_reaches_direct_transport_once(self):
         bridge.process_update(self.update(1, 99, text="/pair bad-code"), self.config, self.bot)
         self.assertIsNone(self.config["chat_id"])
         self.pair()
@@ -95,9 +99,12 @@ class TelegramBridgeTests(unittest.TestCase):
         with sqlite3.connect(desk.DB) as conn:
             rows = conn.execute("SELECT body,external_id FROM messages WHERE role='owner'").fetchall()
         self.assertEqual([("Please check Poolrad", "telegram:3")], rows)
-        sends = [args for method, args in self.transport.calls if method == "inbox_send"]
-        self.assertEqual(1, len(sends))
-        self.assertIn("[VP web message #", sends[0]["body"])
+        self.assertEqual(1, self.direct.call_count)
+        self.assertIn("[VP web message #", self.direct.call_args.args[1])
+        self.assertFalse(any(method == "inbox_send" for method, _ in self.transport.calls))
+        with desk._db() as conn:
+            row = conn.execute("SELECT delivery,transport_id FROM messages WHERE external_id='telegram:3'").fetchone()
+        self.assertEqual(("ok", "m-test"), tuple(row))
 
     def test_photo_and_new_brief_flow_through_existing_desk(self):
         self.pair()
@@ -106,7 +113,9 @@ class TelegramBridgeTests(unittest.TestCase):
         with sqlite3.connect(desk.DB) as conn:
             attachment = conn.execute("SELECT path FROM attachments WHERE message_id IS NOT NULL").fetchone()[0]
         self.assertEqual(b"image", Path(attachment).read_bytes())
-        self.assertEqual(1, len([args for method, args in self.transport.calls if method == "inbox_send"]))
+        self.assertEqual(1, self.direct.call_count)
+        self.assertIn(attachment, self.direct.call_args.args[1])
+        self.assertFalse(any(method == "inbox_send" for method, _ in self.transport.calls))
 
         image = bridge.CONFIG.parent / "diagram.png"
         image.write_bytes(b"diagram")

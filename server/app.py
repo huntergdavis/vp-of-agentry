@@ -640,13 +640,33 @@ def api_fleet():
     if cached["payload"] is not None and (time.time() - cached["at"]) < _FLEET_TTL_S:
         return cached["payload"]
 
+    def unavailable(reason):
+        payload = {"state": "unavailable", "error": reason[:300], "rows": [], "count": None,
+                   "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        cached["at"], cached["payload"] = time.time(), payload
+        return payload
+
     cfg = Path(os.path.expanduser("~/.config/dunkingsheep"))
     try:
-        raw = subprocess.run(["dunkingsheep", "panes", "--json"], capture_output=True,
-                             text=True, timeout=15).stdout
-        panes = (json.loads(raw or "{}") or {}).get("panes") or []
-    except (OSError, subprocess.SubprocessError, ValueError):
-        panes = []
+        result = subprocess.run(["dunkingsheep", "panes", "--json"], capture_output=True,
+                                text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return unavailable("pane roster timed out")
+    except (OSError, subprocess.SubprocessError) as error:
+        return unavailable(f"pane roster could not be read: {error}")
+    if result.returncode != 0:
+        return unavailable((result.stderr or result.stdout or
+                            f"pane roster exited {result.returncode}").strip())
+    try:
+        listing = json.loads(result.stdout)
+    except (ValueError, TypeError):
+        return unavailable("pane roster returned invalid JSON")
+    if not isinstance(listing, dict) or not isinstance(listing.get("panes"), list):
+        return unavailable("pane roster response is missing its panes list")
+    panes = listing["panes"]
+    if any(not isinstance(pane, dict) or not isinstance(pane.get("pane_id"), str)
+           for pane in panes):
+        return unavailable("pane roster contains an invalid pane")
     try:
         registry = json.loads((cfg / "lanes.json").read_text())
     except (OSError, ValueError):
@@ -729,7 +749,8 @@ def api_fleet():
             "can_type": bool(_desk_token()),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
-    payload = {"rows": rows, "count": len(rows),
+    payload = {"state": "ok", "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+               "rows": rows, "count": len(rows),
                "note": "shells and dead panes are not lanes and are not listed"}
     _FLEET_CACHE["at"], _FLEET_CACHE["payload"] = time.time(), payload
     return payload
@@ -1156,7 +1177,8 @@ class MessageIn(BaseModel):
 
 @app.post("/api/messages")
 def post_message(data: MessageIn, identity: Annotated[str, Depends(require_auth)]):
-    return _post_message(data, identity)
+    # Compatibility callers (including Telegram) share the direct pane transport.
+    return _post_message(data, identity, direct=True)
 
 
 def _post_message(data: MessageIn, identity: str, *, direct: bool = False):

@@ -159,7 +159,7 @@ def process_update(update: dict, config: dict, bot: Telegram):
     if chat_id != config["chat_id"]:
         return
     if text.strip() in {"/start", "/help"}:
-        bot.call("sendMessage", chat_id=chat_id, text="Send a message, photo, or file to the VP inbox. /status checks your last send. Files over 20 MB use the web desk.")
+        bot.call("sendMessage", chat_id=chat_id, text="Send a message, photo, or file directly to the VP. /status checks your last send. Files over 20 MB use the web desk.")
         return
     if text.strip() == "/status":
         bot.call("sendMessage", chat_id=chat_id, text=_message_status())
