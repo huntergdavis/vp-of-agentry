@@ -327,6 +327,7 @@
   --dash-root-shadow: 0 0 0 3px var(--dash-root-shadow-color);
   --login-card-shadow-color: #00000059;
   --login-card-shadow-2: 0 20px 60px var(--login-card-shadow-color);
-  --message-dock-surface: #0009;
+  /* Keep alpha expanded: Chromium rounds shorthand hex differently through var(). */
+  --message-dock-surface: #00000099;
   --shadow-color: #00000059;
 }
