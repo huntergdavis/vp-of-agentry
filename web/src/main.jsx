@@ -516,6 +516,20 @@ function Fleet({ standalone = false }) {
           {row.name} <small>{row.agent} · {age(row.last_activity_s)}</small>
         </button>)}</div>
       </details>)}
+    <section className="dash-terminal" aria-label="Unrouted agent processes">
+      <h2>Agent processes without a desk route</h2>
+      {fleet?.unrouted?.state !== 'ok'
+        ? <p className="dash-muted">{fleet?.unrouted?.reason || 'Process inventory unavailable'}</p>
+        : <>
+          <p className="dash-muted">{fleet.unrouted.note}</p>
+          {!fleet.unrouted.rows.length && <p>No unrouted agent processes detected.</p>}
+          {fleet.unrouted.rows.map(row => <p key={row.pid}>
+            <strong>{row.project}</strong> · {row.agent} · PID {row.pid}
+            <br />{row.reason} · Session write: {age(row.last_session_write_s)}
+            {row.session_age_reason ? ' · ' + row.session_age_reason : ''}
+          </p>)}
+        </>}
+    </section>
     {selected && <section ref={terminalRef} className="dash-terminal" data-testid="pane-text">
       <h2>{(fleet?.rows || []).find(row => row.pane_id === selected)?.name || 'Agent'} · Terminal</h2>
       {(() => {
