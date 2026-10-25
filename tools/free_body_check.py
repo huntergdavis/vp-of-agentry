@@ -84,6 +84,20 @@ def claimed_bytes(text: str) -> bytes | None:
     return best
 
 
+def declared_file_offset(text: str) -> int | None:
+    """Strict result header; arithmetic prose is not an authoritative offset."""
+    plain = text.replace("*", "").replace("`", "")
+    headers = re.findall(
+        r"^\s*(?:1[.)]\s*)?FILE OFFSET:\s*([0-9]+)\s+\((0x[0-9a-fA-F]+)\)\s*$",
+        plain, re.M | re.I,
+    )
+    if len(headers) != 1:
+        return None
+    decimal, hexadecimal = headers[0]
+    value = int(decimal, 10)
+    return value if value == int(hexadecimal, 16) else None
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print("usage: free_body_check.py <report.md> [--ovr PATH]", file=sys.stderr)
@@ -116,10 +130,11 @@ def main(argv: list[str]) -> int:
     if cb is None:
         print("   NO DUMP: the report printed no byte dump, so nothing is checkable.")
         return 2
-    claimed_has_expected = expect is not None and expect in offs
     if expect is not None:
-        # The body implies where its bytes live. A claimed offset that differs does not get
-        # a second chance: a model must not pass by naming the right bytes at a wrong place.
+        if declared_file_offset(text) != expect:
+            print("   OFFSET UNRESOLVED: require one FILE OFFSET: <decimal> (0x<hex>) "
+                  "header with both values equal to the expected body offset.")
+            return 1
         offs = [expect]
     if not offs:
         print(f"   OFFSET UNRESOLVED: {len(cb)} bytes claimed, no file offset found.")
