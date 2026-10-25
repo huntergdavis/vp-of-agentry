@@ -410,3 +410,10 @@
 .fleet-lanes { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
 .fleet-lanes button { text-align: left; }
 .fleet-lanes small { display: block; font-weight: normal; }
+
+.ops-budget { margin: 16px 0; border-top: 1px solid var(--dash-border); padding-top: 12px; }
+.ops-budget h2 { font-size: 16px; margin: 0 0 8px; }
+.budget-provider { padding: 8px 0; border-bottom: 1px solid var(--dash-border); overflow-wrap: anywhere; }
+.budget-provider-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
+.budget-provider small { display: block; color: var(--dash-muted); }
+.budget-provider ul { margin: 6px 0; padding-left: 18px; }

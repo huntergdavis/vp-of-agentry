@@ -3,7 +3,7 @@
 The board reads tasks, live lanes, schedules and health from Dunking Sheep,
 plus the saved host sample from the private operations database. It exposes
 a brief, actionable exceptions and a single reference containing useful rows.
-Credit, subscriptions and throughput are outside this owner overview.
+Provider budget windows are read by a command; credit and throughput remain outside this overview.
 
 No model is consulted anywhere in this module. Every number is read from a
 record; nothing is inferred, interpolated, or summarised in prose. A source
@@ -290,7 +290,10 @@ def build(client, conn: sqlite3.Connection, *, now: datetime | None = None) -> d
             readings[name] = read()
         except Exception as exc:
             readings[name] = _unavailable(type(exc).__name__)
-    return compact(readings, _iso(now))
+    board = compact(readings, _iso(now))
+    import ops_budget
+    board["budget"] = ops_budget.build(conn, now)
+    return board
 
 
 class BoardCache:

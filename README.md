@@ -167,19 +167,27 @@ After deploying this branch, run `npm run build --prefix web`, restart `vp-of-ag
 
 ## Operations dashboard
 
-The **Operations dashboard**, also served at `/dash/operations`, has three sections:
+The **Operations dashboard**, also served at `/dash/operations`, has four sections:
 a short task/lane brief, actionable exceptions and explicitly owner-assigned tasks,
-and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
+provider budgets, and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
 unknown; a blocked agent task is not inferred to require the owner. Terminals are
 grouped by project in single-level disclosures.
 
 `ops_board.py` reads Dunking Sheep and the saved host sample without model calls.
-`GET /api/ops-board` returns `no_model: true`, `generated_at`, and the three
-content sections `brief`, `attention`, and `reference`. Each numerical source
+`GET /api/ops-board` returns `no_model: true`, `generated_at`, and the four
+content sections `brief`, `attention`, `budget`, and `reference`. Each numerical source
 carries its status and timestamp; unavailable values stay null. The board refreshes
 on its existing timer and the view polls every 15 seconds. Healthy source chips,
 empty throughput/configuration panels, duplicate credit cards, the inbox table,
 and the nested legacy metrics view have been removed from this overview.
+
+The budget section reads `dunkingsheep --json usage --max-age 60` on the
+existing board refresh. It preserves provider window names, used/remaining
+percentages and reset times. Readings older than five minutes and past-reset
+windows are labelled; missing windows remain unknown. Fixed monthly subscriptions
+come from the operations database and are shown separately. Extra-usage credits
+remain credits with the provider's spend-limit flag; pi's local session estimate
+is explicitly neither quota nor a bill. No per-agent dollar balance is inferred.
 
 Historical metrics remain available through `GET /api/ops-metrics`,
 `GET /api/ops-metrics/history`, and `./opsctl summary`.
