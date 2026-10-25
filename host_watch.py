@@ -149,7 +149,7 @@ def run_once(dry_run: bool) -> int:
     with LOCK.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         state = json.loads(STATE.read_text()) if STATE.exists() else {}
-        old = state.get("levels", {"tmp": "ok", "load": "ok"})
+        old = {"tmp": "ok", "load": "ok", **state.get("levels", {})}
         history = append_sample(state.get("history", []), sample)
         new = {"tmp": tmp_level(sample), "load": load_level(old["load"], history)}
         print(json.dumps({"sample": sample, "levels": new, "previous_levels": old}))
