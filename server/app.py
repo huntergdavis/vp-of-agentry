@@ -269,8 +269,8 @@ def _safe_next(value: str | None, request: Request) -> str | None:
     """A return target for the login, limited to this host.
 
     A path is always safe. An absolute URL is accepted only when it names
-    this host and a port the desk owns: the desk's own port, or the Herdr
-    web UI port that proxies to it. Anything else falls back to the desk.
+    this host and the desk's own port. Retired terminal-manager URLs must
+    not send a successful login back into the old interface.
     """
     if not value:
         return None
@@ -289,11 +289,7 @@ def _safe_next(value: str | None, request: Request) -> str | None:
         return None
     if host != (request.url.hostname or "").lower():
         return None
-    allowed = {request.url.port}
-    herdr_port = _herdr_webui_port()
-    if herdr_port:
-        allowed.add(herdr_port)
-    if port not in allowed:
+    if parsed.scheme not in {"http", "https"} or port != request.url.port:
         return None
     return candidate
 
@@ -317,9 +313,7 @@ def login(body: Login, request: Request, response: Response):
         conn.execute("DELETE FROM sessions WHERE expires_at<=?", (now,))
         conn.execute("INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)", (_session_key(session), now + 7 * 24 * 3600))
     response.set_cookie("vp_session", session, httponly=True, samesite="strict", max_age=7 * 24 * 3600)
-    # Without an explicit return target, sign-in lands on the herdr web UI:
-    # the desk interface is retired (owner #956).
-    return {"ok": True, "next": _safe_next(body.next, request) or _shell_target(request)}
+    return {"ok": True, "next": _safe_next(body.next, request) or "/dash/cos"}
 
 
 @app.post("/api/logout")
@@ -1548,55 +1542,22 @@ def version():
 
 
 DIST = ROOT / "web" / "dist"
-DASH_VIEWS = ("poolrad", "operations", "play", "vp")
-# The herdr web UI is the front door (owner #956). The desk keeps serving
-# only what that UI needs: the standalone dashboards, their assets, the API
-# and the login page. Every other path is a permanent redirect to the shell.
-SHELL_DEFAULT_PORT = 8789
-SHELL_EQUIVALENT_PREFIXES = ("/session",)
+DASH_VIEWS = ("poolrad", "operations", "play", "vp", "cos", "fleet")
 DESK_KEPT_PREFIXES = ("/api", "/dash", "/assets")
-# Old desk links that name a dashboard land on that dashboard inside the
-# shell, so the owner's intent survives instead of dropping them on a
-# terminal with no context (owner #956).
+# Preserve useful old links without sending the owner into a session manager.
 LEGACY_DASH_ALIASES = {
     "/poolrad": "poolrad",
     "/operations": "operations",
     "/play": "play",
     "/vp": "vp",
+    "/cos": "cos",
+    "/fleet": "fleet",
 }
 
 
-def _shell_base(request: Request) -> str:
-    """The herdr web UI address for the host the owner used."""
-    host = request.url.hostname or "127.0.0.1"
-    if ":" in host and not host.startswith("["):
-        host = f"[{host}]"
-    port = _herdr_webui_port() or SHELL_DEFAULT_PORT
-    return f"http://{host}:{port}"
-
-
 def _shell_target(request: Request) -> str:
-    """Where a retired desk path belongs now.
-
-    A legacy alias that names a dashboard goes to that dashboard inside the
-    shell (#dash/<name>). A path the shell owns keeps its path and query.
-    Everything else goes to the shell root. The target is always on the
-    shell's port, never on the desk's, so a redirect can never bounce back
-    here.
-    """
-    base = _shell_base(request)
-    path = request.url.path
-    dashboard = LEGACY_DASH_ALIASES.get(path)
-    if dashboard:
-        return f"{base}/#dash/{dashboard}"
-    equivalent = any(path == prefix or path.startswith(prefix + "/")
-                      for prefix in SHELL_EQUIVALENT_PREFIXES)
-    if not equivalent:
-        return f"{base}/"
-    target = f"{base}{path}"
-    if request.url.query:
-        target += f"?{request.url.query}"
-    return target
+    """Keep legacy bookmarks on the current desk's conversations and boards."""
+    return "/dash/" + LEGACY_DASH_ALIASES.get(request.url.path, "cos")
 
 
 def _desk_keeps(path: str) -> bool:
@@ -1615,24 +1576,18 @@ def _desk_keeps(path: str) -> bool:
 
 @app.middleware("http")
 async def retire_the_desk_ui(request: Request, call_next):
-    """Send every retired desk path to the herdr web UI (owner #956)."""
+    """Serve the current desk and recover old bookmarks into its own routes."""
     path = request.url.path
-    if _desk_keeps(path):
+    if path == "/" or _desk_keeps(path):
         return await call_next(request)
-    if path == "/":
-        # The login page stays here for the shell's ?next= handoff. A signed-in
-        # visitor has no business on the retired desk, so it goes to the shell.
-        if _session_valid(request):
-            return RedirectResponse(_shell_target(request), status_code=308)
-        return await call_next(request)
-    return RedirectResponse(_shell_target(request), status_code=308)
+    return RedirectResponse(_shell_target(request), status_code=307)
 
 
 @app.get("/dash", include_in_schema=False)
 @app.get("/dash/", include_in_schema=False)
 def dash_root():
-    """The standalone dashboard routes start here; the poolrad view is the default."""
-    return RedirectResponse("/dash/poolrad", status_code=307)
+    """Open the chief-of-staff conversation by default."""
+    return RedirectResponse("/dash/cos", status_code=307)
 
 @app.get("/dash/{path:path}", include_in_schema=False)
 def dash_route(path: str, request: Request):
