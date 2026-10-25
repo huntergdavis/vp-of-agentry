@@ -416,6 +416,9 @@ _PANE_TEXT_CACHE: dict[str, tuple[float, str]] = {}
 def api_pane_text(pane: str, lines: int = 40):
     """The last N lines of a live pane, read server-side with tmux capture-pane. READ ONLY.
 
+    Unauthenticated on purpose, same rule as /api/fleet: this endpoint cannot write, and the
+    page that calls it is already behind the desk login. Every mutating endpoint requires auth.
+
     Typing travels on the delivery path (see /api/pane-send); a textarea wired to tmux
     send-keys would type over whatever the agent is doing.
     """
@@ -439,6 +442,18 @@ def api_pane_text(pane: str, lines: int = 40):
     _PANE_TEXT_CACHE[pane] = (now, text)
     return {"pane": pane, "text": text, "readonly": True,
             "note": "read-only: typing goes through the delivery path, not this endpoint"}
+
+
+def _desk_token() -> str:
+    """The narrow desk credential, if one has been minted. Read per call: it can be issued
+    while the desk is running, and a cached empty value would need a restart to notice."""
+    token = (os.environ.get("DUNKINGSHEEP_DESK_TOKEN") or "").strip()
+    if token:
+        return token
+    try:
+        return Path("data/desk-token.txt").read_text().strip()
+    except OSError:
+        return ""
 
 
 def _pending_by_pane() -> dict:
@@ -476,7 +491,11 @@ def _capability(pane: str) -> dict:
 
 @app.get("/api/capability")
 def api_capability(pane: str):
-    """What would happen if the desk sent to this lane, in the daemon's own words."""
+    """What would happen if the desk sent to this lane, in the daemon's own words.
+
+    Unauthenticated on purpose, like /api/fleet and /api/pane-text: it discloses a route, not
+    a message or a keystroke. Everything that WRITES takes Depends(require_auth).
+    """
     pane = (pane or "").strip()
     cached = _CAP_CACHE.get(pane)
     if cached and (time.time() - cached[0]) < _CAP_TTL_S:
@@ -514,13 +533,7 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
     if not cap.get("alive"):
         raise HTTPException(status_code=409, detail=f"{pane} is not alive: nothing to send to")
     route = cap.get("send")
-    desk_token = (os.environ.get("DUNKINGSHEEP_DESK_TOKEN") or "").strip()
-    token_file = Path("data/desk-token.txt")
-    if not desk_token and token_file.exists():
-        try:
-            desk_token = token_file.read_text().strip()
-        except OSError:
-            desk_token = ""
+    desk_token = _desk_token()
     if route == "guarded" and not desk_token:
         raise HTTPException(
             status_code=409,
@@ -703,6 +716,9 @@ def api_fleet():
             "send": (cap or {}).get("send"),
             "drains": (cap or {}).get("drains"),
             "pending": pending.get(pane_id, 0),
+            # Whether the desk can actually reach the typed route for this lane: the
+            # capability says what it would take, this says whether we hold the credential.
+            "can_type": bool(_desk_token()),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
     payload = {"rows": rows, "count": len(rows),

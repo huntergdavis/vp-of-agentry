@@ -498,7 +498,10 @@ function Fleet({ standalone = false }) {
         body: JSON.stringify({ pane: selected, text: draft }),
       });
       setDraft('');
-      setSent(`Sent to ${data.pane} through the delivery path - the lane drains it itself; nothing was typed into the pane.`);
+      // The server performed the transport; it gets to describe it. Prefix the outcome so
+      // 'stored' and 'unconfirmed' cannot be read as 'delivered'.
+      setSent(`${data.pane} [${data.outcome || 'unknown'}]: ${data.note || 'accepted'}`
+        + (data.detail && !data.unconfirmed ? ` (${data.detail})` : ''));
     } catch (e) { setSendError(e.message); }
   }
 
@@ -543,9 +546,9 @@ function Fleet({ standalone = false }) {
       })()}
       {(() => {
         const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
-        if (!lane || lane.send !== 'guarded') return null;
+        if (!lane || lane.send !== 'guarded' || lane.can_type) return null;
         return <p className="dash-error" role="status">
-          Typing into this lane is not yet available: it needs a narrow send capability the daemon does not grant the desk yet.
+          Typing into this lane is not available: it needs the narrow desk credential, which is not configured on this host yet.
           The refusal below is shown exactly as delivered - it is a permission boundary, not a bug in your browser.
         </p>;
       })()}
@@ -556,9 +559,12 @@ function Fleet({ standalone = false }) {
           placeholder="goes through the delivery path: stored for the lane to drain, not typed over the agent" />
         {(() => {
           const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
-          const blocked = lane && lane.send !== 'owner_push';
+          const needsToken = lane && lane.send !== 'owner_push';
+          const blocked = needsToken && !lane.can_type;
           return <button type="submit" disabled={!draft.trim() || blocked}
-            title={blocked ? 'this lane cannot be written to from the desk yet' : 'send'}>Send</button>;
+            title={blocked
+              ? 'this lane needs the narrow desk credential, which is not configured yet'
+              : 'send - the outcome will say whether it was stored, typed, or refused'}>Send</button>;
         })()}
         {sent && <p className="dash-muted" role="status">{sent}</p>}
         {sendError && <p className="dash-error">{sendError}</p>}
