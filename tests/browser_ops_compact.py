@@ -65,6 +65,18 @@ with sync_playwright() as p:
         page.get_by_role("button", name="alpha").click()
         page.get_by_text("synthetic terminal").wait_for()
         assert page.get_by_role("button", name="Send", exact=True).is_disabled()
+        # A daemon outage must be explicit, not an empty fleet.
+        page.unroute("**/api/fleet")
+        page.route("**/api/fleet", lambda r: r.fulfill(json={
+            "state": "unavailable", "error": "identity refused", "rows": [], "count": None}))
+        page.reload()
+        page.get_by_role("alert").filter(has_text="Fleet unavailable: identity refused").wait_for()
+        assert page.get_by_text("No active agents right now.").count() == 0
+        page.unroute("**/api/fleet")
+        page.route("**/api/fleet", lambda r: r.fulfill(json={"state": "ok", "rows": []}))
+        page.reload()
+        page.get_by_text("No active agents right now.").wait_for()
+        assert page.get_by_role("alert").count() == 0
         assert not errors, errors
         print(f"{width}x{height}: live three-section API, closed reference, source failure, project grouping and terminal selection pass")
         page.close()

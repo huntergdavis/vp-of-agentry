@@ -54,6 +54,17 @@ class DirectChannelTests(unittest.TestCase):
         self.assertIn(str(path), send.call_args.args[1])
         self.assertEqual("a", item["attachments"][0]["id"])
 
+    def test_compatibility_endpoint_uses_direct_transport_once(self):
+        data = server.MessageIn(channel="vp", body="compatibility client", external_id="retry-1")
+        with patch.object(server, "_send_to_pane", return_value={
+            "outcome": "stored", "push_id": "p-test", "route": "owner_push"}) as send:
+            first = server.post_message(data, "api")
+            second = server.post_message(data, "api")
+        self.assertEqual("stored", first["delivery"])
+        self.assertEqual("p-test", first["transport_id"])
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(1, send.call_count)
+
     def test_changed_target_never_sends(self):
         with patch.object(server, "_send_to_pane") as send:
             with self.assertRaises(server.HTTPException) as caught:

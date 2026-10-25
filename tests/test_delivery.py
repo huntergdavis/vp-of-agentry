@@ -81,8 +81,8 @@ class DeliveryTests(unittest.TestCase):
         server._reconcile("vp")
         self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
 
-    def test_web_send_is_stored_in_inbox_and_tracks_read_ack(self):
-        item = server.post_message(server.MessageIn(channel="vp", body="hello"), "owner")
+    def test_legacy_inbox_history_tracks_read_ack(self):
+        item = server._post_message(server.MessageIn(channel="vp", body="hello"), "owner")
         self.assertEqual("inbox", item["delivery"])
         self.assertEqual("i1", item["transport_id"])
         self.assertFalse(any(command == "send_text" for command, _ in self.transport.calls))
@@ -101,13 +101,13 @@ class DeliveryTests(unittest.TestCase):
         server._reconcile("vp")
         self.assertEqual(("acked", "i1"), self.row(item["id"]))
 
-    def test_web_upload_is_copied_into_agent_inbox(self):
+    def test_legacy_upload_is_copied_into_agent_inbox(self):
         path = Path(self.temporary.name) / "picture.png"
         path.write_bytes(b"test image bytes")
         with sqlite3.connect(server.DB) as db:
             db.execute("INSERT INTO attachments(id,filename,mime,size,path) VALUES(?,?,?,?,?)",
                        ("picture", "picture.png", "image/png", path.stat().st_size, str(path)))
-        item = server.post_message(server.MessageIn(
+        item = server._post_message(server.MessageIn(
             channel="vp", body="see the image", attachment_ids=["picture"]), "owner")
         self.assertEqual("inbox", item["delivery"])
         sent = next(args for command, args in self.transport.calls if command == "inbox_send")
@@ -116,7 +116,7 @@ class DeliveryTests(unittest.TestCase):
 
     def test_generic_shared_mailbox_uses_exact_pane_send(self):
         self.transport.mailbox_keys["test:p1"] = "codex"
-        item = server.post_message(server.MessageIn(channel="vp", body="review this"), "owner")
+        item = server._post_message(server.MessageIn(channel="vp", body="review this"), "owner")
         self.assertEqual("queued", item["delivery"])
         self.assertFalse(any(command == "inbox_send" for command, _ in self.transport.calls))
         sent = next(args for command, args in self.transport.calls if command == "send_text")

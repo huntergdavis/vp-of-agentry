@@ -443,8 +443,14 @@ function Fleet({ standalone = false }) {
   const [sendError, setSendError] = useState('');
 
   async function load() {
-    try { setFleet(await api('/fleet')); setError(''); }
-    catch (e) { setError(e.message); }
+    try {
+      const data = await api('/fleet');
+      if (data.state === 'unavailable') {
+        setFleet(null); setSelected(null); setError(`Fleet unavailable: ${data.error || 'unknown reason'}`);
+      } else {
+        setFleet(data); setError('');
+      }
+    } catch (e) { setFleet(null); setSelected(null); setError(`Fleet unavailable: ${e.message}`); }
   }
   useEffect(() => {
     load();
@@ -493,7 +499,7 @@ function Fleet({ standalone = false }) {
 
   return <DashShell standalone={standalone} view="fleet">
     <p className="dash-lead">Select an agent to view its terminal and send a message.</p>
-    {error && <p className="dash-error">{error}</p>}
+    {error && <p className="dash-error" role="alert">{error}</p>}
     {!fleet && !error && <p className="dash-empty">Loading agents…</p>}
     {fleet && !fleet.rows.length && <p className="dash-empty">No active agents right now.</p>}
     {Object.entries(projects).sort(([a], [b]) => a.localeCompare(b)).map(([project, rows]) =>
