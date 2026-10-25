@@ -402,8 +402,218 @@ def channels(_: Annotated[str, Depends(require_auth)]):
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
+_CAP_CACHE: dict[str, tuple[float, dict]] = {}
+_CAP_TTL_S = 20.0
 _FLEET_CACHE = {"at": 0.0, "payload": None}
 _FLEET_TTL_S = 3.0
+
+
+_PANE_TEXT_TTL_S = 1.5
+_PANE_TEXT_CACHE: dict[str, tuple[float, str]] = {}
+
+
+@app.get("/api/pane-text")
+def api_pane_text(pane: str, lines: int = 40):
+    """The last N lines of a live pane, read server-side with tmux capture-pane. READ ONLY.
+
+    Unauthenticated on purpose, same rule as /api/fleet: this endpoint cannot write, and the
+    page that calls it is already behind the desk login. Every mutating endpoint requires auth.
+
+    Typing travels on the delivery path (see /api/pane-send); a textarea wired to tmux
+    send-keys would type over whatever the agent is doing.
+    """
+    pane = (pane or "").strip()
+    if not pane.startswith("%"):
+        raise HTTPException(status_code=400, detail="a tmux pane id looks like %9")
+    now = time.time()
+    hit = _PANE_TEXT_CACHE.get(pane)
+    if hit and (now - hit[0]) < _PANE_TEXT_TTL_S:
+        return {"pane": pane, "text": hit[1], "readonly": True}
+    try:
+        result = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"pane": pane, "text": "", "readonly": True,
+                "reason": f"tmux could not be read: {error}"}
+    if result.returncode != 0:
+        return {"pane": pane, "text": "", "readonly": True,
+                "reason": (result.stderr or "capture-pane failed").strip()}
+    text = "\n".join(result.stdout.splitlines()[-max(1, min(lines, 200)):])
+    _PANE_TEXT_CACHE[pane] = (now, text)
+    return {"pane": pane, "text": text, "readonly": True,
+            "note": "read-only: typing goes through the delivery path, not this endpoint"}
+
+
+def _desk_token() -> str:
+    """The narrow desk credential, if one has been minted. Read per call: it can be issued
+    while the desk is running, and a cached empty value would need a restart to notice."""
+    token = (os.environ.get("DUNKINGSHEEP_DESK_TOKEN") or "").strip()
+    if token:
+        return token
+    try:
+        return Path("data/desk-token.txt").read_text().strip()
+    except OSError:
+        return ""
+
+
+def _pending_by_pane() -> dict:
+    """How many pushed messages a lane has not taken yet - the honest 'delivered?' number."""
+    try:
+        result = subprocess.run(["dunkingsheep", "owner", "stats", "--json"],
+                                capture_output=True, text=True, timeout=10)
+        payload = json.loads(result.stdout or "{}")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+    counts = {}
+    for item in payload.get("pending") or []:
+        pane = item.get("pane_id")
+        if pane:
+            counts[pane] = counts.get(pane, 0) + 1
+    return counts
+
+
+def _capability(pane: str) -> dict:
+    """The daemon owns lane capability; the desk must not branch on agent names.
+
+    Returns {} when the daemon cannot answer, so callers can refuse rather than guess.
+    """
+    try:
+        result = subprocess.run(["dunkingsheep", "capability", pane, "--json"],
+                                capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            payload = json.loads(result.stdout)
+            _CAP_CACHE[pane] = (time.time(), payload)
+            return payload
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return {}
+
+
+@app.get("/api/capability")
+def api_capability(pane: str):
+    """What would happen if the desk sent to this lane, in the daemon's own words.
+
+    Unauthenticated on purpose, like /api/fleet and /api/pane-text: it discloses a route, not
+    a message or a keystroke. Everything that WRITES takes Depends(require_auth).
+    """
+    pane = (pane or "").strip()
+    cached = _CAP_CACHE.get(pane)
+    if cached and (time.time() - cached[0]) < _CAP_TTL_S:
+        return cached[1]
+    cap = _capability(pane)
+    if not cap:
+        raise HTTPException(status_code=502, detail="the daemon could not describe this lane")
+    return cap
+
+
+@app.post("/api/pane-send")
+async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth)]):
+    """Send to a lane the way that lane can receive it, decided by the daemon.
+
+    Two transports, never one fallback:
+      send == "owner_push" -> the lane drains pushed messages itself; store, do not type.
+      send == "guarded"    -> an immediate guarded send (Enter, then C-m); 'sent' means it
+                              left the box, not that the agent acted on it.
+    Branching on the agent name here would be the desk guessing at a mapping the daemon
+    owns - so this asks, and refuses if the answer is missing.
+    """
+    body = await request.json()
+    pane = str(body.get("pane") or "").strip()
+    text = str(body.get("text") or "").strip()
+    if not pane.startswith("%"):
+        raise HTTPException(status_code=400, detail="a tmux pane id looks like %9")
+    if not text:
+        raise HTTPException(status_code=400, detail="nothing to send")
+    if len(text) > 4000:
+        raise HTTPException(status_code=400, detail="keep it under 4000 characters")
+
+    cap = _capability(pane)
+    if not cap:
+        raise HTTPException(status_code=502, detail="the daemon could not describe this lane")
+    if not cap.get("alive"):
+        raise HTTPException(status_code=409, detail=f"{pane} is not alive: nothing to send to")
+    route = cap.get("send")
+    desk_token = _desk_token()
+    if route == "guarded" and not desk_token:
+        raise HTTPException(
+            status_code=409,
+            detail=("no desk credential is configured yet: the daemon grants typed sends "
+                    "only through a narrow desk token (send to listed panes). Issue one with "
+                    "`dunkingsheep desk-token --panes ...` and put it in data/desk-token.txt "
+                    "or DUNKINGSHEEP_DESK_TOKEN. Until then this lane cannot be typed into."))
+    argv = (["dunkingsheep", "--json", "owner", "push", pane, text] if route == "owner_push"
+            else ["dunkingsheep", "send", pane, text, "--desk-token", desk_token, "--json"]
+            if route == "guarded"
+            else None)
+    if argv is None:
+        raise HTTPException(status_code=409,
+                            detail=f"{pane} declares no send route ({route!r}); not guessing")
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=25)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise HTTPException(status_code=502, detail=f"delivery path unavailable: {error}")
+    detail = (result.stdout or result.stderr or "").strip()[:400]
+
+    if route == "owner_push":
+        if result.returncode != 0:
+            raise HTTPException(status_code=409, detail=detail or "refused")
+        # Forward the daemon's own outcome (now "stored"), never synthesise "ok": a push is
+        # stored, not delivered, and the difference is the whole point of the field.
+        pushed = {}
+        try:
+            pushed = json.loads(result.stdout or "{}")
+        except ValueError:
+            pushed = {}
+        outcome = str(pushed.get("outcome") or "").strip().lower()
+        if not outcome:
+            raise HTTPException(status_code=502,
+                                detail=("the daemon stored the message but returned no outcome "
+                                        f"field, so the desk will not invent one: {detail[:160]}"))
+        return {"ok": True, "pane": pane, "route": route, "outcome": outcome,
+                "push_id": pushed.get("id"), "detail": detail,
+                "note": ("Stored for the lane to drain; nothing typed into the pane. "
+                         "'stored' is not 'read' - it has not arrived until the lane takes it.")}
+
+    # Guarded: the daemon answers with a machine-readable outcome. Branch on THAT - not on
+    # the exit code and not on prose. Two earlier versions of this function got the false
+    # success and then the false failure, both by parsing sentences.
+    payload = {}
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except ValueError:
+        payload = {}
+    outcome = str(payload.get("outcome") or "").strip().lower()
+    message_id = payload.get("message_id")
+
+    if outcome == "refused" or (not outcome and result.returncode != 0):
+        raise HTTPException(status_code=409,
+                            detail=(payload.get("message") or detail or "refused")[:300])
+    if outcome == "queued":
+        return {"ok": True, "pane": pane, "route": route, "outcome": "queued",
+                "queued": True, "message_id": message_id, "detail": detail,
+                "note": ("Held by the typing guard or not yet delivered. It has NOT "
+                         "arrived - do not read this as delivered.")}
+    if outcome == "unconfirmed":
+        return {"ok": True, "pane": pane, "route": route, "outcome": "unconfirmed",
+                "unconfirmed": True, "message_id": message_id, "detail": detail,
+                "note": ("Neither witness fired. It may well have arrived - do NOT resend "
+                         "blindly; ask the lane first.")}
+    if outcome == "stored":
+        # The daemon's fifth value. It only arrives on a durable push today, but the desk
+        # must not 502 on a legitimate vocabulary item if that changes.
+        return {"ok": True, "pane": pane, "route": route, "outcome": "stored",
+                "message_id": message_id, "detail": detail,
+                "note": ("Stored in a durable queue the lane drains itself. That is NOT "
+                         "'read' - it has not arrived until the lane takes it.")}
+    if outcome in ("ok", "sent"):
+        return {"ok": True, "pane": pane, "route": route, "outcome": "ok",
+                "message_id": message_id, "detail": detail,
+                "note": ("Confirmed by the box clearing or by the turn it started - that is "
+                         "delivery to the lane, not proof the agent acted on it.")}
+    # No outcome field and no error: say so instead of inventing a verdict.
+    raise HTTPException(status_code=502,
+                        detail=("the sender returned no outcome field, so the desk will not "
+                                f"guess: {(detail or '')[:200]}"))
 
 
 @app.get("/api/fleet")
@@ -468,6 +678,7 @@ def api_fleet():
             except OSError:
                 continue
 
+    pending = _pending_by_pane()
     now = time.time()
     rows = []
     for pane in panes:
@@ -484,6 +695,7 @@ def api_fleet():
         name = recorded or pane.get("label") or pane_id
         if not agent:
             continue          # a shell is not a lane
+        cap = _capability(pane_id)          # cached 20s; one read per row, not three
         sid = sessions.get(pane_id) or ""
         last = turn_at.get(sid) or turn_at.get(sid.split("-")[0])
         age = (now - last) if last else None
@@ -499,6 +711,14 @@ def api_fleet():
             "last_activity_s": int(age) if age is not None else None,
             "unread": waiting.get(name, 0) + waiting.get(pane_id, 0),
             "session": sessions.get(pane_id),
+            # What the desk may honestly offer for this lane, answered by the daemon:
+            # "owner_push" = it drains pushes; "guarded" = immediate typed send.
+            "send": (cap or {}).get("send"),
+            "drains": (cap or {}).get("drains"),
+            "pending": pending.get(pane_id, 0),
+            # Whether the desk can actually reach the typed route for this lane: the
+            # capability says what it would take, this says whether we hold the credential.
+            "can_type": bool(_desk_token()),
         })
     rows.sort(key=lambda row: (row["project"] or "", row["pane_id"]))
     payload = {"rows": rows, "count": len(rows),
