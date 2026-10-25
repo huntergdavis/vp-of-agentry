@@ -217,9 +217,10 @@ class DosboxBinaryTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
 
-    def test_default_uses_stable_pinned_binary(self):
-        session = GameSession(self.root / 'repo', self.root / 'data')
-        expected = str(Path.home() / '.local/share/vp-of-agentry/dosbox-x-5a9c7c53/dosbox-x')
+    def test_default_keeps_system_binary(self):
+        with patch.dict(os.environ, {}, clear=True):
+            session = GameSession(self.root / 'repo', self.root / 'data')
+        expected = '/usr/bin/dosbox-x'
         self.assertEqual(expected, session.dosbox_x)
         cmd = session._dosbox_command(self.root / 'run')
         self.assertEqual(expected, cmd[cmd.index('--chdir') + 2])
