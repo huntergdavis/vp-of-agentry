@@ -16,8 +16,7 @@ import ops_board
 import ops_metrics
 
 NOW = datetime(2026, 10, 19, 18, 0, 0, tzinfo=timezone.utc)
-EXPECTED_CALLS = {"task_list", "task_metrics", "inbox_stats", "list_dunks",
-                  "list_panes", "status", "health"}
+EXPECTED_CALLS = {"task_list", "list_dunks", "list_panes", "health"}
 
 
 class FakeClient:
@@ -97,65 +96,60 @@ class OpsBoardTests(unittest.TestCase):
         self.conn = ops_metrics.connect(Path(self.temporary.name) / "ops.sqlite3")
         self.addCleanup(self.conn.close)
 
-    def record_accounting(self, strict=225, identities=273, ceiling=815):
-        ops_metrics.record_accounting(self.conn, {
-            "commit_oid": "a" * 40, "strict_full_c": strict,
-            "verified_game_identities": identities, "ceiling": ceiling,
-            "bound_kind": "upper_bound", "source_signature": "sig",
-            "evidence_ref": "docs/re/FUNCTION_CEILING_CENSUS.md",
-        }, observed_at=ops_metrics.iso(NOW))
-
-    def test_board_reads_dunkingsheep_and_the_operations_database(self):
-        self.record_accounting()
+    def test_three_sections_read_only_actionable_sources(self):
         client = sample_client()
         board = ops_board.build(client, self.conn, now=NOW)
         self.assertEqual(EXPECTED_CALLS, {name for name, _ in client.calls})
-        self.assertEqual({name: "ok" for name in
-                          ("tasks", "task_metrics", "inbox", "dunks", "panes",
-                           "daemon", "health", "ops_db")}, board["sources"])
+        self.assertEqual({"generated_at", "interval_s", "no_model", "brief", "attention", "reference"}, set(board))
         self.assertTrue(board["no_model"])
-        self.assertEqual(3, board["tasks"]["depth"])
-        self.assertEqual({"open": 1, "in_progress": 1, "blocked": 1}, board["tasks"]["counts"])
-        self.assertEqual([{"assignee": "crackdown-switch", "count": 1},
-                          {"assignee": "wV:p4", "count": 1}], board["tasks"]["by_assignee"])
-        self.assertEqual(3, board["inbox"]["unread_total"])
-        self.assertEqual(120, board["inbox"]["oldest_unread_s"])
-        self.assertEqual(2, board["dunks"]["total"])
-        self.assertEqual(1, board["dunks"]["running"])
-        self.assertEqual(2, board["panes"]["total"])
-        self.assertEqual(1, board["panes"]["working"])
-        self.assertEqual("2.20.0", board["daemon"]["version"])
-        self.assertEqual(27.6, board["poolrad"]["strict_percent"])
-        self.assertEqual(33.4, board["poolrad"]["identity_percent"])
-        self.assertEqual(590, board["poolrad"]["remaining"])
-        self.assertEqual(27.6, board["headline"]["strict_percent"])
-        self.assertEqual(3, board["headline"]["task_depth"])
-        self.assertEqual(3, board["headline"]["inbox_unread"])
+        self.assertEqual(1, board["brief"]["tasks"]["open"])
+        self.assertEqual(1, board["brief"]["lanes"]["working"])
+        for source in board["brief"].values():
+            self.assertEqual("ok", source["state"])
+            self.assertEqual(ops_board._iso(NOW), source["generated_at"])
+            self.assertTrue(source["source"])
 
-    def test_a_missing_source_stays_unavailable_and_never_becomes_zero(self):
+    def test_missing_sources_remain_unavailable_not_zero(self):
         client = sample_client()
-        client.failures = {"inbox_stats", "list_dunks"}
+        client.failures = {"task_list", "list_panes"}
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual("unavailable", board["sources"]["inbox"])
-        self.assertEqual("unavailable", board["sources"]["dunks"])
-        self.assertIsNone(board["headline"]["inbox_unread"])
-        self.assertIsNone(board["headline"]["dunks_running"])
-        self.assertNotIn(0, [board["headline"]["inbox_unread"], board["headline"]["dunks_running"]])
-        # The other sources keep their values.
-        self.assertEqual("ok", board["sources"]["tasks"])
-        self.assertEqual(3, board["headline"]["task_depth"])
+        self.assertIsNone(board["brief"]["tasks"]["open"])
+        self.assertIsNone(board["brief"]["lanes"]["idle"])
+        self.assertEqual("unavailable", board["brief"]["tasks"]["state"])
+        self.assertEqual({"tasks", "panes", "host"}, {a["source"] for a in board["attention"]["alarms"]})
 
-    def test_the_board_reports_no_reviewed_accounting_as_unavailable(self):
-        board = ops_board.build(sample_client(), self.conn, now=NOW)
-        self.assertEqual("unavailable", board["poolrad"]["state"])
-        self.assertIsNone(board["headline"]["strict_percent"])
+    def test_unknown_lanes_are_not_idle_and_shells_are_excluded(self):
+        client = sample_client()
+        client.responses["list_panes"]["panes"] += [
+            {"pane_id": "%unknown", "agent": "codex", "agent_status": "unknown"},
+            {"pane_id": "%shell", "agent": "", "agent_status": "idle"},
+        ]
+        lanes = ops_board.build(client, self.conn, now=NOW)["brief"]["lanes"]
+        self.assertEqual((1, 1, 1), (lanes["working"], lanes["idle"], lanes["unknown"]))
 
-    def test_task_ages_and_leases_are_measured_from_the_record(self):
+    def test_only_explicit_owner_tasks_require_owner(self):
+        client = sample_client()
+        client.responses["task_list"]["tasks"][0]["assignees"] = ["owner"]
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual(1, board["brief"]["tasks"]["owner"])
+        self.assertEqual(["t18"], [t["id"] for t in board["attention"]["owner"]["items"]])
+        # A blocked agent task is not silently reclassified as an owner decision.
+        self.assertNotIn("t2", [t["id"] for t in board["attention"]["owner"]["items"]])
+
+    def test_health_and_running_schedule_failures_are_visible(self):
+        client = sample_client()
+        client.responses["health"]["problems"] = ["dispatcher stale"]
+        client.responses["list_dunks"]["dunks"][0]["last_error"] = "send failed"
+        board = ops_board.build(client, self.conn, now=NOW)
+        text = " ".join(a["text"] for a in board["attention"]["alarms"])
+        self.assertIn("dispatcher stale", text)
+        self.assertIn("send failed", text)
+
+    def test_task_reference_keeps_ages_and_dependencies(self):
         board = ops_board.build(sample_client(), self.conn, now=NOW)
-        items = {item["id"]: item for item in board["tasks"]["items"]}
+        items = {item["id"]: item for item in board["reference"]["tasks"]["items"]}
         self.assertEqual(3600, items["t18"]["age_s"])
         self.assertEqual(600, items["t18"]["lease_expires_in_s"])
-        self.assertIsNone(items["t6"]["lease_expires_in_s"])
         self.assertEqual(["t99"], items["t6"]["blocked_by"])
 
     def test_cache_serves_the_snapshot_and_keeps_it_when_a_refresh_fails(self):
