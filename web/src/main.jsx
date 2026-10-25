@@ -466,6 +466,7 @@ function Fleet({ standalone = false }) {
     return () => { alive = false; clearInterval(timer); };
   }, [selected]);
 
+  const projects = (fleet?.rows || []).reduce((groups, row) => { const project = row.project || 'Unassigned'; (groups[project] ||= []).push(row); return groups; }, {});
   const age = value => {
     if (value === null || value === undefined) return 'no activity recorded';
     if (value < 90) return `${value}s ago`;
@@ -495,20 +496,14 @@ function Fleet({ standalone = false }) {
     {error && <p className="dash-error">{error}</p>}
     {!fleet && !error && <p className="dash-empty">Loading agents…</p>}
     {fleet && !fleet.rows.length && <p className="dash-empty">No active agents right now.</p>}
-    {fleet && fleet.rows.length > 0 && <table className="dash-table" data-testid="fleet-table">
-      <thead><tr><th>Agent</th><th>Project</th><th>Tool</th><th>Last activity</th><th>Unread</th><th>Waiting</th></tr></thead>
-      <tbody>
-        {fleet.rows.map(row => <tr key={row.pane_id} onClick={() => setSelected(row.pane_id)}
-            aria-selected={selected === row.pane_id} style={{ cursor: 'pointer' }}>
-          <td>{row.name}</td>
-          <td>{row.project || '-'}</td>
-          <td>{row.agent}</td>
-          <td>{age(row.last_activity_s)}</td>
-          <td>{row.unread || ''}</td>
-          <td>{row.pending ? `${row.pending} awaiting receipt` : ''}</td>
-        </tr>)}
-      </tbody>
-    </table>}
+    {Object.entries(projects).sort(([a], [b]) => a.localeCompare(b)).map(([project, rows]) =>
+      <details key={project} className="fleet-project">
+        <summary>{project} <span className="dash-muted">· {rows.length} lanes</span></summary>
+        <div className="fleet-lanes">{rows.map(row => <button key={row.pane_id}
+          aria-pressed={selected === row.pane_id} onClick={() => setSelected(row.pane_id)}>
+          {row.name} <small>{row.agent} · {age(row.last_activity_s)}</small>
+        </button>)}</div>
+      </details>)}
     {selected && <section className="dash-terminal" data-testid="pane-text">
       <h2>{(fleet?.rows || []).find(row => row.pane_id === selected)?.name || 'Agent'} · Terminal</h2>
       {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
@@ -553,108 +548,59 @@ function OpsBoard({ standalone = false }) {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [legacyOpen, setLegacyOpen] = useState(false);
-  const [, setTick] = useState(0);
-
-  async function load() {
-    try { const data = await api('/ops-board'); setBoard(data); setError(''); }
-    catch (e) { setError(e.message); }
-  }
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, 15000);
-    const age = setInterval(() => setTick(value => value + 1), 1000);
-    return () => { clearInterval(timer); clearInterval(age); };
-  }, []);
-  async function refresh() {
+  async function load(force = false) {
     setBusy(true);
-    try { const data = await api('/ops-board/refresh', { method: 'POST' }); setBoard(data); setError(''); }
-    catch (e) { setError(e.message); } finally { setBusy(false); }
+    try {
+      setBoard(await api(force ? '/ops-board/refresh' : '/ops-board', force ? { method: 'POST' } : {}));
+      setError('');
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
-
-  const head = board?.headline || {};
-  const boardAge = board?.generated_at
-    ? Math.max(0, Math.round((Date.now() - Date.parse(board.generated_at)) / 1000))
-    : null;
-  const tasks = board?.tasks || {};
-  const inbox = board?.inbox || {};
-  const dunks = board?.dunks || {};
-  const panes = board?.panes || {};
-  const daemon = board?.daemon || {};
-  const health = board?.health || {};
-  const opsDb = board?.ops_db || {};
-  const poolrad = board?.poolrad || {};
-  const sources = board?.sources || {};
-  const ago = seconds => {
-    if (seconds == null) return 'age unknown';
-    if (seconds < 90) return `${Math.max(0, Math.round(seconds))}s ago`;
-    if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
-    return `${(seconds / 3600).toFixed(1)}h ago`;
-  };
-  const share = value => value == null ? '—' : `${value}%`;
-  const duration = seconds => {
-    if (seconds == null) return 'unknown';
-    if (seconds < 90) return `${Math.max(0, Math.round(seconds))}s`;
-    if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
-    return `${(seconds / 3600).toFixed(1)}h`;
-  };
-  const unavailable = state => state !== 'ok';
-  const route = DASH_ROUTES.operations;
+  useEffect(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer); }, []);
+  const tasks = board?.brief.tasks;
+  const lanes = board?.brief.lanes;
+  const alarms = board?.attention.alarms || [];
+  const owner = board?.attention.owner;
+  const evidence = source => source ? `${source.source}: ${source.state} · generated ${source.generated_at}` : '';
+  const number = (source, key) => source?.state === 'ok' ? source[key] ?? 'unknown' : 'unavailable';
   return <DashShell standalone={standalone} view="operations">
-    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="operations" standalone={standalone} side={<>
-      <span className="dash-meta">updated {ago(boardAge)}</span>
-      <button className="dash-primary" onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh now'}</button>
+    <DashHeader title="Operations" view="operations" standalone={standalone} side={<>
+      <span className="dash-meta">{board ? `generated ${new Date(board.generated_at).toLocaleString()}` : 'Loading…'}</span>
+      <button onClick={() => load(true)} disabled={busy}>Refresh</button>
     </>} />
-    <div className="dash-body">
-      {error && <div className="dash-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
-      {!board && !error && <div className="dash-empty" role="status">Reading the board…</div>}
+    <div className="dash-body ops-body">
+      {error && <p className="dash-error" role="alert">{error}</p>}
+      {board?.refresh_error && <p className="dash-error" role="alert">Refresh failed; showing the last snapshot.</p>}
       {board && <>
-        <div className="dash-chips" style={{ marginBottom: 12 }}>{Object.entries(sources).map(([name, state]) => <span key={name} className={`dash-chip ${unavailable(state) ? 'bad' : 'ok'}`}>{name}</span>)}</div>
-        <div className="dash-stats">
-          <div className="dash-stat accent"><b>STRICT C</b><strong>{share(head.strict_percent)}</strong><small>{head.strict_full_c ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
-          <div className="dash-stat accent"><b>IDENTITIES</b><strong>{share(head.identity_percent)}</strong><small>{head.identities ?? '—'} / {head.ceiling ?? 815} upper bound</small></div>
-          <div className="dash-stat"><b>TASK QUEUE</b><strong>{head.task_depth ?? '—'}</strong><small>{head.task_open ?? '—'} open · {head.task_in_progress ?? '—'} active · {head.task_blocked ?? '—'} blocked</small></div>
-          <div className="dash-stat"><b>INBOX</b><strong>{head.inbox_unread ?? '—'}</strong><small>unread · oldest {ago(head.inbox_oldest_s)}</small></div>
-          <div className="dash-stat"><b>DUNKS</b><strong>{head.dunks_running ?? '—'}/{head.dunks_total ?? '—'}</strong><small>schedules running</small></div>
-          <div className="dash-stat"><b>AGENTS</b><strong>{head.panes_total ?? '—'}</strong><small>{head.panes_working ?? '—'} working</small></div>
-          <div className="dash-stat"><b>HOST /TMP</b><strong>{head.tmp_used_fraction == null ? '—' : `${Math.round(head.tmp_used_fraction * 100)}%`}</strong><small>{head.tmp_free_gib == null ? 'host sample unavailable' : `${head.tmp_free_gib} GiB free · load ${(head.load1 ?? 0).toFixed(1)} on ${head.cpus ?? '—'} CPUs`}</small></div>
-          <div className="dash-stat"><b>DAEMON</b><strong>{daemon.version ?? '—'}</strong><small>{daemon.state === 'ok' ? `up ${duration(daemon.uptime_s)}` : 'status unavailable'} · {daemon.queued_messages ?? 0} queued</small></div>
-        </div>
-        <div className="dash-grid">
-          <div className="dash-panel"><div className="dash-panel-head"><h3>Task queue</h3><span>{tasks.depth ?? '—'} active</span></div>
-            {tasks.state !== 'ok' ? <p className="dash-empty">Task queue unavailable ({tasks.error || 'unknown error'}).</p>
-              : <div className="dash-table-wrap"><table><thead><tr><th>ID</th><th>Task</th><th>Status</th><th>Assignee</th><th>Age</th></tr></thead><tbody>
-                {tasks.items.map(task => <tr key={task.id}><td>{task.id}</td><td>{task.title}<small>{task.priority} · {task.scope}{task.blocked_by?.length ? ` · blocked by ${task.blocked_by.join(', ')}` : ''}</small></td><td>{task.status}{task.lease_expires_in_s != null ? <small>lease in {duration(task.lease_expires_in_s)}</small> : null}</td><td>{task.assignees.join(', ') || '—'}</td><td>{ago(task.age_s)}</td></tr>)}
-                {!tasks.items.length && <tr><td colSpan="5">No open tasks.</td></tr>}
-              </tbody></table></div>}
-            {tasks.by_assignee?.length ? <small className="dash-meta-line">Load: {tasks.by_assignee.map(row => `${row.assignee} ${row.count}`).join(' · ')}</small> : null}
-          </div>
-          <div className="dash-panel"><div className="dash-panel-head"><h3>Agent inboxes</h3><span>{inbox.unread_total ?? '—'} unread</span></div>
-            {inbox.state !== 'ok' ? <p className="dash-empty">Inbox statistics unavailable ({inbox.error || 'unknown error'}).</p>
-              : <div className="dash-table-wrap"><table><thead><tr><th>Mailbox</th><th>Unread</th><th>Total</th><th>Oldest</th></tr></thead><tbody>
-                {inbox.mailboxes.slice(0, 12).map(row => <tr key={row.mailbox}><td>{row.destination || row.mailbox}</td><td>{row.unread}</td><td>{row.total}</td><td>{row.unread ? ago(row.oldest_unread_s) : '—'}</td></tr>)}
-              </tbody></table></div>}
-          </div>
-          <div className="dash-panel"><div className="dash-panel-head"><h3>Scheduled dunks</h3><span>{dunks.running ?? '—'}/{dunks.total ?? '—'} running{dunks.failed ? ` · ${dunks.failed} with a last error` : ''}</span></div>
-            {dunks.state !== 'ok' ? <p className="dash-empty">Dunk schedule unavailable ({dunks.error || 'unknown error'}).</p>
-              : <div className="dash-table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Every</th><th>Next</th></tr></thead><tbody>
-                {dunks.items.map(dunk => <tr key={dunk.id}><td>{dunk.id}</td><td>{dunk.name}<small>{dunk.status}{dunk.send_count != null ? ` · ${dunk.send_count} sent` : ''}{dunk.skip_count ? ` · ${dunk.skip_count} skipped` : ''}{dunk.last_error ? ` · last error: ${dunk.last_error}` : ''}{dunk.last_sent_age_s != null ? ` · last send ${ago(dunk.last_sent_age_s)}` : ''}</small></td><td>{dunk.target_label || dunk.target}</td><td>{dunk.interval_minutes}m</td><td>{dunk.running && dunk.next_send_in_s != null ? `in ${Math.round(dunk.next_send_in_s / 60)}m` : 'stopped'}</td></tr>)}
-                {!dunks.items.length && <tr><td colSpan="5">No schedules.</td></tr>}
-              </tbody></table></div>}
-          </div>
-          <div className="dash-panel"><div className="dash-panel-head"><h3>Host and daemon health</h3><span>{health.state === 'ok' ? (health.ok ? 'healthy' : 'problems') : 'unavailable'}</span></div>
-            <ul className="dash-health">
-              <li><span>Daemon</span><strong>{daemon.version ?? '—'}</strong><small>{daemon.state === 'ok' ? `up ${duration(daemon.uptime_s)}` : 'status unavailable'}</small></li>
-              <li><span>Memory index</span><strong>{health.memory_chunks ?? '—'} chunks</strong><small>{health.memory_sources ?? '—'} sources · queue depth {health.queue_depth ?? '—'}</small></li>
-              <li><span>Host sample</span><strong>{head.tmp_used_fraction == null ? 'unavailable' : `${Math.round(head.tmp_used_fraction * 100)}% /tmp`}</strong><small>{head.tmp_free_gib == null ? 'no saved sample' : `${head.tmp_free_gib} GiB free · inodes and CPU pressure in the reference view`}</small></li>
-              <li><span>Published checkpoint</span><strong>{poolrad.commit_oid ? poolrad.commit_oid.slice(0, 8) : 'unavailable'}</strong><small>{poolrad.observed_at ? `observed ${ago(poolrad.age_s)}` : 'no reviewed accounting snapshot'}</small></li>
-            </ul>
-            {health.problems?.length ? <p className="dash-error">Health problems: {health.problems.join('; ')}</p> : null}
-          </div>
-        </div>
-        <details className="dash-reference" onToggle={event => setLegacyOpen(event.target.open)}><summary>Detailed reference: credit history, quotas, and cost planning</summary>
-          {legacyOpen && <OpsSummary auto={legacyOpen} />}</details>
-        <p className="dash-limits">{(board?.limits || []).join(' ')}</p>
+        <section className="ops-brief" data-ops-section="brief">
+          <strong>{alarms.length ? `${alarms.length} alarms` : 'Alarms: none'}</strong>
+          <p title={evidence(tasks)}>{number(tasks, 'open')} open tasks · {number(tasks, 'owner')} assigned to you</p>
+          <p title={evidence(lanes)}>{number(lanes, 'working')} lanes working · {number(lanes, 'idle')} idle{lanes?.unknown ? ` · ${lanes.unknown} unknown` : ''}</p>
+        </section>
+        <section data-ops-section="attention" className="ops-attention">
+          {alarms.slice(0, 3).map((alarm, i) => <p key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</p>)}
+          {alarms.length > 3 && <p>More alarms in the reference below.</p>}
+          {owner?.items.slice(0, 3).map(task => <p key={task.id} title={evidence(owner)}><b>{task.id}</b> {task.title}</p>)}
+          {owner?.state !== 'ok' && <p>Owner task assignments unavailable.</p>}
+          {owner?.state === 'ok' && !owner.items.length && <p className="dash-muted">No tasks explicitly assigned to you.</p>}
+        </section>
+        <details className="ops-reference" data-ops-section="reference">
+          <summary>Reference: tasks, lanes and schedules</summary>
+          {alarms.length > 3 && <ul>{alarms.map((alarm, i) => <li key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</li>)}</ul>}
+          {[
+            ['Tasks', board.reference.tasks, ['ID', 'Task', 'Status', 'Assignee'],
+              row => [row.id, row.title, row.status, row.assignees.join(', ') || '—']],
+            ['Lanes', board.reference.lanes, ['Pane', 'Lane', 'Status'],
+              row => [row.pane_id, row.tab_label, row.agent_status]],
+            ['Schedules', board.reference.schedules, ['ID', 'Schedule', 'Target', 'Status'],
+              row => [row.id, row.name, row.target_label || row.target, row.running ? 'running' : 'stopped']],
+          ].map(([name, source, columns, cells]) => <div key={name} className="ops-table">
+            <h2>{name}</h2><small>{evidence(source)}</small>
+            {source.state !== 'ok' ? <p>{source.error || 'Unavailable'}</p> :
+              <div className="dash-table-wrap"><table><thead><tr>{columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
+                <tbody>{source.items.map((row, i) => <tr key={row.id || row.pane_id || i}>{cells(row).map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody>
+              </table></div>}
+          </div>)}
+        </details>
       </>}
     </div>
   </DashShell>;

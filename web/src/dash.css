@@ -396,3 +396,17 @@
 .login-card input:focus { border-color: #89b4fa; }
 .login-card .primary { background: #89b4fa; color: #11111b; }
 .login-card .primary:hover { background: #9dc0fb; }
+
+/* The owner overview has three short sections, with reference tables closed by default. */
+.ops-body { flex: 0 1 auto; }
+.ops-body p { margin: 4px 0; }
+.ops-brief { font-size: 15px; }
+.ops-attention { margin: 12px 0; }
+.ops-reference { border-top: 1px solid var(--dash-border); padding-top: 10px; }
+.ops-reference summary, .fleet-project summary { cursor: pointer; }
+.ops-table { margin-top: 16px; }
+.ops-table h2 { font-size: 14px; margin-bottom: 2px; }
+.fleet-project { margin: 4px 20px; padding: 10px 0; border-bottom: 1px solid var(--dash-border); }
+.fleet-lanes { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0; }
+.fleet-lanes button { text-align: left; }
+.fleet-lanes small { display: block; font-weight: normal; }

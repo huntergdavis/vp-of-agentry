@@ -167,11 +167,22 @@ After deploying this branch, run `npm run build --prefix web`, restart `vp-of-ag
 
 ## Operations dashboard
 
-The **Operations dashboard** is a deterministic board, also served on its own at `/dash/operations`. Every number is read from Dunking Sheep's daemon API (task queue, agent inboxes, scheduled dunks, live panes, daemon health) and from the private operations database (PM-reviewed accounting, quota readings, owner subscriptions, host samples). **No model is consulted**: `ops_board.py` is a projection, not a written summary, and a source that cannot be read stays `unavailable` with its age instead of turning into a zero.
+The **Operations dashboard**, also served at `/dash/operations`, has three sections:
+a short task/lane brief, actionable exceptions and explicitly owner-assigned tasks,
+and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
+unknown; a blocked agent task is not inferred to require the owner. Terminals are
+grouped by project in single-level disclosures.
 
-`ops_board.py` refreshes the board on a timer (30 seconds by default, `VP_OPS_BOARD_INTERVAL_S`) in a background thread, so the desk never waits on a refresh and the numbers move as operations happen. `GET /api/ops-board` returns the cached snapshot and `POST /api/ops-board/refresh` forces a fresh read. The view polls every 15 seconds and shows the age of the snapshot it is displaying, plus one chip per source so a failed read is visible.
+`ops_board.py` reads Dunking Sheep and the saved host sample without model calls.
+`GET /api/ops-board` returns `no_model: true`, `generated_at`, and the three
+content sections `brief`, `attention`, and `reference`. Each numerical source
+carries its status and timestamp; unavailable values stay null. The board refreshes
+on its existing timer and the view polls every 15 seconds. Healthy source chips,
+empty throughput/configuration panels, duplicate credit cards, the inbox table,
+and the nested legacy metrics view have been removed from this overview.
 
-The previous metrics view (credit history charts, quota cards, cost planning) still works behind **Detailed reference** in the same page and behind `GET /api/ops-metrics`, `GET /api/ops-metrics/history`, and `POST /api/ops-metrics/refresh`.
+Historical metrics remain available through `GET /api/ops-metrics`,
+`GET /api/ops-metrics/history`, and `./opsctl summary`.
 
 ### Private collector
 

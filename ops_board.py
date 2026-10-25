@@ -1,11 +1,9 @@
 """Deterministic operations board for the VP desk.
 
-The board is a projection of two sources and nothing else:
-
-* Dunking Sheep's daemon API: the global task queue, agent inboxes, scheduled
-  dunks, live panes, and the daemon's own health self-check.
-* The private operations database: PM-reviewed accounting, quota readings,
-  owner-reported subscriptions, host samples, and the published credit series.
+The board reads tasks, live lanes, schedules and health from Dunking Sheep,
+plus the saved host sample from the private operations database. It exposes
+a brief, actionable exceptions and a single reference containing useful rows.
+Credit, subscriptions and throughput are outside this owner overview.
 
 No model is consulted anywhere in this module. Every number is read from a
 record; nothing is inferred, interpolated, or summarised in prose. A source
@@ -36,14 +34,6 @@ CREDIT_WINDOW_H = 168
 ACTIVE_STATUSES = ("open", "in_progress", "blocked")
 PRIORITY_RANK = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
 
-LIMITS = [
-    "Task, inbox, dunk, pane and daemon values are read live from Dunking Sheep; nothing is inferred between reads.",
-    "A source that cannot be read is unavailable with its age; it is never reported as zero.",
-    "Poolrad percentages come from the PM-reviewed accounting checkpoint and the reviewed 815 upper bound, not from local drafts, PR counts, or candidate rows.",
-    "Pane presence is sampled agent presence, not verified productive work and not token usage.",
-    "Fixed subscriptions are owner-reported monthly totals; the hourly figure divides them by calendar hours in the current month.",
-    "Quota percentages are direct readings with an observation age; an unobserved provider stays unavailable.",
-]
 
 
 def _now() -> datetime:
@@ -98,18 +88,6 @@ def _unavailable(error: str) -> dict:
     return {"state": "unavailable", "error": error}
 
 
-def _percent(count: int, ceiling: int, bound_kind: str) -> float:
-    """Share of the reviewed bound. An upper bound is reported at one decimal."""
-    if not ceiling:
-        return 0.0
-    if bound_kind == "upper_bound":
-        return (count * 1000 // ceiling) / 10
-    return round(100 * count / ceiling, 1)
-
-
-# -- Dunking Sheep sources ----------------------------------------------------
-
-
 def _task_board(client, now: datetime) -> dict:
     try:
         listing = client.call("task_list", include_done=False, limit=200)
@@ -138,6 +116,7 @@ def _task_board(client, now: datetime) -> dict:
             "eligible": bool(task.get("eligible")),
             "claimable": bool(task.get("claimable")),
             "attempts": task.get("attempts"),
+            "needs_owner": bool(task.get("needs_owner")) or "owner" in (task.get("assignees") or []),
         })
     items.sort(key=lambda row: (PRIORITY_RANK.get(row["priority"], 9),
                                 -(row["age_s"] or 0), str(row["id"])))
@@ -154,51 +133,6 @@ def _task_board(client, now: datetime) -> dict:
         "by_assignee": [{"assignee": name, "count": count}
                          for name, count in sorted(load.items(), key=lambda row: (-row[1], row[0]))],
     }
-
-
-def _task_metrics(client) -> dict:
-    try:
-        metrics = client.call("task_metrics", window_s=TASK_WINDOW_S, bucket="hour")
-    except Exception as exc:  # noqa: BLE001
-        return _unavailable(type(exc).__name__)
-    if not isinstance(metrics, dict):
-        return _unavailable("invalid task metrics")
-    return {
-        "state": "ok",
-        "window_seconds": (metrics.get("window") or {}).get("seconds"),
-        "throughput": metrics.get("throughput") or {},
-        "latency_ms": metrics.get("latency_ms") or {},
-        "by_actor": metrics.get("by_actor") or {},
-    }
-
-
-def _inbox_board(client) -> dict:
-    try:
-        stats = client.call("inbox_stats")
-    except Exception as exc:  # noqa: BLE001
-        return _unavailable(type(exc).__name__)
-    mailboxes = (stats or {}).get("mailboxes")
-    if not isinstance(mailboxes, list):
-        return _unavailable("invalid inbox stats")
-    rows = []
-    unread_total = 0
-    oldest = None
-    for row in mailboxes:
-        unread = int(row.get("unread") or 0)
-        unread_total += unread
-        waiting = row.get("oldest_unread_s")
-        if unread and waiting is not None:
-            oldest = waiting if oldest is None else max(oldest, waiting)
-        rows.append({
-            "mailbox": row.get("mailbox"),
-            "destination": row.get("destination"),
-            "unread": unread,
-            "total": int(row.get("total") or 0),
-            "oldest_unread_s": waiting,
-        })
-    rows.sort(key=lambda row: (-row["unread"], -row["total"], str(row["mailbox"])))
-    return {"state": "ok", "mailboxes": rows, "unread_total": unread_total,
-            "oldest_unread_s": oldest}
 
 
 def _dunk_board(client, now: datetime) -> dict:
@@ -255,33 +189,12 @@ def _pane_board(client) -> dict:
         "workspace_label": pane.get("workspace_label"),
         "tab_label": pane.get("tab_label"),
         "is_self": bool(pane.get("is_self")),
-    } for pane in rows]
+    } for pane in rows if pane.get("agent")]
     working = sum(1 for pane in items if (pane.get("agent_status") or "") == "working")
     return {"state": "ok", "total": len(items), "working": working,
-            "idle": len(items) - working, "items": items}
-
-
-def _daemon_board(client) -> dict:
-    try:
-        status = client.call("status")
-    except Exception as exc:  # noqa: BLE001
-        return _unavailable(type(exc).__name__)
-    if not isinstance(status, dict):
-        return _unavailable("invalid daemon status")
-    return {
-        "state": "ok",
-        "version": status.get("version"),
-        "uptime_s": status.get("uptime_s"),
-        "herdr_available": status.get("herdr_available"),
-        "herdr_hint": status.get("herdr_hint"),
-        "queued_messages": status.get("queued_messages"),
-        "inbox_unread": status.get("inbox_unread"),
-        "task_followers": status.get("task_followers"),
-        "quarantined_mailboxes": status.get("quarantined_mailboxes"),
-        "dunkers": status.get("dunkers"),
-        "running_dunks": status.get("running"),
-        "message": status.get("message"),
-    }
+            "idle": sum(p.get("agent_status") == "idle" for p in items),
+            "unknown": sum(p.get("agent_status") not in ("working", "idle") for p in items),
+            "items": items}
 
 
 def _health_board(client) -> dict:
@@ -311,126 +224,73 @@ def _health_board(client) -> dict:
 # -- operations database ------------------------------------------------------
 
 
-def _ops_db_board(conn: sqlite3.Connection, now: datetime) -> dict:
-    from ops_metrics import history, summary
+def _host_board(conn, now):
+    from ops_metrics import summary
+    host = summary(conn, now=now).get("host_health")
+    if not host:
+        return _unavailable("no host sample")
+    return {"state": "stale" if host.get("stale") else "ok", **host}
 
-    try:
-        snapshot = summary(conn, now=now)
-    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError) as exc:
-        return _unavailable(type(exc).__name__)
-    try:
-        timeline = history(conn, now=now, hours=CREDIT_WINDOW_H)
-    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
-        timeline = {"goal_observations": []}
-    progress = snapshot.get("function_progress")
-    poolrad = {"state": "unavailable", "error": "no reviewed accounting snapshot"}
-    if progress:
-        poolrad = {
-            "state": "ok",
-            "strict_full_c": progress["strict_full_c"],
-            "identities": progress["verified_game_identities"],
-            "ceiling": progress["ceiling"],
-            "bound_kind": progress["bound_kind"],
-            "strict_percent": progress["strict_percent"],
-            "identity_percent": progress["identity_percent"],
-            "remaining": max(0, progress["ceiling"] - progress["strict_full_c"]),
-            "observed_at": progress["observed_at"],
-            "age_s": progress["age_s"],
-            "commit_oid": progress["commit_oid"],
-            "evidence_ref": progress["evidence_ref"],
-        }
-    series = [{
-        "at": row["observed_at"],
-        "value": float(row["value"]),
-    } for row in timeline.get("goal_observations", [])
-        if row.get("goal_key") == "strict_fullc" and row.get("value") is not None]
+
+def compact(readings: dict, generated_at: str) -> dict:
+    """Three owner-facing sections; no nested copy of the old board."""
+    def source(name):
+        return {"source": name, "generated_at": generated_at,
+                **readings.get(name, _unavailable("missing source"))}
+    tasks, panes, dunks, health, host = map(source, ("tasks", "panes", "dunks", "health", "host"))
+    owner = [row for row in tasks.get("items", []) if row.get("needs_owner")]
+    alarms = []
+    for reading in (tasks, panes, dunks, health, host):
+        if reading["state"] != "ok":
+            alarms.append({"source": reading["source"], "state": reading["state"],
+                           "generated_at": generated_at,
+                           "text": reading.get("error") or (reading["source"] + " is " + reading["state"])})
+    for problem in health.get("problems", []):
+        alarms.append({"source": "health", "state": "problem",
+                       "generated_at": generated_at, "text": problem})
+    for row in dunks.get("items", []):
+        if row.get("running") and row.get("last_error"):
+            alarms.append({"source": "dunks", "state": "problem",
+                           "generated_at": generated_at,
+                           "text": str(row["id"]) + ": " + row["last_error"]})
+    for resource, level in (host.get("levels") or {}).items():
+        if level in ("warning", "critical"):
+            alarms.append({"source": "host", "state": level, "generated_at": generated_at,
+                           "text": resource + ": " + level})
+    def count(reading, **values):
+        return {"source": reading["source"], "state": reading["state"],
+                "generated_at": generated_at,
+                **{key: value if reading["state"] == "ok" else None for key, value in values.items()}}
     return {
-        "state": "ok",
-        "poolrad": poolrad,
-        "quota": snapshot.get("quota"),
-        "quotas": snapshot.get("quotas"),
-        "subscriptions": snapshot.get("subscriptions"),
-        "monthly_fixed_usd": snapshot.get("monthly_fixed_usd"),
-        "fixed_hourly_usd": snapshot.get("fixed_subscription_usd_per_calendar_hour"),
-        "calendar_hours_in_month": snapshot.get("calendar_hours_in_month"),
-        "host": snapshot.get("host_health"),
-        "credit_series": series,
-        "pr_merges": timeline.get("pr_merges", []),
-        "goals": snapshot.get("goals", []),
-        "latest_sample_at": snapshot.get("latest_sample_at"),
-        "latest_sample_age_s": snapshot.get("latest_sample_age_s"),
-        "sources": snapshot.get("sources", {}),
-        "source_freshness": snapshot.get("source_freshness", {}),
+        "generated_at": generated_at, "interval_s": REFRESH_INTERVAL_S, "no_model": True,
+        "brief": {
+            "tasks": count(tasks, open=(tasks.get("counts") or {}).get("open", 0),
+                           owner=len(owner)),
+            "lanes": count(panes, working=panes.get("working"), idle=panes.get("idle"),
+                           unknown=panes.get("unknown")),
+        },
+        "attention": {"generated_at": generated_at, "alarms": alarms,
+                      "owner": {"source": "tasks", "state": tasks["state"],
+                                "generated_at": generated_at, "items": owner}},
+        "reference": {"tasks": tasks, "lanes": panes, "schedules": dunks},
     }
-
-
-# -- board --------------------------------------------------------------------
 
 
 def build(client, conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
-    """Assemble the board from every source. Never raises for a missing source."""
+    """Read only actionable sources; no throughput, inbox, credit or config panels."""
     now = now or _now()
-    board: dict[str, Any] = {
-        "generated_at": _iso(now),
-        "interval_s": REFRESH_INTERVAL_S,
-        "no_model": True,
-        "sources": {},
-        "limits": LIMITS,
-    }
-    sections = {
-        "tasks": lambda: _task_board(client, now),
-        "task_metrics": lambda: _task_metrics(client),
-        "inbox": lambda: _inbox_board(client),
-        "dunks": lambda: _dunk_board(client, now),
-        "panes": lambda: _pane_board(client),
-        "daemon": lambda: _daemon_board(client),
-        "health": lambda: _health_board(client),
-        "ops_db": lambda: _ops_db_board(conn, now),
-    }
-    for name, reader in sections.items():
+    readers = {"tasks": lambda: _task_board(client, now),
+               "panes": lambda: _pane_board(client),
+               "dunks": lambda: _dunk_board(client, now),
+               "health": lambda: _health_board(client),
+               "host": lambda: _host_board(conn, now)}
+    readings = {}
+    for name, read in readers.items():
         try:
-            board[name] = reader()
-        except Exception as exc:  # noqa: BLE001 - one bad source never blanks the board
-            board[name] = _unavailable(type(exc).__name__)
-        board["sources"][name] = board[name].get("state", "unavailable")
-
-    ops_db = board.get("ops_db") or {}
-    board["poolrad"] = ops_db.get("poolrad") if ops_db.get("state") == "ok" else {
-        "state": "unavailable", "error": ops_db.get("error", "operations database unavailable")}
-    board["headline"] = _headline(board)
-    return board
-
-
-def _headline(board: dict) -> dict:
-    """The small, always-correct set of numbers shown at the top of the board."""
-    tasks = board.get("tasks") or {}
-    inbox = board.get("inbox") or {}
-    dunks = board.get("dunks") or {}
-    panes = board.get("panes") or {}
-    host = (board.get("ops_db") or {}).get("host") or {}
-    poolrad = board.get("poolrad") or {}
-    return {
-        "strict_percent": poolrad.get("strict_percent"),
-        "identity_percent": poolrad.get("identity_percent"),
-        "strict_full_c": poolrad.get("strict_full_c"),
-        "identities": poolrad.get("identities"),
-        "ceiling": poolrad.get("ceiling"),
-        "task_depth": tasks.get("depth"),
-        "task_open": (tasks.get("counts") or {}).get("open"),
-        "task_in_progress": (tasks.get("counts") or {}).get("in_progress"),
-        "task_blocked": (tasks.get("counts") or {}).get("blocked"),
-        "inbox_unread": inbox.get("unread_total"),
-        "inbox_oldest_s": inbox.get("oldest_unread_s"),
-        "dunks_running": dunks.get("running"),
-        "dunks_total": dunks.get("total"),
-        "panes_total": panes.get("total"),
-        "panes_working": panes.get("working"),
-        "tmp_used_fraction": host.get("tmp_used_fraction"),
-        "tmp_free_gib": host.get("tmp_free_gib"),
-        "host_stale": host.get("stale"),
-        "load1": host.get("load1"),
-        "cpus": host.get("cpus"),
-    }
+            readings[name] = read()
+        except Exception as exc:
+            readings[name] = _unavailable(type(exc).__name__)
+    return compact(readings, _iso(now))
 
 
 class BoardCache:
