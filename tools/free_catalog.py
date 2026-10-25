@@ -45,6 +45,7 @@ def opencode_free():
 
 def main():
     state = json.loads(STATE.read_text()) if STATE.exists() else {"models": {}}
+    previous_check = state.get("last_checked")
     sources, errors = {}, []
     for name, fetch in (("openrouter", openrouter_free), ("opencode", opencode_free)):
         try:
@@ -64,13 +65,17 @@ def main():
                   and not row.get("gone_at"))
     for model in gone:
         state["models"][model]["gone_at"] = stamp
+    state.setdefault("store_began", stamp)
     state["last_checked"] = stamp
     state["errors"] = errors
     STATE.parent.mkdir(exist_ok=True)
     STATE.write_text(json.dumps(state, indent=1, sort_keys=True))
 
     lines = [f"# Free model catalogue (watched, not verified)", "",
-             f"Checked {stamp}. Sources ok: {', '.join(sorted(sources)) or 'none'}."]
+             f"Checked {stamp}. Sources ok: {', '.join(sorted(sources)) or 'none'}.",
+             f"Previous check: {previous_check or 'none (baseline run)'}. "
+             f"This store began {state['store_began']}: first_seen dates mean 'known to us since', "
+             "not 'released then'."]
     if errors:
         lines += ["", "SOURCE ERRORS (a failed source is not an empty one):"] + [f"- {e}" for e in errors]
     lines += ["", "An arrival is LISTED, not working: a model becomes usable only after "
@@ -93,12 +98,22 @@ def main():
         result = subprocess.run(["dunkingsheep", "context", "add", "--class", "fact",
                                  "--subject", SUBJECT, "--global", "--source", "tools/free_catalog.py",
                                  str(tmp)], capture_output=True, text=True)
+    exists = " already exists" in result.stderr
+    if result.returncode != 0 and exists and not slug:
+        # state lost but the article is there: recover its slug and supersede in place
+        slug = result.stderr.split("entry ", 1)[1].split(" already exists")[0].strip()
+        state["article_slug"] = slug
+        STATE.write_text(json.dumps(state, indent=1, sort_keys=True))
+        result = subprocess.run(["dunkingsheep", "context", "supersede", "--global", slug, str(tmp)],
+                                capture_output=True, text=True)
     if result.returncode != 0:
         print("article write FAILED:", result.stderr.strip() or result.stdout.strip(), file=sys.stderr)
         return 2
-    if not slug:
-        word = (result.stdout.strip().split() or [""])[-1]
-        state["article_slug"] = word.split("/")[-1]
+    # `supersede` prints "superseded by <new-slug>": the NEW entry is the head, and the
+    # next run must supersede it, not the original (that leaves orphans in the digest).
+    word = (result.stdout.strip().split() or [""])[-1].split("/")[-1]
+    if word:
+        state["article_slug"] = word
         STATE.write_text(json.dumps(state, indent=1, sort_keys=True))
     print(f"catalogue: {len(seen)} free/included models, {len(arrivals)} arrivals, "
           f"{len(gone)} departed, errors={len(errors)}")
