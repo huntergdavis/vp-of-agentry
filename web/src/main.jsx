@@ -769,6 +769,13 @@ function PoolradPlay({ vpChannel, standalone = false }) {
   const screenRef = useRef(null);
   const inputRevision = useRef(0), actionBusy = useRef(false);
   const chatScroll = useMessageScroll(chat, channel?.id);
+  const emulator = status?.emulator;
+  const buildScope = emulator?.scope === 'running_session' ? 'This session uses'
+    : emulator?.scope === 'next_start' ? 'Next session uses' : null;
+  const buildLabel = buildScope && emulator?.kind === 'checkpoint' && emulator.release && emulator.sha256
+    ? `${buildScope} the checkpoint build (${emulator.release} ${emulator.sha256.slice(0, 8)})`
+    : buildScope && emulator?.kind === 'other'
+      ? `${buildScope} another emulator build.` : 'Checkpoint build identity is not available.';
   useEffect(() => {
     let live = true;
     const refresh = () => api('/game/status').then(data => { if (live) setStatus(data); }).catch(e => { if (live) setError(e.message); });
@@ -873,6 +880,7 @@ function PoolradPlay({ vpChannel, standalone = false }) {
       side={<div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div>} />
     <div className="game-view" aria-label="Play Poolrad">
     {error && <div className="game-error" role="alert">{error}</div>}
+    <div className="game-tools" aria-label="Session build"><strong>{buildLabel}</strong></div>
     <div className="game-stage" ref={screenRef} tabIndex={0} onKeyDown={keyDown} onClick={() => screenRef.current?.focus()} aria-label="Poolrad game screen; click here to control with keyboard">
       {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game to play here.</div>}
     </div>
@@ -897,6 +905,7 @@ function PoolradPlay({ vpChannel, standalone = false }) {
       <button onClick={loadState} disabled={!status?.running || statesBusy || !stateSlot}>Load state</button>
       {statesError && <span className="game-error" role="alert">{statesError}</span>}
     </div>
+    {status?.state_archive?.status === 'verified' && status.state_archive.verified_count > 0 && <div className="game-footer" role="note">States from earlier sessions are archived. We cannot verify which build wrote them.</div>}
     <CodewheelPicker screenRef={screenRef} inputRevision={inputRevision} running={Boolean(status?.running)} runKey={status?.run_name} busy={busy} onSend={sendWord} onAuto={autoCodeWord} />
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
