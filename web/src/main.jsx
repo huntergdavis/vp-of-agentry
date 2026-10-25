@@ -1,4 +1,5 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useMessageScroll, mergeMessages } from './useMessageScroll';
 import { createRoot } from 'react-dom/client';
 import { Message, MessageList } from '@chatscope/chat-ui-kit-react';
 import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
@@ -735,7 +736,7 @@ function PoolradPlay({ vpChannel, standalone = false }) {
   const [statesError, setStatesError] = useState('');
   const screenRef = useRef(null);
   const inputRevision = useRef(0), actionBusy = useRef(false);
-  const chatLogRef = useRef(null);
+  const chatScroll = useMessageScroll(chat, channel?.id);
   useEffect(() => {
     let live = true;
     const refresh = () => api('/game/status').then(data => { if (live) setStatus(data); }).catch(e => { if (live) setError(e.message); });
@@ -743,15 +744,14 @@ function PoolradPlay({ vpChannel, standalone = false }) {
     return () => { live = false; clearInterval(timer); };
   }, []);
   useEffect(() => {
-    if (!vpChannel) return;
+    if (!channel) return;
     let live = true;
     const load = () => api(`/messages?channel=${encodeURIComponent(channel.id)}&limit=15`)
-      .then(data => { if (live) setChat(data.items || []); })
+      .then(data => { if (live) setChat(old => mergeMessages(old, data.items || [])); })
       .catch(e => { if (live) setChatError(e.message); });
     load(); const timer = setInterval(load, 4000);
     return () => { live = false; clearInterval(timer); };
   }, [channel]);
-  useEffect(() => { const pane = chatLogRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [chat]);
   useEffect(() => {
     if (vpChannel) return;
     api('/channels').then(data => setOwnChannel((data.channels || []).find(c => c.id === 'vp') || null)).catch(() => {});
@@ -799,7 +799,8 @@ function PoolradPlay({ vpChannel, standalone = false }) {
       setChatOutcome(receipt.outcome || receipt.delivery);
       setDraft('');
       const data = await api(`/messages?channel=${encodeURIComponent(channel.id)}&limit=15`);
-      setChat(data.items || []);
+      chatScroll.jump();
+      setChat(old => mergeMessages(old, data.items || []));
     } catch (e) { setChatError(e.message); } finally { setChatBusy(false); }
   }
   async function action(path, body) {
@@ -867,10 +868,11 @@ function PoolradPlay({ vpChannel, standalone = false }) {
     <CodewheelPicker screenRef={screenRef} inputRevision={inputRevision} running={Boolean(status?.running)} runKey={status?.run_name} busy={busy} onSend={sendWord} onAuto={autoCodeWord} />
     <div className="game-chat" aria-label="Direct line to the VP">
       <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
-      <div className="game-chat-log" ref={chatLogRef}>
+      <div className="game-chat-log" ref={chatScroll.ref} onScroll={chatScroll.onScroll}>
         {chat.length === 0 && <div className="game-chat-empty">{channel ? 'No messages yet. Say where you are, or hit Quicksave.' : 'VP channel unavailable.'}</div>}
         {chat.map(m => <div key={m.id} className={`game-chat-item ${m.role === 'owner' ? 'owner' : 'agent'}`}><span className="game-chat-role">{m.role === 'owner' ? 'You' : 'VP'}</span><span className="game-chat-body">{m.body}</span></div>)}
       </div>
+      {chatScroll.hasNew && <button className="chat-new-messages" onClick={chatScroll.jump}>New messages · Jump to latest</button>}
       {chatOutcome && <p role="status">{chatOutcome}</p>}
         {chatError && <div className="game-error" role="alert">{chatError}</div>}
       <div className="game-chat-input">
@@ -890,7 +892,7 @@ function ChannelStandalone({ channel }) {
   const [pending, setPending] = useState([]);
   const [error, setError] = useState('');
   const [updated, setUpdated] = useState(null);
-  const listRef = useRef(null);
+  const messageScroll = useMessageScroll(items, channel);
   const selected = channels.find(c => c.id === channel);
   useEffect(() => {
     let live = true;
@@ -899,7 +901,7 @@ function ChannelStandalone({ channel }) {
         const [roster, messages] = await Promise.all([api('/channels'), api(`/messages?channel=${encodeURIComponent(channel)}&limit=50`)]);
         if (!live) return;
         setChannels(roster.channels || []);
-        setItems(messages.items || []);
+        setItems(old => mergeMessages(old, messages.items || []));
         setUpdated(new Date());
         setError('');
       } catch (e) { if (live) setError(e.message); }
@@ -908,10 +910,10 @@ function ChannelStandalone({ channel }) {
     const timer = setInterval(load, 5000);
     return () => { live = false; clearInterval(timer); };
   }, [channel]);
-  useEffect(() => { const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [items]);
   async function send(data) {
     const item = await api('/pane-send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pane: selected.pane_id, channel, text: data.body, attachment_ids: data.attachment_ids }) });
-    setItems(old => [...old, item]);
+    messageScroll.jump();
+    setItems(old => mergeMessages(old, [item]));
   }
   const route = DASH_ROUTES[channel];
   return <DashShell standalone view={channel}>
@@ -921,12 +923,13 @@ function ChannelStandalone({ channel }) {
     </>} />
     <div className="dash-body dash-conversation">
       {error && <div className="dash-error" role="alert">{error}</div>}
-      <div className="conversation" ref={listRef}>
+      <div className="conversation" ref={messageScroll.ref} onScroll={messageScroll.onScroll}>
         <div className="conversation-inner">
           {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Your messages and the agent’s replies appear here.</p></div>}
-          <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
+          <MessageList autoScrollToBottom={false} autoScrollToBottomOnMount={false}>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
+      {messageScroll.hasNew && <button className="chat-new-messages" onClick={messageScroll.jump}>New messages · Jump to latest</button>}
       <p className="dash-meta-line">Direct from now on · delivery status is the daemon outcome.</p>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>

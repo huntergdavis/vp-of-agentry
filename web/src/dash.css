@@ -433,3 +433,5 @@
 
 .ops-reference td { padding: 6px 8px; font-size: 12px; vertical-align: top; }
 .ops-reference td small { display: block; color: var(--dash-muted); }
+.conversation, .game-chat-log { overflow-anchor: none; }
+.chat-new-messages { align-self: center; flex: none; margin: 6px; padding: 8px 14px; border: 1px solid var(--dash-border); border-radius: 16px; background: var(--dash-panel); color: var(--dash-accent); }
