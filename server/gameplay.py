@@ -194,7 +194,7 @@ class GameSession:
         if not shutil.which(self.dosbox_x):
             raise GameError("Replacement DOSBox-X binary is unavailable")
         try:
-            registry_text = registry.read_text()
+            registry_bytes = registry.read_bytes()
             dispatch = dispatch_file.read_text().strip()
         except (OSError, UnicodeError) as exc:
             raise GameError("Replacement registry or dispatch list is unavailable") from exc
@@ -202,18 +202,33 @@ class GameSession:
         if (not ids or any(not re.fullmatch(r"(?:RES|OVL)_[0-9A-F]{4}_[0-9A-F]{4}", name) for name in ids)
                 or len(set(ids)) != len(ids)):
             raise GameError("Replacement dispatch list must name unique registry entries")
-        self._validate_replacement_registry(registry_text, ids)
+        self._validate_replacement_registry(registry_bytes, ids)
         copied = run_dir / "vp-replacement-registry.tsv"
-        copied.write_text(registry_text)
+        copied.write_bytes(registry_bytes)
         (run_dir / "vp-replacement-dispatch.txt").write_text(dispatch + "\n")
         return {"PR_HYBRID_REGISTRY": str(copied), "PR_HYBRID_LOG": str(run_dir / "vp-replacement"),
                 "PR_HYBRID_DISPATCH": dispatch, "PR_HYBRID_BUS_MODE": "route"}
 
     @staticmethod
-    def _validate_replacement_registry(text: str, selected: list[str]) -> None:
+    def _validate_replacement_registry(data: bytes, selected: list[str]) -> None:
+        # Match the observer's physical LF framing, not Unicode splitlines or
+        # text-mode newline translation. Keep the copied bytes unchanged.
+        # The registry generator also emits count=..., '-' and comma-separated
+        # C symbols in unselected/metadata columns.
+        data_alphabet = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_=,-\t")
+        comment_alphabet = frozenset(range(32, 127)) | {9}
         rows = {name: [] for name in selected}
-        for line in text.splitlines():
-            row = line.split("\t")
+        for line in data.split(b"\n"):
+            # fgets(line, 4096, ...) must consume the complete physical line,
+            # including LF. A long comment must never expose a hidden row.
+            if len(line) > 4094:
+                raise GameError("Invalid replacement registry physical line length")
+            comment = line.startswith(b"#")
+            if not set(line) <= (comment_alphabet if comment else data_alphabet):
+                raise GameError("Invalid replacement registry byte outside format whitelist")
+            if comment or not line:
+                continue
+            row = line.decode("ascii").split("\t")
             if row[0] in rows:
                 rows[row[0]].append(row)
         for name, matches in rows.items():

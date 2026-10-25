@@ -123,12 +123,23 @@ registry row: a four-digit hexadecimal IP matching the ID's entry offset,
 a positive signature length up to 256 bytes, equal-length hexadecimal
 signature/mask bytes, and a `unique` marker. Masks use `00`/`ff` bytes and
 must check at least one byte. Missing, duplicated or malformed selected rows
-fail before display or emulator launch. Each run copies the registry and dispatch list,
+fail before display or emulator launch. Registry input is bytes separated only
+by LF, with a 4094-byte maximum physical line. Data rows permit ASCII letters,
+digits, underscore, equals, comma, hyphen and TAB; comments must begin with `#`
+and permit printable ASCII and TAB. CRLF, trailing spaces in data, NUL, BOM,
+non-ASCII bytes and other control separators are rejected. Accepted registry
+bytes are copied unchanged. Each run copies the registry and dispatch list,
 uses the normal CPU core and routed bus, and records hybrid logs in its private
 run directory. Both modes clear inherited hybrid and checkpoint controls,
 including test seed pins. Replacement mode still starts `START.EXE`; only the
 listed functions can run as C. Registry membership alone does not prove that
 the emulator implements an ID; use a dispatch list from the reviewed build.
+
+`tests/test_registry_agreement.py` compiles the pinned observer loader with the
+reusable `tests/support/cpp_format_probe.py` harness and synthetic inputs. It
+checks that Python acceptance implies the actual C++ loader reads exactly the
+selected row, including its IP, signature and mask. These tests require `c++`;
+missing compiler support fails the test rather than skipping the agreement gate.
 
 NOT verified by the selector tests: live desk audio/video, save-state migration
 between builds, replacement gameplay parity, or complete C execution. No

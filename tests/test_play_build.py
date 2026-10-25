@@ -53,6 +53,8 @@ class PlayBuildTests(unittest.TestCase):
         self.assertEqual(env['PR_HYBRID_DISPATCH'], 'RES_0709_01DF')
         self.assertEqual(env['PR_HYBRID_BUS_MODE'], 'route')
         self.assertTrue(Path(env['PR_HYBRID_REGISTRY']).is_file())
+        self.assertEqual(Path(env['PR_HYBRID_REGISTRY']).read_bytes(),
+                         (self.root / 'resources/hybrid/registry_all.tsv').read_bytes())
         self.assertIn('cpu core=normal', s._dosbox_command(run))
         self.assertEqual(s._dosbox_command(run)[-1], 'START')
         self.assertNotEqual(s.dosbox_x, '/original/dosbox-x')
