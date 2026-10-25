@@ -327,7 +327,7 @@
   --dash-root-shadow: 0 0 0 3px var(--dash-root-shadow-color);
   --login-card-shadow-color: #00000059;
   --login-card-shadow-2: 0 20px 60px var(--login-card-shadow-color);
-  /* Keep alpha expanded: Chromium rounds shorthand hex differently through var(). */
-  --message-dock-surface: #00000099;
+  /* Explicit RGBA preserves backdrop pixels in the Chromium viewport checks. */
+  --message-dock-surface: rgba(0, 0, 0, 0.6);
   --shadow-color: #00000059;
 }
