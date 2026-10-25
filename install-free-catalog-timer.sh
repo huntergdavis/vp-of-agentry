@@ -13,7 +13,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=$root
 ExecStart=/usr/bin/python3 -I "$root/tools/free_catalog.py"
-TimeoutStartSec=300
+TimeoutStartSec=420
 Environment=PATH=%h/.local/bin:/snap/bin:/usr/local/bin:/usr/bin:/bin
 UMask=0077
 UNIT
