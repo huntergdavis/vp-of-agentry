@@ -40,7 +40,7 @@ def openrouter_free():
 def opencode_free():
     """OpenCode models: free-tier ids, plus every opencode-go id (plan-included)."""
     out = subprocess.run(["opencode", "models"], capture_output=True, text=True,
-                         timeout=60, check=True).stdout.split()
+                         timeout=240, check=True).stdout.split()
     models = {m for m in out if m.startswith("opencode-go/") or m.endswith("-free")
               or m.endswith(":free")}
     if not models:  # an unparseable answer is a source error, never "no models"
@@ -83,7 +83,9 @@ def main():
              "not 'released then'."]
     if errors:
         lines += ["", "SOURCE ERRORS (a failed source is not an empty one):"] + [f"- {e}" for e in errors]
-    lines += ["", "An arrival is LISTED, not working: a model becomes usable only after "
+    lines += ["", "Test results for these models live in the global article `free-model-test-results` "
+              "(written by the tester lane); this page only says what EXISTS.", "",
+              "An arrival is LISTED, not working: a model becomes usable only after "
               "the four-body gate (proposals that reproduced a body).", ""]
     lines += [f"## Arrivals this check ({len(arrivals)})"]
     lines += [f"- {m}" for m in arrivals] if arrivals and not first_run else \
