@@ -931,7 +931,6 @@ function ChannelStandalone({ channel }) {
         </div>
       </div>
       {messageScroll.hasNew && <button className="chat-new-messages" onClick={messageScroll.jump}>New messages · Jump to latest</button>}
-      <p className="dash-meta-line">Direct from now on · delivery status is the daemon outcome.</p>
       <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>
   </DashShell>;
