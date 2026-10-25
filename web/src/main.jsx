@@ -31,6 +31,7 @@ const DASH_ROUTES = {
   operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Dunking Sheep and the operations database · no model in the loop' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
   vp: { eyebrow: 'COMMAND CHANNEL', title: 'VP of Agentry', subtitle: 'The agent line' },
+  cos: { eyebrow: 'COMMAND CHANNEL', title: 'Chief of Agent Staff', subtitle: 'The agent line' },
 };
 
 function useDashRoute() {
@@ -1019,19 +1020,19 @@ function Desk({ onLogout }) {
   </div>;
 }
 
-function VpStandalone() {
+function ChannelStandalone({ channel }) {
   const [channels, setChannels] = useState([]);
   const [items, setItems] = useState([]);
   const [pending, setPending] = useState([]);
   const [error, setError] = useState('');
   const [updated, setUpdated] = useState(null);
   const listRef = useRef(null);
-  const selected = channels.find(c => c.id === 'vp');
+  const selected = channels.find(c => c.id === channel);
   useEffect(() => {
     let live = true;
     const load = async () => {
       try {
-        const [roster, messages] = await Promise.all([api('/channels'), api('/messages?channel=vp&limit=50')]);
+        const [roster, messages] = await Promise.all([api('/channels'), api(`/messages?channel=${encodeURIComponent(channel)}&limit=50`)]);
         if (!live) return;
         setChannels(roster.channels || []);
         setItems(messages.items || []);
@@ -1042,15 +1043,15 @@ function VpStandalone() {
     load();
     const timer = setInterval(load, 5000);
     return () => { live = false; clearInterval(timer); };
-  }, []);
+  }, [channel]);
   useEffect(() => { const pane = listRef.current; if (pane) pane.scrollTop = pane.scrollHeight; }, [items]);
   async function send(data) {
-    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: 'vp', ...data }) });
+    const item = await api('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...data, channel }) });
     setItems(old => [...old, item]);
   }
-  const route = DASH_ROUTES.vp;
-  return <DashShell standalone view="vp">
-    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="vp" standalone side={<>
+  const route = DASH_ROUTES[channel];
+  return <DashShell standalone view={channel}>
+    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view={channel} standalone side={<>
       {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
       <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
     </>} />
@@ -1058,11 +1059,11 @@ function VpStandalone() {
       {error && <div className="dash-error" role="alert">{error}</div>}
       <div className="conversation" ref={listRef}>
         <div className="conversation-inner">
-          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Messages are delivered to the current Herdr agent. Agent briefs posted through the local API appear here.</p></div>}
+          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Your messages and the agent’s replies appear here.</p></div>}
           <MessageList>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
-      <Composer channel="vp" onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
+      <Composer channel={channel} onSend={send} pending={pending} setPending={setPending} disabled={!selected?.can_message} />
     </div>
   </DashShell>;
 }
@@ -1080,7 +1081,7 @@ function StandaloneDesk({ view, known }) {
   if (view === 'fleet') return <Fleet standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
   if (view === 'play') return <PoolradPlay standalone />;
-  return <VpStandalone />;
+  return <ChannelStandalone key={view} channel={view} />;
 }
 
 function App() {
