@@ -446,3 +446,25 @@
 .message-dock textarea, .message-dock select { width: 100%; padding: 10px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: var(--radius-6px); font: inherit; }
 .message-dock button { padding: 8px 12px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: var(--radius-6px); }
 .message-dock a { color: var(--dash-accent); }
+
+/* Appearance shares the desk palette in both the default and themed views. */
+.dash-root .settings-modal label { color: var(--dash-muted); }
+.dash-root .settings-modal select {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--dash-border-2);
+  border-radius: var(--radius-6px);
+  background: var(--dash-panel-2);
+  color: var(--dash-fg);
+  font: inherit;
+}
+.dash-root .settings-modal select:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+}
+.dash-root .settings-modal .icon-button {
+  border-color: var(--dash-border);
+  background: var(--dash-panel-2);
+  color: var(--dash-fg);
+}
