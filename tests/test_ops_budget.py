@@ -53,11 +53,45 @@ class BudgetTests(unittest.TestCase):
 
     def test_stale_and_expired_are_labelled(self):
         row = reading()
-        row["measured_at"] -= 600
+        row["measured_at"] -= 4000
         row["windows"][0]["resets_at"] = (NOW - timedelta(seconds=1)).isoformat()
         provider = self.project([row])["providers"][0]
         self.assertEqual("stale", provider["state"])
         self.assertEqual("expired", provider["windows"][0]["state"])
+
+    def test_ten_minute_old_collector_snapshot_keeps_number_and_age(self):
+        row = dict(provider="codex", status="unknown", meaning="percent_used",
+                   measured_at=(NOW - timedelta(minutes=10)).timestamp(),
+                   reason="no live account endpoint", last_snapshot=dict(
+                       percent_used=33, window_minutes=10080,
+                       resets_at=(NOW + timedelta(days=4)).timestamp()))
+        provider = self.project([row])["providers"][0]
+        self.assertEqual("ok", provider["state"])
+        self.assertEqual(600, provider["age_s"])
+        self.assertEqual(33, provider["windows"][0]["percent_used"])
+        self.assertEqual(67, provider["windows"][0]["percent_remaining"])
+        self.assertEqual("weekly", provider["windows"][0]["name"])
+        self.assertEqual("2026-10-25T03:50:00Z", provider["measured_at"])
+
+    def test_upstream_error_is_named_and_has_a_check_age(self):
+        row = dict(provider="claude", status="error", meaning="unknown",
+                   measured_at=(NOW - timedelta(seconds=20)).timestamp(),
+                   error='usage endpoint HTTP 429: rate_limit_error')
+        provider = self.project([row])["providers"][0]
+        self.assertEqual("claude endpoint rate-limited (HTTP 429)", provider["reason"])
+        self.assertEqual(20, provider["age_s"])
+        self.assertEqual([], provider["windows"])
+        row["error"] = ""
+        self.assertIn("no further reason supplied", self.project([row])["providers"][0]["reason"])
+
+    def test_old_pi_values_remain_local_estimates(self):
+        row = dict(provider="pi", status="unknown", meaning="local_session_estimate",
+                   measured_at=(NOW - timedelta(minutes=10)).timestamp(), session_cost_usd=1.5)
+        provider = self.project([row])["providers"][0]
+        self.assertEqual("ok", provider["state"])
+        self.assertEqual(600, provider["age_s"])
+        self.assertEqual(1.5, provider["local_estimate"]["session_cost_usd"])
+        self.assertEqual([], provider["windows"])
 
     def test_unknown_values_are_not_zero_and_nonfinite_is_rejected(self):
         row = reading()
@@ -74,13 +108,72 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(40, result["providers"][0]["subscription"]["monthly_usd"])
         self.assertEqual(69, result["providers"][0]["windows"][0]["percent_remaining"])
 
-    def test_partial_command_failure_keeps_other_providers(self):
+    def test_partial_command_failure_keeps_named_provider_error(self):
         import json
         from types import SimpleNamespace
-        rows = [reading("claude"), dict(provider="codex", status="error", windows=[])]
-        command = SimpleNamespace(returncode=1, stdout=json.dumps(rows), stderr="one provider unavailable")
+        row = dict(provider="claude", status="error", error="HTTP 429", windows=[])
+        command = SimpleNamespace(returncode=1, stdout=json.dumps([row]), stderr="one provider unavailable")
         with patch.object(ops_budget.subprocess, "run", return_value=command):
-            self.assertEqual(rows, ops_budget.read_usage())
+            self.assertEqual(row, ops_budget._read_provider("claude"))
+
+    def test_all_providers_share_floor_and_failure_backoff(self):
+        clock = [NOW.timestamp()]
+        calls = []
+        def reader(provider):
+            calls.append(provider)
+            if clock[0] > NOW.timestamp():
+                return dict(provider=provider, status="error", meaning="unknown", error="HTTP 429", measured_at=clock[0])
+            return reading(provider)
+        cache = ops_budget.UsageCache(refresh_s=1800, backoff_s=(300,600,1800), reader=reader, clock=lambda: clock[0])
+        self.addCleanup(cache.stop)
+        def settle():
+            cache.snapshot()
+            for future in list(cache._futures.values()):
+                future.result(timeout=3)
+            return cache.snapshot()
+        self.assertEqual(4, len(settle()))
+        self.assertCountEqual(ops_budget.PROVIDERS, calls)
+        clock[0] += 720
+        settle()
+        self.assertEqual(4, len(calls), "a second build inside the floor must not reread providers")
+        clock[0] = NOW.timestamp()+1800
+        rows = settle()
+        self.assertEqual(8, len(calls))
+        claude = next(r for r in rows if r["provider"] == "claude")
+        self.assertEqual(clock[0]+300, claude["next_attempt_at"])
+        provider = ops_budget.project([claude], [], NOW + timedelta(seconds=1800))["providers"][0]
+        self.assertTrue(provider["last_good"])
+        self.assertEqual(31, provider["windows"][0]["percent_used"])
+        self.assertEqual(1800, provider["age_s"])
+        self.assertNotEqual(provider["failed_at"], provider["measured_at"])
+        self.assertEqual("claude endpoint rate-limited (HTTP 429)", provider["reason"])
+        for delay in (300,600,1800):
+            clock[0] = claude["next_attempt_at"]
+            rows = settle()
+            claude = next(r for r in rows if r["provider"] == "claude")
+            expected = 600 if delay==300 else 1800
+            self.assertEqual(clock[0]+expected, claude["next_attempt_at"])
+
+    def test_pending_first_read_and_first_429_are_distinct(self):
+        import threading
+        release = threading.Event()
+        def reader(provider):
+            release.wait(3)
+            return dict(provider=provider, status="error", meaning="unknown", error="HTTP 429", measured_at=NOW.timestamp())
+        cache = ops_budget.UsageCache(reader=reader)
+        try:
+            rows = cache.snapshot()
+            self.assertTrue(all(row["status"]=="not_read_yet" for row in rows))
+            release.set()
+            for future in list(cache._futures.values()):
+                future.result(timeout=3)
+            provider = self.project(cache.snapshot())["providers"][0]
+            self.assertEqual([], provider["windows"])
+            self.assertFalse(provider["last_good"])
+            self.assertEqual("claude endpoint rate-limited (HTTP 429)", provider["reason"])
+        finally:
+            release.set()
+            cache.stop()
 
     def test_command_failure_preserves_unknown_and_prices(self):
         with tempfile.TemporaryDirectory() as tmp:

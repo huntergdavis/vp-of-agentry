@@ -561,6 +561,12 @@ function Fleet({ standalone = false }) {
 function Budget({ data }) {
   const percent = value => value == null ? 'unknown' : `${value.toFixed(1)}%`;
   const time = value => value ? new Date(value).toLocaleString() : 'unknown';
+  const age = provider => {
+    if (!provider.measured_at) return 'reading age unknown';
+    const seconds = Math.max(0, provider.age_s || 0, Math.floor((Date.now() - new Date(provider.measured_at).getTime()) / 1000));
+    const elapsed = seconds < 60 ? seconds : Math.floor(seconds / 60);
+    return (provider.state === 'error' && !provider.last_good ? 'checked ' : 'read ') + elapsed + (seconds < 60 ? ' sec ago' : ' min ago');
+  };
   return <section className="ops-budget" data-ops-section="budget">
     <h2>Provider budgets</h2>
     {data.error && <p className="dash-error">Budget source unavailable: {data.error}</p>}
@@ -570,15 +576,16 @@ function Budget({ data }) {
         <span>{provider.subscription ? `$${provider.subscription.monthly_usd.toFixed(2)}/month subscription` : 'Subscription cost unknown'}</span>
       </div>
       <small title={`${provider.source} · generated ${data.generated_at}`}>
-        {provider.state} · measured {time(provider.measured_at)}
+        {provider.state === 'not_read_yet' ? 'not read yet' : provider.state} · {age(provider)} · measured {time(provider.measured_at)}
         {provider.reason ? ` · ${provider.reason}` : ''}
+        {provider.failed_at ? ' · failed ' + time(provider.failed_at) : ''}
       </small>
       {provider.subscription && <small>Subscription source: {provider.subscription.source} · observed {time(provider.subscription.observed_at)}</small>}
       {provider.meaning === 'local_session_estimate'
         ? <p>Local session estimate: {provider.local_estimate?.session_cost_usd == null ? 'unknown' : `$${provider.local_estimate.session_cost_usd.toFixed(4)}`} · {provider.local_estimate?.last_context_tokens?.toLocaleString() ?? 'unknown'} context tokens · {provider.local_estimate?.session_messages_with_usage?.toLocaleString() ?? 'unknown'} messages. Not plan quota or a bill.</p>
         : provider.windows.length
           ? <ul>{provider.windows.map((window, i) => <li key={i}>
-              <b>{window.name}</b>: <strong>{percent(window.percent_remaining)} left</strong> · {percent(window.percent_used)} used
+              <b>{provider.last_good ? 'Last reading · ' : ''}{window.name}</b>: <strong>{percent(window.percent_remaining)} left</strong> · {percent(window.percent_used)} used
               · resets {time(window.resets_at)}{window.state !== 'ok' ? ` · ${window.state}` : ''}
             </li>)}</ul>
           : <p>No window data — remaining allowance unknown.</p>}

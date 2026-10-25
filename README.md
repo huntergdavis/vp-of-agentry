@@ -193,13 +193,17 @@ remain labelled as reported in source and not rerun by the dashboard.
 Recorded replacements are read from the exact checkpoint commit; an absent
 record remains unknown instead of borrowing a count from another revision.
 
-The budget section reads `dunkingsheep --json usage --max-age 60` on the
-existing board refresh. It preserves provider window names, used/remaining
-percentages and reset times. Readings older than five minutes and past-reset
-windows are labelled; missing windows remain unknown. Fixed monthly subscriptions
+The budget section preserves provider window names, used/remaining percentages,
+measurement ages, and reset times. Old values remain visible; past-reset windows
+are labelled expired and missing values stay unknown. Fixed monthly subscriptions
 come from the operations database and are shown separately. Extra-usage credits
 remain credits with the provider's spend-limit flag; pi's local session estimate
 is explicitly neither quota nor a bill. No per-agent dollar balance is inferred.
+
+Provider budget polling uses one policy for Claude, Codex, pi, and OpenCode Go. The desk starts all four reads immediately; pending providers say "not read yet". Successful reads are reused for 30 minutes (VP_USAGE_REFRESH_S=1800), independently of the Operations board's 30-second task/host refresh. Measurement age stays visible and is neutral until it exceeds twice the provider interval. Codex and pi are observations from local session records; refreshing them never calls a model or invents a new measurement timestamp.
+
+Failed reads preserve the last successful value for the running service, show a named error and its failure time, and retry after 5, 10, then 30 minutes (VP_USAGE_BACKOFF_S=300,600,1800; capped at the provider interval). With no prior successful read, allowance remains unknown. Both settings are environment variables for the desk service. This policy bounds the desk's requests; independent CLI callers have their own cadence.
+
 
 Historical metrics remain available through `GET /api/ops-metrics`,
 `GET /api/ops-metrics/history`, and `./opsctl summary`.
