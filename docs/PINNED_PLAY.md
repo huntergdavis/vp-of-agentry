@@ -94,6 +94,26 @@ rollback and archive integrity failures. Native tagged-state validation is
 pending and must be recorded before presenting the migration as ready for an
 extended play session.
 
+The private native exercise is `tools/pinned_play_probe.py`. Run it once
+through the shared heavy-job wrapper with a fresh prefix and output path:
+
+```sh
+poolrad-heavy.sh python tools/pinned_play_probe.py \
+  --poolrad-repo "$POOLRAD_REPO_DIR" --prefix t140-newtag-v1 \
+  --output docs/PINNED_PLAY_E2E_V1.json
+```
+
+It creates a new tagged snapshot with PR controls absent, then restores
+copies of that exact snapshot in original and replacement modes. It calls
+the actual `GameSession.savestate` and `loadstate` methods, using disposable
+Xvfb sessions. The private transport uses the R1 code-prompt gate in place
+of the live desk's terminal startup marker; live tmux/UI transport is not
+covered. Native load confirmation is still required, without forcing a
+dialog. A baseline checkpoint after load and a checkpoint after Right
+measure C returns during the restored route. The existing unmasked
+comparator produces the receipt, including a FAIL if differences remain.
+Raw state, frame and child-log files stay under ignored Poolrad resources.
+
 The 14 earlier owner states have **not** been archived or migrated. VP's
 preservation hold remains in effect until the owner's in-progress-run answer
 arrives. The old indices do not record a creator-binary hash; any attribution
