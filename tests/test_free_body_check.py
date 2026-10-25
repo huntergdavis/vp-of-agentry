@@ -143,7 +143,7 @@ class StrictHeaderAndDumpTests(unittest.TestCase):
                             1, "BYTES DIFFER")
 
     def test_no_dump(self):
-        self.assert_verdict(self.judge(dump="cannot confirm"), 2, "NO DUMP")
+        self.assert_verdict(self.judge(dump="cannot confirm"), 1, "BYTES DIFFER")
 
     def test_competing_legacy_declaration_never_rescued_in_either_order(self):
         strict = "FILE OFFSET: 80 (0x50)"
@@ -198,8 +198,8 @@ class StrictHeaderAndDumpTests(unittest.TestCase):
         dump = f"00000050: {self.body[:8].hex(' ')}\n\nDisassembly (bytes): {self.dump}"
         self.assert_verdict(self.judge(dump=dump), 0, "BYTES MATCH: 16 bytes")
 
-    def test_sha_prose_is_not_a_byte_dump(self):
-        self.assert_verdict(self.judge(dump="SHA-256: " + self.body.hex()), 2, "NO DUMP")
+    def test_sha_prose_inside_explicit_dump_fails_the_section(self):
+        self.assert_verdict(self.judge(dump="SHA-256: " + self.body.hex()), 1, "BYTES DIFFER")
 
     def test_original_author_eight_controls(self):
         self.ovr.write_bytes(bytes(range(256)))

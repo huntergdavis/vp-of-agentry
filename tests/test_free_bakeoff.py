@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from test_free_body_check import reviewer_cases, reviewer_v2_cases
+from test_free_body_accounting import reviewer_v3_cases
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 BODY = bytes(range(0x10, 0x20))
@@ -71,7 +72,7 @@ class BakeoffTests(unittest.TestCase):
         self.assert_result(self.invoke(header="FILE OFFSET: 96 (0x60)"), "WRONG OR UNRESOLVED OFFSET")
 
     def test_report_with_no_dump(self):
-        self.assert_result(self.invoke(dump="cannot confirm"), "NO DUMP")
+        self.assert_result(self.invoke(dump="cannot confirm"), "DIFFERS")
 
     def test_missing_length_is_refused_before_worker(self):
         result = self.invoke(spec="OVL_0025_06AF:16")
@@ -151,6 +152,18 @@ class BakeoffTests(unittest.TestCase):
         checks = list((self.root / "data/bakeoff").glob("*/*/*.check"))
         self.assertIn("WARNING", checks[0].read_text())
         self.assertIn("dropped: 0; noise: 1", checks[0].read_text())
+
+
+    def test_v3_silent_drop_shapes_never_verify(self):
+        (self.repo / "resources/DOS/POOLRAD/GAME.OVR").write_bytes(bytes(range(256)) * 4)
+        for name in ("invalid-address-token", "bad-first-byte-explicit-section"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.root / "data", ignore_errors=True)
+                self.assert_result(self.invoke(report_text=reviewer_v3_cases()[name], spec="OVL_0025_06AF:257:17"), "DIFFERS")
+                checks = list((self.root / "data/bakeoff").glob("*/*/*.check"))
+                receipt = checks[0].read_text()
+                self.assertIn("dropped: 1", receipt)
+                self.assertIn("accounted:", receipt)
 
 
 if __name__ == "__main__":

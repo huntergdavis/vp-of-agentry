@@ -20,8 +20,11 @@ Requires exactly one FILE OFFSET: <decimal> (0x<hex>) declaration. All parsed
 byte sequences must match; no matching dump can rescue a conflicting one.
 Addressed rows must be contiguous. Address labels may be VMAs; their relocation
 provenance and all assembly/prose semantics are NOT verified by this tool.
-Every verdict reports dropped dump-shaped candidates (count and locations) and
-ambiguous-prose noise runs. Any dropped dump is an error; noise is a warning.
+Every nonblank line has exactly one disposition: parsed-dump, dropped-in-dump-context,
+noise, or prose-outside-dump. Every verdict prints these counts and drop locations.
+Any dropped dump fails the entire report; noise outside dumps is a warning.
+Explicit sections survive blank lines, end at a matching code fence or EOF, and
+require every content line to parse. Structural headings/fences count as prose.
 It must not be read as a credit decision.
 
 Usage: free_body_check.py <report.md> [--ovr PATH]
@@ -61,10 +64,6 @@ def claimed_offsets(text: str) -> list[int]:
 
 # Address labels may be file offsets or a disassembler VMA. Check their
 # continuity, not relocation provenance; the strict header fixes the file slice.
-ADDRESS_LINE_RE = re.compile(
-    r"^\s*(?:row[ \t]+)?(?:(?:0x)?([0-9A-Fa-f]{1,8}):[ \t]*|"
-    r"([0-9A-Fa-f]{6,8})[ \t]+|([0-9A-Fa-f]{4})[ \t]{2,})(.*)$", re.I
-)
 HEX_TOKEN_RE = re.compile(r"(?:[0-9A-Fa-f]{2})+")
 INLINE_BYTES_RE = re.compile(
     r"^(?:\d+[.)]\s*)?(?:disassembly\s*\(bytes\)|byte dump|bytes):\s*", re.I
@@ -89,12 +88,22 @@ class DiscardedDump:
     report_offset: int
     address: int | None
     reason: str
+    address_token: str | None = None
 
     def describe(self) -> str:
         location = f"line {self.line}, report offset {self.report_offset}"
         if self.address is not None:
             location += f", address 0x{self.address:x}"
+        elif self.address_token is not None:
+            location += f", address token {self.address_token!r}"
         return f"{location}: {self.reason}"
+
+
+@dataclass(frozen=True)
+class LineAccount:
+    line: int
+    report_offset: int
+    bucket: str
 
 
 @dataclass
@@ -102,27 +111,82 @@ class DumpParse:
     candidates: list[bytes] = field(default_factory=list)
     dropped: list[DiscardedDump] = field(default_factory=list)
     noise_runs: int = 0
+    lines: list[LineAccount] = field(default_factory=list)
+    nonblank_lines: int = 0
+
+    @property
+    def line_counts(self) -> dict[str, int]:
+        return {bucket: sum(line.bucket == bucket for line in self.lines) for bucket in LINE_BUCKETS}
+
+    def assert_accounted(self, text: str):
+        expected = [i for i, line in enumerate(text.splitlines(), 1) if line.strip()]
+        assert len(expected) == self.nonblank_lines, "input line count mismatch"
+        assert [line.line for line in self.lines] == expected, "missing or duplicate line disposition"
+        assert all(line.bucket in LINE_BUCKETS for line in self.lines), "unknown line bucket"
+        assert sum(self.line_counts.values()) == len(expected), "line accounting does not balance"
+        assert self.line_counts["dropped-in-dump-context"] == len(self.dropped), "discard count mismatch"
+        assert self.line_counts["noise"] == self.noise_runs, "noise count mismatch"
 
     def diagnostic(self) -> str:
         details = "; ".join(item.describe() for item in self.dropped)
         return (f"dropped: {len(self.dropped)}" + (f" [{details}]" if details else "") +
-                f"; noise: {self.noise_runs}")
+                f"; noise: {self.noise_runs}; lines: " +
+                ", ".join(f"{key}={value}" for key, value in self.line_counts.items()) +
+                f"; accounted: {sum(self.line_counts.values())}/{self.nonblank_lines}")
+
+
+LINE_BUCKETS = ("parsed-dump", "dropped-in-dump-context", "noise", "prose-outside-dump")
+VALID_ADDRESS_RE = re.compile(r"(?:0x)?[0-9a-f]{1,8}", re.I)
+FENCE_RE = re.compile(r"(\x60{3,}|~{3,})([A-Za-z0-9_-]*)")
+
+
+def addressed_column(line: str) -> tuple[str, str] | None:
+    """Recognize column syntax before requiring a valid address or valid bytes.
+
+    A row marker, a digit-bearing address token, a valid hex address, or a
+    byte-shaped payload establishes the candidate. Colonless columns retain
+    the width/spacing conventions of xxd/objdump. Ordinary prose labels and
+    SHA metadata outside dump sections are not addressed columns. This is a
+    documented lexical grammar, not an exhaustive format-recognition proof.
+    """
+    colon = re.fullmatch(r"\s*(?:(row)\s+)?([^:]+):[ \t]*(.*)", line, re.I)
+    if colon:
+        marker, token, payload = colon.groups()
+        token = token.strip()
+    else:
+        spaced = re.fullmatch(r"\s*(?:(row)\s+)?(\S+)([ \t]+)(.*)", line, re.I)
+        if not spaced:
+            return None
+        marker, token, spacing, payload = spaced.groups()
+        if not marker and not (6 <= len(token) <= 10 or
+                               (4 <= len(token) <= 10 and len(spacing) >= 2)):
+            return None
+    words = payload.split()
+    byte_shaped = bool(words) and all(
+        len(word) in (2, 4, 8) and word.isalnum() for word in words[:2])
+    if marker or any(char.isdigit() for char in token) or VALID_ADDRESS_RE.fullmatch(token) or byte_shaped:
+        return token, payload
+    return None
 
 
 def parse_dump_report(text: str) -> DumpParse:
-    """Account for every recognized dump, including one-byte candidates.
+    """Assign each nonblank input line exactly one disposition.
 
-    Explicit addresses/labels, bare hex rows and byte columns separated from
-    annotations by a tab or two spaces are dump-shaped. Malformed rows and
-    discontinuities are counted errors, never silently omitted. A short hex
-    prefix followed by ordinary prose outside a dump section is ambiguous
-    noise; it is counted separately, without supplying evidence for a match.
+    BYTE DUMP labels and empty byte labels open explicit sections. Blank lines
+    split independent candidates but do not close an explicit section. A
+    matching Markdown fence closes a fenced section; an unfenced section ends
+    at EOF. Section headers/fences are structural prose, not byte rows. Every
+    other line inside a section must parse or be counted as a dropped error,
+    even if its first token fails validation. Implicit dump runs end at a blank
+    line. Byte columns may have annotations after a tab or two spaces.
     """
-    result = DumpParse()
+    result = DumpParse(nonblank_lines=sum(bool(line.strip()) for line in text.splitlines()))
     current = bytearray()
     mode = None
     next_address = None
-    dump_section = False
+    declared_dump = False
+    implicit_dump = False
+    fence = None
     report_offset = 0
 
     def flush():
@@ -132,54 +196,94 @@ def parse_dump_report(text: str) -> DumpParse:
 
     for line_number, raw_line in enumerate(text.splitlines(keepends=True), 1):
         line = raw_line.rstrip("\r\n")
+        stripped = line.strip()
         line_offset = report_offset
         report_offset += len(raw_line)
-        match = ADDRESS_LINE_RE.match(line)
-        label = INLINE_BYTES_RE.match(line.strip())
-        address = None
-        if match:
-            address = int(next(part for part in match.groups()[:3] if part is not None), 16)
-            payload = match[4]
-        else:
-            payload = line.strip()[label.end():] if label else line.strip()
-        if label and not payload:
-            flush(); mode = None; next_address = None
-            dump_section = True
-            continue  # a heading alone is not a candidate
-        if label:
-            flush(); mode = None; next_address = None
-        column = re.split(r"\t| {2,}", payload.lstrip(), maxsplit=1)[0]
-        chunk = byte_column(payload)
-        tokens = column.split()
-        malformed = any(not HEX_TOKEN_RE.fullmatch(token) for token in tokens)
-        reason = None
-        if match or label:
-            if not chunk or malformed:
-                reason = "empty or malformed explicit byte column"
-        elif chunk and malformed:
-            if dump_section or len(chunk) >= 6:
-                reason = "malformed dump-shaped byte column"
-            else:
+        if not stripped:
+            flush(); mode = None; next_address = None; implicit_dump = False
+            continue
+
+        def account(bucket, reason="", address=None, address_token=None):
+            result.lines.append(LineAccount(line_number, line_offset, bucket))
+            if bucket == "dropped-in-dump-context":
+                result.dropped.append(DiscardedDump(line_number, line_offset, address, reason, address_token))
+            elif bucket == "noise":
                 result.noise_runs += 1
-                flush(); mode = None; next_address = None
+
+        fence_match = FENCE_RE.fullmatch(stripped)
+        if fence_match:
+            marker, language = fence_match.groups()
+            if fence is None:
+                fence = marker
+                declared_dump = declared_dump or implicit_dump or language.lower() in ("hex", "bytes", "xxd", "hexdump")
+                account("prose-outside-dump")
+            elif marker == fence and not language:
+                fence = None; declared_dump = False
+                account("prose-outside-dump")
+            elif declared_dump or implicit_dump:
+                account("dropped-in-dump-context", "mismatched dump fence")
+            else:
+                account("prose-outside-dump")
+            flush(); mode = None; next_address = None; implicit_dump = False
+            continue
+
+        label = INLINE_BYTES_RE.match(stripped)
+        if label:
+            payload = stripped[label.end():]
+            declared_dump = declared_dump or "byte dump" in label[0].lower() or not payload
+            flush(); mode = None; next_address = None
+            if not payload:
+                account("prose-outside-dump")  # structural section heading
                 continue
-        if reason is None and match and mode == "addressed" and address != next_address:
+            address_info = None
+        else:
+            # Metadata is prose only outside a dump; it cannot escape a section.
+            metadata = re.match(r"(?:[0-9]+[.)]\s*)?FILE\s+OFFSET\b|SHA(?:-?256|-?1)?:",
+                                stripped.replace("*", "").replace("`", ""), re.I)
+            address_info = None if metadata else addressed_column(line)
+            payload = address_info[1] if address_info else stripped
+        in_dump = declared_dump or implicit_dump or bool(label) or address_info is not None
+        address_token = address_info[0] if address_info else None
+        address = None
+        reason = None
+        if address_info:
+            if not VALID_ADDRESS_RE.fullmatch(address_token):
+                reason = "malformed address token"
+            else:
+                address = int(address_token, 16)
+
+        column = re.split(r"\t| {2,}", payload.lstrip(), maxsplit=1)[0]
+        tokens = column.split()
+        valid_column = bool(tokens) and all(HEX_TOKEN_RE.fullmatch(token) for token in tokens)
+        chunk = byte_column(payload)
+        if not valid_column:
+            if in_dump or len(chunk) >= 6:
+                reason = reason or "empty or malformed dump byte column"
+            elif chunk:
+                account("noise")
+                flush(); mode = None; next_address = None; implicit_dump = False
+                continue
+            else:
+                account("prose-outside-dump")
+                flush(); mode = None; next_address = None; implicit_dump = False
+                continue
+        if reason is None and address_info and mode == "addressed" and address != next_address:
             reason = f"addressed dump gap/overlap: expected 0x{next_address:x}"
         if reason:
-            result.dropped.append(DiscardedDump(line_number, line_offset, address, reason))
+            account("dropped-in-dump-context", reason, address, address_token)
             flush(); mode = None; next_address = None
+            implicit_dump = True
             continue
-        if not chunk:
-            flush(); mode = None; next_address = None
-            dump_section = False
-            continue
-        new_mode = "addressed" if match else "plain"
+        account("parsed-dump")
+        new_mode = "addressed" if address_info else "plain"
         if mode != new_mode:
             flush()
         mode = new_mode
-        next_address = address + len(chunk) if match else None
+        next_address = address + len(chunk) if address_info else None
+        implicit_dump = True
         current.extend(chunk)
     flush()
+    result.assert_accounted(text)
     return result
 
 
