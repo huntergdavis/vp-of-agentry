@@ -14,10 +14,24 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+
+def answer_ids(value):
+    try:
+        ids = [int(part) for part in value.split(",")]
+        if not ids or any(item <= 0 for item in ids):
+            raise ValueError
+        return list(dict.fromkeys(ids))
+    except ValueError:
+        raise argparse.ArgumentTypeError("answers must be positive message IDs separated by commas")
+
+
 parser = argparse.ArgumentParser(description="VP of Agentry local API client")
 sub = parser.add_subparsers(dest="command", required=True)
 brief = sub.add_parser("brief", help="Publish a Markdown brief from stdin")
 brief.add_argument("--channel", default="vp")
+brief.add_argument("--answers", type=answer_ids, default=[], metavar="ID[,ID]",
+                   help="Link this brief to owner messages in the same channel (first answer wins)")
 brief.add_argument("--attach", action="append", type=Path, default=[], help="Attach a local file (up to 25 MB)")
 status = sub.add_parser("status", help="Read channel status")
 args = parser.parse_args()
@@ -48,7 +62,7 @@ if args.command == "brief":
             print(exc.read().decode(), file=sys.stderr)
             sys.exit(1)
     path, payload = "/api/brief", {"channel": args.channel, "body": body,
-                                   "attachment_ids": attachment_ids}
+                                   "attachment_ids": attachment_ids, "answers": args.answers}
 else:
     path, payload = "/api/channels", None
 request = urllib.request.Request(

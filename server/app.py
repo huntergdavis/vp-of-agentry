@@ -150,6 +150,10 @@ def _initialize():
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempts INTEGER NOT NULL DEFAULT 0")
         if "transport_attempt_at" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN transport_attempt_at REAL NOT NULL DEFAULT 0")
+        if "answer_id" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN answer_id INTEGER")
+        if "answered_at" not in columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN answered_at TEXT")
         if "direct_transport" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN direct_transport TEXT")
         if "external_id" not in columns:
@@ -844,7 +848,7 @@ def _prompt_for(row, conn):
     prompt = row["body"].strip()
     if references:
         prompt += f"\n\nAttached files on this host (read these paths directly):\n{references}"
-    return prompt + f"\n\n[VP web message #{row['id']}; reply through vpctl brief --channel {row['channel']} when a concise response is ready.]"
+    return prompt + f"\n\n[VP web message #{row['id']}; reply through vpctl brief --channel {row['channel']} --answers {row['id']} when a concise response is ready.]"
 
 
 def _send_saved(row, client, pane, force=False):
@@ -1296,6 +1300,7 @@ def send_now(message_id: int, identity: Annotated[str, Depends(require_auth)]):
 
 
 class BriefIn(BaseModel):
+    answers: list[Annotated[int, Field(strict=True, gt=0)]] = Field(default_factory=list, max_length=500)
     channel: str
     body: str = Field(min_length=1, max_length=20000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=10)
@@ -1319,6 +1324,12 @@ def post_brief(data: BriefIn, identity: Annotated[str, Depends(require_auth)]):
             conn.execute("UPDATE attachments SET message_id=? WHERE id=?",
                          (cursor.lastrowid, attachment_id))
         row = conn.execute("SELECT * FROM messages WHERE id=?", (cursor.lastrowid,)).fetchone()
+        # First explicit answer wins. Duplicate/retried links must not rewrite history.
+        conn.executemany(
+            "UPDATE messages SET answered_at=?,answer_id=? "
+            "WHERE id=? AND channel=? AND role='owner' AND answer_id IS NULL AND answered_at IS NULL",
+            [(row["created_at"], row["id"], answer, data.channel) for answer in set(data.answers)],
+        )
         return _message(row, conn)
 
 
