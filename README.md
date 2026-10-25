@@ -171,7 +171,10 @@ The **Operations dashboard**, also served at `/dash/operations`, has four sectio
 a short brief with task/lane counts and a compact Poolrad headline, actionable
 exceptions and explicitly owner-assigned tasks, provider budgets, and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
 unknown; a blocked agent task is not inferred to require the owner. Terminals are
-grouped by project in single-level disclosures.
+grouped by project in single-level disclosures. The Terminals page scrolls within
+the viewport, with the selected agent's composer above its captured screen. The
+screen has its own scroll area and represents the current screen only; app
+scrollback and remote scrolling keys are not provided.
 
 `ops_board.py` reads Dunking Sheep and the saved host sample without model calls.
 `GET /api/ops-board` returns `no_model: true`, `generated_at`, and the four

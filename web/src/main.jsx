@@ -440,6 +440,10 @@ function Fleet({ standalone = false }) {
   const [draft, setDraft] = useState('');
   const [sent, setSent] = useState('');
   const [sendError, setSendError] = useState('');
+  const [sendBusy, setSendBusy] = useState(false);
+  const sendingRef = useRef(false);
+  const terminalRef = useRef(null);
+  useEffect(() => { terminalRef.current?.scrollIntoView({ block: 'start' }); }, [selected]);
 
   async function load() {
     try {
@@ -482,21 +486,24 @@ function Fleet({ standalone = false }) {
   async function send(event) {
     event.preventDefault();
     setSent(''); setSendError('');
-    if (!draft.trim()) return;
+    if (!draft.trim() || sendingRef.current) return;
+    sendingRef.current = true; setSendBusy(true);
     try {
       const data = await api('/pane-send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pane: selected, text: draft }),
       });
-      setDraft('');
+      setDraft(current => current === draft ? '' : current);
       // The server performed the transport; it gets to describe it. Prefix the outcome so
       // 'stored' and 'unconfirmed' cannot be read as 'delivered'.
       setSent(`${data.pane} [${data.outcome || 'unknown'}]: ${data.note || 'accepted'}`
         + (data.detail && !data.unconfirmed ? ` (${data.detail})` : ''));
     } catch (e) { setSendError(e.message); }
+    finally { sendingRef.current = false; setSendBusy(false); }
   }
 
   return <DashShell standalone={standalone} view="fleet">
+    <div className="dash-body fleet-body">
     <p className="dash-lead">Select an agent to view its terminal and send a message.</p>
     {error && <p className="dash-error" role="alert">{error}</p>}
     {!fleet && !error && <p className="dash-empty">Loading agents…</p>}
@@ -509,11 +516,8 @@ function Fleet({ standalone = false }) {
           {row.name} <small>{row.agent} · {age(row.last_activity_s)}</small>
         </button>)}</div>
       </details>)}
-    {selected && <section className="dash-terminal" data-testid="pane-text">
+    {selected && <section ref={terminalRef} className="dash-terminal" data-testid="pane-text">
       <h2>{(fleet?.rows || []).find(row => row.pane_id === selected)?.name || 'Agent'} · Terminal</h2>
-      {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
-      {paneText && !paneText.reason && <pre className="dash-terminal-text">{paneText.text}</pre>}
-      {!paneText && <p className="dash-empty">Loading terminal…</p>}
       {(() => {
         const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
         if (!lane) return null;
@@ -537,15 +541,20 @@ function Fleet({ standalone = false }) {
           const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
           const needsToken = lane && lane.send !== 'owner_push';
           const blocked = needsToken && !lane.can_type;
-          return <button type="submit" disabled={!draft.trim() || blocked}
+          return <button type="submit" disabled={sendBusy || !draft.trim() || blocked}
             title={blocked
               ? 'Messaging is unavailable for this agent'
-              : 'Send message'}>Send</button>;
+              : 'Send message'}>{sendBusy ? 'Sending…' : 'Send'}</button>;
         })()}
         {sent && <p className="dash-muted" role="status">{sent}</p>}
         {sendError && <p className="dash-error">{sendError}</p>}
       </form>
+      <p className="dash-muted">Current screen only. Full-screen app history is not captured; scrolling here moves this captured screen.</p>
+      {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
+      {paneText && !paneText.reason && <pre className="dash-terminal-text" tabIndex={0} aria-label="Current terminal screen">{paneText.text}</pre>}
+      {!paneText && <p className="dash-empty">Loading terminal…</p>}
     </section>}
+    </div>
   </DashShell>;
 }
 

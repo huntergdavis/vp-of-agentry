@@ -410,7 +410,7 @@ _PANE_TEXT_CACHE: dict[str, tuple[float, str]] = {}
 
 @app.get("/api/pane-text")
 def api_pane_text(pane: str, lines: int = 40):
-    """The last N lines of a live pane, read server-side with tmux capture-pane. READ ONLY.
+    """The current screen of a live pane, read with tmux capture-pane. No app scrollback.
 
     Unauthenticated on purpose, same rule as /api/fleet: this endpoint cannot write, and the
     page that calls it is already behind the desk login. Every mutating endpoint requires auth.
@@ -426,7 +426,7 @@ def api_pane_text(pane: str, lines: int = 40):
     if hit and (now - hit[0]) < _PANE_TEXT_TTL_S:
         return {"pane": pane, "text": hit[1], "readonly": True}
     try:
-        result = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane],
+        result = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
                                 capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError) as error:
         return {"pane": pane, "text": "", "readonly": True,
