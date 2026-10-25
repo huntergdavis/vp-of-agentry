@@ -51,7 +51,7 @@ class GameSession:
         if self.play_build not in {"original", "replacement"}:
             raise GameError("VP_PLAY_BUILD must be original or replacement")
         configured = (os.getenv("VP_REPLACEMENT_DOSBOX_X", pinned_binary())
-                      if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", pinned_binary()))
+                      if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", "/usr/bin/dosbox-x"))
         resolved = shutil.which(configured)
         if resolved is not None:
             self.dosbox_x = str(Path(resolved).resolve())

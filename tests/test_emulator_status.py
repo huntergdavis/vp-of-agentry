@@ -69,6 +69,9 @@ class EmulatorStatusTests(unittest.TestCase):
 
     def test_default_and_single_variable_rollback(self):
         del os.environ['VP_DOSBOX_X']
+        self.assertEqual(self.session().dosbox_x, '/usr/bin/dosbox-x')
+        self.assertEqual(self.session().play_build, 'original')
+        os.environ['VP_DOSBOX_X'] = pinned_binary()
         self.assertEqual(self.session().dosbox_x, pinned_binary())
         os.environ['VP_DOSBOX_X'] = '/usr/bin/dosbox-x'
         self.assertEqual(self.session().dosbox_x, '/usr/bin/dosbox-x')

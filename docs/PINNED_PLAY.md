@@ -1,15 +1,17 @@
 # Pinned Play (t140)
 
-**Deployment hold:** the first native exercise saved a new tagged snapshot,
+**Pinned opt-in hold:** the first native exercise saved a new tagged snapshot,
 but both pinned-binary consumers exited 139 after reporting it loaded.
 Do not switch Play or claim reliable restore from this result. The matched
 system-binary control and crash backtrace are pending; old-state migration
 remains held.
 
-The default original-mode Play session uses
-`~/.local/share/vp-of-agentry/dosbox-x-5a9c7c53/dosbox-x`. It is independent
-of a producer lane's checkout. `VP_DOSBOX_X` overrides that executable.
-Replacement mode defaults to the same executable, retains its separate
+The default original-mode Play session remains on `/usr/bin/dosbox-x`.
+The installed checkpoint executable at
+`~/.local/share/vp-of-agentry/dosbox-x-5a9c7c53/dosbox-x` is independent of
+a producer lane's checkout and requires an explicit `VP_DOSBOX_X` override.
+Explicitly selecting `VP_PLAY_BUILD=replacement` also selects the pinned
+executable, retaining its separate
 `VP_REPLACEMENT_DOSBOX_X` override and requires the reviewed registry/dispatch
 assets. The `build` field still describes **dispatch mode**, not binary identity.
 Executable selection resolves once to an absolute path when the session
