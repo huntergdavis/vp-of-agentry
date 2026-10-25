@@ -14,9 +14,13 @@ reads those bytes from the game file itself, and compares. It prints one of
     BYTES DIFFER       shows the first differing byte, file value vs claimed value
     PREFIX ONLY        the dump is shorter than --expect-length: bytes may match but it is not a decode
     NO DUMP            the report printed no checkable byte dump
-    OFFSET UNRESOLVED  the claimed offset is outside the file
+    OFFSET UNRESOLVED  the one strict offset declaration is missing, competing, malformed or wrong
 
-It does not judge the prose and must not be read as a credit decision.
+Requires exactly one FILE OFFSET: <decimal> (0x<hex>) declaration. All parsed
+byte sequences must match; no matching dump can rescue a conflicting one.
+Addressed rows must be contiguous. Address labels may be VMAs; their relocation
+provenance and all assembly/prose semantics are NOT verified by this tool.
+It must not be read as a credit decision.
 
 Usage: free_body_check.py <report.md> [--ovr PATH]
 Exit: 0 match, 1 differ/unresolved, 2 no dump / usage error.
@@ -51,47 +55,90 @@ def claimed_offsets(text: str) -> list[int]:
     return vals
 
 
-LISTING_LINE_RE = re.compile(r"^\s*((?:[0-9A-Fa-f]{2}[ \t]+)+)")
+
+# Address labels may be file offsets or a disassembler VMA. Check their
+# continuity, not relocation provenance; the strict header fixes the file slice.
+ADDRESS_LINE_RE = re.compile(
+    r"^\s*(?:(?:0x)?([0-9A-Fa-f]{1,8}):[ \t]+|"
+    r"([0-9A-Fa-f]{6,8})[ \t]+|([0-9A-Fa-f]{4})[ \t]{2,})(.*)$"
+)
+HEX_TOKEN_RE = re.compile(r"(?:[0-9A-Fa-f]{2})+")
+INLINE_BYTES_RE = re.compile(
+    r"^(?:\d+[.)]\s*)?(?:disassembly\s*\(bytes\)|byte dump|bytes):\s*", re.I
+)
+
+
+def byte_column(text: str) -> bytes:
+    # A double space/tab separates the bytes from xxd ASCII or assembly text.
+    # Within the byte column accept byte pairs and xxd/objdump packed groups.
+    column = re.split(r"\t| {2,}", text.lstrip(), maxsplit=1)[0]
+    tokens = []
+    for token in column.split():
+        if not HEX_TOKEN_RE.fullmatch(token):
+            break
+        tokens.append(token)
+    return bytes.fromhex("".join(tokens))
+
+
+def dump_candidates(text: str) -> list[bytes]:
+    """Keep independent dumps separate and refuse broken addressed sequences.
+
+    Supported: xxd rows, addressed objdump rows, byte-leading instruction
+    listings, plain hex rows and an explicit inline 'Disassembly (bytes):'.
+    Prose hashes are not dumps. No longest-fragment rescue across bad rows.
+    """
+    runs: list[bytes] = []
+    current = bytearray()
+    mode = None
+    next_address = None
+
+    def flush():
+        if len(current) >= 6:
+            runs.append(bytes(current))
+        current.clear()
+
+    for line in text.splitlines():
+        match = ADDRESS_LINE_RE.match(line)
+        if match:
+            address = int(next(part for part in match.groups()[:3] if part is not None), 16)
+            chunk = byte_column(match[4])
+            if not chunk:
+                flush(); mode = None; next_address = None
+                continue
+            if mode == "addressed" and address != next_address:
+                raise ValueError(f"addressed dump gap/overlap: 0x{address:x}, expected 0x{next_address:x}")
+            if mode != "addressed":
+                flush()
+            mode = "addressed"
+            next_address = address + len(chunk)
+        else:
+            chunk = byte_column(INLINE_BYTES_RE.sub("", line.strip()))
+            if not chunk:
+                flush(); mode = None; next_address = None
+                continue
+            if mode != "plain":
+                flush()
+            mode = "plain"
+            next_address = None
+        current.extend(chunk)
+    flush()
+    return runs
 
 
 def claimed_bytes(text: str) -> bytes | None:
-    # objdump-style listing: "55              push bp" - the bytes are the leading column.
-    # Two or more such lines in a row is a dump; one alone could be a stray hex cell.
-    runs: list[bytes] = []
-    cur = bytearray()
-    for line in text.splitlines():
-        m = LISTING_LINE_RE.match(line)
-        if m and re.search(r"\S{2,}", line[m.end():]):  # something follows the bytes
-            cur.extend(bytes.fromhex(re.sub(r"[^0-9A-Fa-f]", "", m.group(1))))
-        else:
-            if len(cur) >= 6:
-                runs.append(bytes(cur))
-            cur = bytearray()
-    if len(cur) >= 6:
-        runs.append(bytes(cur))
-    best: bytes | None = max(runs, key=len) if runs else None
-    for m in BYTES_RE.finditer(text):
-        raw = re.sub(r"[^0-9A-Fa-f]", "", m.group(0))
-        if len(raw) % 2:
-            raw = raw[:-1]
-        b = bytes.fromhex(raw)
-        if best is None or len(b) > len(best):
-            best = b
-    for m in BYTES_COMPACT_RE.finditer(text):
-        b = bytes.fromhex(m.group(0))
-        if best is None or len(b) > len(best):
-            best = b
-    return best
+    """Compatibility helper; main checks EVERY candidate before choosing a size."""
+    return max(dump_candidates(text), key=len, default=None)
 
 
 def declared_file_offset(text: str) -> int | None:
-    """Strict result header; arithmetic prose is not an authoritative offset."""
+    """Count all declarations, including legacy/malformed/competing ones."""
     plain = text.replace("*", "").replace("`", "")
+    declarations = re.findall(r"\bFILE\s+OFFSET\b", plain, re.I)
     headers = re.findall(
-        r"^\s*(?:1[.)]\s*)?FILE OFFSET:\s*([0-9]+)\s+\((0x[0-9a-fA-F]+)\)\s*$",
-        plain, re.M | re.I,
+        r"^[ \t]*(?:1[.)][ \t]*)?FILE OFFSET:[ \t]*([0-9]+)[ \t]+"
+        r"\((0x[0-9a-fA-F]+)\)[ \t]*$", plain, re.M | re.I,
     )
-    if len(headers) != 1:
+    if len(declarations) != 1 or len(headers) != 1:
         return None
     decimal, hexadecimal = headers[0]
     value = int(decimal, 10)
@@ -123,47 +170,40 @@ def main(argv: list[str]) -> int:
         print(f"REFUSED: no game file at {ovr}", file=sys.stderr)
         return 2
     text = rep.read_text(errors="replace")
-    offs = claimed_offsets(text)
-    cb = claimed_bytes(text)
     data = ovr.read_bytes()
     print(f"== {rep}")
-    if cb is None:
+    off = declared_file_offset(text)
+    if off is None or (expect is not None and off != expect):
+        print("   OFFSET UNRESOLVED: require exactly one FILE OFFSET declaration: "
+              "FILE OFFSET: <decimal> (0x<hex>), with both values equal to the expected body offset.")
+        return 1
+    try:
+        candidates = dump_candidates(text)
+    except ValueError as exc:
+        print(f"   BYTES DIFFER: {exc}; malformed addressed dump.")
+        return 1
+    if not candidates:
         print("   NO DUMP: the report printed no byte dump, so nothing is checkable.")
         return 2
-    if expect is not None:
-        if declared_file_offset(text) != expect:
-            print("   OFFSET UNRESOLVED: require one FILE OFFSET: <decimal> (0x<hex>) "
-                  "header with both values equal to the expected body offset.")
+    for cb in candidates:
+        got = data[off:off + len(cb)]
+        if got != cb:
+            for i, (x, y) in enumerate(zip(got, cb)):
+                if x != y:
+                    print(f"   BYTES DIFFER: first difference at +{i} (offset {off + i}): "
+                          f"file {x:02x}, claimed {y:02x}.")
+                    print(f"      file   : {' '.join(f'{v:02x}' for v in got[:48])}")
+                    print(f"      claimed: {' '.join(f'{v:02x}' for v in cb[:48])}")
+                    return 1
+            print(f"   BYTES DIFFER: dump extends outside the file ({len(got)} vs {len(cb)}).")
             return 1
-        offs = [expect]
-    if not offs:
-        print(f"   OFFSET UNRESOLVED: {len(cb)} bytes claimed, no file offset found.")
-        return 1
-    # Try every offset the report names: a report may mention the overlay base before the
-    # file offset, so the first number is not necessarily the subject.
+    cb = max(candidates, key=len)
     if expect_len is not None and len(cb) < expect_len:
-        ok = 0 <= offs[0] and data[offs[0] : offs[0] + len(cb)] == cb
-        print(f"   PREFIX ONLY: dump has {len(cb)} of the expected {expect_len} bytes"
-              f" ({'matching the file' if ok else 'and they differ from the file'}); not a decode.")
+        print(f"   PREFIX ONLY: dump has {len(cb)} of the expected {expect_len} bytes "
+              "(matching the file); not a decode.")
         return 1
-    for cand in offs:
-        if 0 <= cand and data[cand : cand + len(cb)] == cb:
-            print(f"   BYTES MATCH: {len(cb)} bytes at {cand} are byte-identical to {ovr.name}.")
-            return 0
-    off = offs[0]
-    got = data[off : off + len(cb)]
-    print(f"   tried offsets: {', '.join(str(o) for o in offs[:5])} (none matched)")
-    for i, (x, y) in enumerate(zip(got, cb)):
-        if x != y:
-            print(
-                f"   BYTES DIFFER: first difference at +{i} (offset {off + i}): "
-                f"file {x:02x}, claimed {y:02x}."
-            )
-            print(f"      file   : {' '.join(f'{v:02x}' for v in got[:48])}")
-            print(f"      claimed: {' '.join(f'{v:02x}' for v in cb[:48])}")
-            return 1
-    print(f"   BYTES DIFFER: claimed dump is longer/shorter than the file slice ({len(got)} vs {len(cb)}).")
-    return 1
+    print(f"   BYTES MATCH: {len(cb)} bytes at {off} are byte-identical to {ovr.name}.")
+    return 0
 
 
 if __name__ == "__main__":

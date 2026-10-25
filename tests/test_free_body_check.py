@@ -27,7 +27,7 @@ class JudgeTests(unittest.TestCase):
     def report(self, offset, nbytes=64):
         dump = " ".join(f"{b:02x}" for b in BODY[:nbytes])
         p = self.tmp / "r.md"
-        p.write_text(f"1. FILE OFFSET: {offset}\n2. BYTE DUMP:\n{dump}\n")
+        p.write_text(f"1. FILE OFFSET: {offset} (0x{offset:x})\n2. BYTE DUMP:\n{dump}\n")
         return p
 
     def test_expected_offset_is_exclusive(self):
@@ -67,6 +67,178 @@ class CitationRepoTests(unittest.TestCase):
         without = run(TOOLS / "free_verify_citations.py", "OVL_0025_0400", rep, env={"POOLRAD_REPO": ""})
         self.assertEqual(without.returncode, 1, without.stdout)  # resolves against the tool repo: missing
         self.assertIn("FABRICATED", without.stdout)
+
+
+def reviewer_cases():
+    """PR27 reviewer cases, preserving their exact synthetic bytes and headers."""
+    body = bytes(range(80, 96))
+    plain = body.hex(" ")
+    header = "FILE OFFSET: 80 (0x50)\n"
+    return {
+        "correct-addressed": header + "BYTE DUMP:\n00000050: " + body[:8].hex(" ") +
+                             "\n00000058: " + body[8:].hex(" ") + "\n",
+        "wrong-claimed-offset": "FILE OFFSET: 96 (0x60)\n" + plain + "\n",
+        "correct-plain": header + plain + "\n",
+        "old-arithmetic-only": "FILE OFFSET: base 64 + 16 = 80\n" + plain + "\n",
+        "old-wrong-plus-strict-correct": "FILE OFFSET: 96\n" + header + plain + "\n",
+        "strict-correct-plus-old-wrong": header + "FILE OFFSET: 96\n" + plain + "\n",
+        "two-strict-correct": header + header + plain + "\n",
+        "strict-correct-plus-old-wrong-separated": header + "FILE OFFSET: 96\nBYTE DUMP:\n" + plain + "\n",
+    }
+
+
+class StrictHeaderAndDumpTests(unittest.TestCase):
+    """Original eight controls plus competing declarations and addressed dumps."""
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tmp = Path(directory.name)
+        self.body = bytes(range(0x10, 0x20))
+        data = bytearray(range(256))
+        data[80:96] = self.body
+        self.ovr = self.tmp / "GAME.OVR"
+        self.ovr.write_bytes(data)
+        self.dump = self.body.hex(" ")
+
+    def judge(self, header="FILE OFFSET: 80 (0x50)", dump=None, length=16, pin=True):
+        report = self.tmp / "report.md"
+        report.write_text(header + "\n\nBYTE DUMP:\n" + (self.dump if dump is None else dump) + "\n")
+        args = [TOOLS / "free_body_check.py", report, "--ovr", self.ovr,
+                "--expect-length", length]
+        if pin:
+            args += ["--expect-offset", 80]
+        return run(*args)
+
+    def assert_verdict(self, result, code, verdict):
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        self.assertIn(verdict, result.stdout)
+        if code:
+            self.assertNotIn("BYTES MATCH", result.stdout)
+
+    def test_positive_strict_header(self):
+        self.assert_verdict(self.judge(), 0, "BYTES MATCH: 16 bytes")
+
+    def test_wrong_offset(self):
+        self.assert_verdict(self.judge("FILE OFFSET: 96 (0x60)"), 1, "OFFSET UNRESOLVED")
+
+    def test_contradictory_decimal_and_hex(self):
+        self.assert_verdict(self.judge("FILE OFFSET: 80 (0x60)"), 1, "OFFSET UNRESOLVED")
+
+    def test_duplicate_strict_headers(self):
+        for second in ("FILE OFFSET: 80 (0x50)", "FILE OFFSET: 96 (0x60)"):
+            with self.subTest(second=second):
+                self.assert_verdict(self.judge("FILE OFFSET: 80 (0x50)\n" + second),
+                                    1, "OFFSET UNRESOLVED")
+
+    def test_legacy_and_arithmetic_only_declarations_are_rejections(self):
+        for header in ("FILE OFFSET: 80", "FILE OFFSET: 0x50", "FILE OFFSET: base 64 + 16 = 80"):
+            with self.subTest(header=header):
+                self.assert_verdict(self.judge(header), 1, "OFFSET UNRESOLVED")
+
+    def test_short_matching_dump(self):
+        self.assert_verdict(self.judge(dump=self.body[:8].hex(" ")), 1, "PREFIX ONLY")
+
+    def test_wrong_bytes(self):
+        self.assert_verdict(self.judge(dump=(bytes([0xff]) + self.body[1:]).hex(" ")),
+                            1, "BYTES DIFFER")
+
+    def test_no_dump(self):
+        self.assert_verdict(self.judge(dump="cannot confirm"), 2, "NO DUMP")
+
+    def test_competing_legacy_declaration_never_rescued_in_either_order(self):
+        strict = "FILE OFFSET: 80 (0x50)"
+        competitors = ("FILE OFFSET: 96", "FILE OFFSET: 80", "FILE OFFSET: 0x60",
+                       "**FILE OFFSET:** 96", "file offset = 96", "FILE OFFSET: malformed")
+        for competitor in competitors:
+            for separator in ("\n", "\n\nArithmetic explanation.\n\n"):
+                for lines in ((competitor, strict), (strict, competitor)):
+                    with self.subTest(lines=lines, separator=separator):
+                        self.assert_verdict(self.judge(separator.join(lines)), 1, "OFFSET UNRESOLVED")
+
+    def test_competing_declaration_below_dump_is_not_ignored(self):
+        self.assert_verdict(self.judge(dump=self.dump + "\nFILE OFFSET: 96"), 1, "OFFSET UNRESOLVED")
+
+    def test_competing_declarations_fail_without_expected_offset_too(self):
+        self.assert_verdict(self.judge("FILE OFFSET: 96\nFILE OFFSET: 80 (0x50)", pin=False),
+                            1, "OFFSET UNRESOLVED")
+
+    def test_complete_addressed_dump_with_and_without_colons(self):
+        for colon in (":", ""):
+            dump = f"00000050{colon}  {self.body[:8].hex(' ')}\n00000058{colon}  {self.body[8:].hex(' ')}"
+            with self.subTest(colon=colon):
+                self.assert_verdict(self.judge(dump=dump), 0, "BYTES MATCH: 16 bytes")
+
+    def test_xxd_packed_groups_with_ascii(self):
+        def packed(data):
+            return " ".join(data[i:i + 2].hex() for i in range(0, len(data), 2))
+        dump = f"00000050: {packed(self.body[:8])}  face\n00000058: {packed(self.body[8:])}  dead"
+        self.assert_verdict(self.judge(dump=dump), 0, "BYTES MATCH: 16 bytes")
+
+    def test_addressed_objdump_and_byte_leading_listings(self):
+        for prefix in (True, False):
+            dump = "\n".join((f"{80+i:04x}: " if prefix else "") +
+                             f"{value:02x}  synthetic-op" for i, value in enumerate(self.body))
+            with self.subTest(addressed=prefix):
+                self.assert_verdict(self.judge(dump=dump), 0, "BYTES MATCH: 16 bytes")
+
+    def test_gap_overlap_or_duplicate_address_is_refused(self):
+        for address in (0x59, 0x57, 0x50):
+            dump = f"00000050: {self.body[:8].hex(' ')}\n{address:08x}: {self.body[8:].hex(' ')}"
+            with self.subTest(address=address):
+                self.assert_verdict(self.judge(dump=dump), 1, "gap/overlap")
+
+    def test_one_correct_dump_cannot_rescue_conflicting_dump(self):
+        bad = (bytes([0x99]) + self.body[1:]).hex(" ")
+        for first, second in ((self.dump, bad), (bad, self.dump)):
+            with self.subTest(first=first):
+                self.assert_verdict(self.judge(dump=first + "\n\nSecond dump:\n" + second),
+                                    1, "BYTES DIFFER")
+
+    def test_full_inline_dump_can_accompany_matching_addressed_prefix(self):
+        dump = f"00000050: {self.body[:8].hex(' ')}\n\nDisassembly (bytes): {self.dump}"
+        self.assert_verdict(self.judge(dump=dump), 0, "BYTES MATCH: 16 bytes")
+
+    def test_sha_prose_is_not_a_byte_dump(self):
+        self.assert_verdict(self.judge(dump="SHA-256: " + self.body.hex()), 2, "NO DUMP")
+
+    def test_original_author_eight_controls(self):
+        self.ovr.write_bytes(bytes(range(256)))
+        cases = [('correct', 'FILE OFFSET: 16 (0x10)\n10 11 12 13 14 15 16 17\n', 0, 'BYTES MATCH'),
+ ('wrong-offset', 'FILE OFFSET: 32 (0x20)\n10 11 12 13 14 15 16 17\n', 1, 'OFFSET UNRESOLVED'),
+ ('contradiction',
+  'FILE OFFSET: 16 (0x20)\n10 11 12 13 14 15 16 17\n',
+  1,
+  'OFFSET UNRESOLVED'),
+ ('ambiguous',
+  'FILE OFFSET: 16 (0x10)\nFILE OFFSET: 32 (0x20)\n10 11 12 13 14 15 16 17\n',
+  1,
+  'OFFSET UNRESOLVED'),
+ ('arithmetic',
+  'FILE OFFSET: base 8 + 8 = 16\n10 11 12 13 14 15 16 17\n',
+  1,
+  'OFFSET UNRESOLVED'),
+ ('short', 'FILE OFFSET: 16 (0x10)\n10 11 12 13 14 15\n', 1, 'PREFIX ONLY'),
+ ('wrong-bytes', 'FILE OFFSET: 16 (0x10)\n99 11 12 13 14 15 16 17\n', 1, 'BYTES DIFFER'),
+ ('no-dump', 'FILE OFFSET: 16 (0x10)\nNo dump.\n', 2, 'NO DUMP')]
+        for name, text, code, verdict in cases:
+            with self.subTest(name=name):
+                report = self.tmp / "original-author.md"
+                report.write_text(text)
+                self.assert_verdict(run(TOOLS / "free_body_check.py", report, "--ovr", self.ovr,
+                                        "--expect-offset", 16, "--expect-length", 8), code, verdict)
+
+    def test_reviewers_exact_seven_judge_cases(self):
+        self.ovr.write_bytes(bytes(range(256)))
+        for name, text in reviewer_cases().items():
+            if name == "strict-correct-plus-old-wrong-separated":
+                continue  # this additional fixture belongs to the five runner cases
+            with self.subTest(name=name):
+                report = self.tmp / "reviewer.md"
+                report.write_text(text)
+                code = 0 if name in ("correct-addressed", "correct-plain") else 1
+                self.assert_verdict(run(TOOLS / "free_body_check.py", report, "--ovr", self.ovr,
+                                        "--expect-offset", 80, "--expect-length", 16),
+                                    code, "BYTES MATCH" if code == 0 else "OFFSET UNRESOLVED")
 
 
 if __name__ == "__main__":
