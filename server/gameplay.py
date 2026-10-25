@@ -16,6 +16,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from server.emulator_build import describe_emulator, pinned_binary
+from server.state_archive import archive_status
+
 
 class GameError(Exception):
     pass
@@ -47,8 +50,11 @@ class GameSession:
         self.play_build = os.getenv("VP_PLAY_BUILD", "original")
         if self.play_build not in {"original", "replacement"}:
             raise GameError("VP_PLAY_BUILD must be original or replacement")
-        self.dosbox_x = (os.getenv("VP_REPLACEMENT_DOSBOX_X", str(repo / "resources/hybrid/bin/dosbox-x"))
-                         if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", "dosbox-x"))
+        self.dosbox_x = (os.getenv("VP_REPLACEMENT_DOSBOX_X", pinned_binary())
+                         if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", pinned_binary()))
+        self._launched_emulator: dict | None = None
+        self.archive_manifest = Path(os.getenv("VP_STATE_ARCHIVE_MANIFEST",
+                                              str(repo / "resources/state-archives/manifest.json")))
         self.log_files = []
 
     def _run(self, cmd: list[str], **kwargs):
@@ -67,8 +73,13 @@ class GameSession:
             if self.tmux_session and not self._game_running():
                 self._stop_locked()
             last = self.last_file.read_text().strip() if self.last_file.exists() else None
+            running = self.tmux_session is not None
+            identity = (self._launched_emulator or dict(kind="other", build_id=None, sha256=None, release=None)
+                        if running else describe_emulator(self.dosbox_x))
             return {"running": self.tmux_session is not None, "audio": self.sink_name is not None,
                     "build": self.play_build,
+                    "emulator": {**identity, "scope": "running_session" if running else "next_start"},
+                    "state_archive": archive_status(self.archive_manifest),
                     "run_name": self.run_dir.name if self.run_dir else last}
 
     def _game_running(self) -> bool:
@@ -109,6 +120,9 @@ class GameSession:
             self.last_file.chmod(0o600)
             try:
                 play_env = self._play_environment(run_dir)
+                launch_identity = describe_emulator(self.dosbox_x)
+                if launch_identity["sha256"] is None:
+                    raise GameError("Configured DOSBox-X binary is unavailable")
                 for n in range(90, 130):
                     if Path(f"/tmp/.X{n}-lock").exists() or Path(f"/tmp/.X11-unix/X{n}").exists():
                         continue
@@ -160,13 +174,14 @@ class GameSession:
                 self._run(["tmux", "-L", "vp-poolrad", "new-session", "-d", "-s", session, "-x", "140", "-y", "40", command])
                 self.tmux_session = session
                 self.active_slot = self.SAVE_SLOT_DEFAULT
-                # Identify this emulator session. DOSBox-X segfaults when a save state
-                # created by an earlier session is loaded, so loadstate refuses those.
+                # Record the session in new tags. A later load is verified by the
+                # native loader's result; the session timestamp is provenance.
                 self._session_started = time.time()
                 self._run(["tmux", "-L", "vp-poolrad", "pipe-pane", "-o", "-t", session, f"cat >> {shlex.quote(str(run_dir / 'vp-dosbox-terminal.log'))}"])
                 time.sleep(1)
                 if not self._game_running():
                     raise GameError("DOSBox-X exited during startup; inspect private vp-dosbox-terminal.log")
+                self._launched_emulator = launch_identity
                 return self.status()
             except Exception as exc:
                 self._stop_locked()
@@ -297,6 +312,7 @@ class GameSession:
         self.log_files.clear()
         self.xvfb = None
         self.tmux_session = None
+        self._launched_emulator = None
         self.display = self.sink_module = self.sink_name = None
         self.run_dir = None
 

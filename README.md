@@ -106,14 +106,19 @@ Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; auth
 ## Play: original or replacement build
 
 `VP_PLAY_BUILD=original` is the default. It launches the original `START.EXE`
-using `VP_DOSBOX_X` (default `dosbox-x`). To select the experimental hybrid,
+using `VP_DOSBOX_X` (default
+`~/.local/share/vp-of-agentry/dosbox-x-5a9c7c53/dosbox-x`). This stable
+checkpoint build runs original guest code unless replacement is selected.
+To roll back the default original-mode session, set
+`VP_DOSBOX_X=/usr/bin/dosbox-x` for the server's next launch.
+Preserve any active game before restarting the server. To select the experimental hybrid,
 set `VP_PLAY_BUILD=replacement` in the server environment and restart the server.
 The Play status API reports the selected `build`. Switching the flag back to
 `original` restores the original launch path.
 
 Replacement mode uses these private files under the configured Poolrad checkout:
 
-- `resources/hybrid/bin/dosbox-x`, overridden by `VP_REPLACEMENT_DOSBOX_X`;
+- the same stable pinned executable, overridden by `VP_REPLACEMENT_DOSBOX_X`;
 - `resources/hybrid/registry_all.tsv`, overridden by `VP_REPLACEMENT_REGISTRY`;
 - `resources/hybrid/play-dispatch.txt`, overridden by `VP_REPLACEMENT_DISPATCH`.
 
@@ -143,7 +148,9 @@ missing compiler support fails the test rather than skipping the agreement gate.
 
 NOT verified by the selector tests: live desk audio/video, save-state migration
 between builds, replacement gameplay parity, or complete C execution. No
-production binary or service configuration is changed by this feature.
+service configuration is changed merely by querying status. Installation,
+provenance, status semantics, archive verification and the native validation
+record are described in [Pinned Play](docs/PINNED_PLAY.md).
 
 ## Play: save states
 
