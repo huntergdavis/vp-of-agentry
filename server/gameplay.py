@@ -50,8 +50,15 @@ class GameSession:
         self.play_build = os.getenv("VP_PLAY_BUILD", "original")
         if self.play_build not in {"original", "replacement"}:
             raise GameError("VP_PLAY_BUILD must be original or replacement")
-        self.dosbox_x = (os.getenv("VP_REPLACEMENT_DOSBOX_X", pinned_binary())
-                         if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", pinned_binary()))
+        configured = (os.getenv("VP_REPLACEMENT_DOSBOX_X", pinned_binary())
+                      if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", pinned_binary()))
+        resolved = shutil.which(configured)
+        if resolved is not None:
+            self.dosbox_x = str(Path(resolved).resolve())
+        elif Path(configured).is_absolute():
+            self.dosbox_x = configured  # Status/start reports an unavailable absolute executable.
+        else:
+            raise GameError("Configured DOSBox-X executable is unavailable on the server PATH")
         self._launched_emulator: dict | None = None
         self.archive_manifest = Path(os.getenv("VP_STATE_ARCHIVE_MANIFEST",
                                               str(repo / "resources/state-archives/manifest.json")))

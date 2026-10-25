@@ -100,7 +100,7 @@ def run_phase(args):
     session.run_dir = run
     session.display = os.environ['DISPLAY']
     session._env = lambda: os.environ.copy()
-    producer = repo / 'resources/oracle-runs' / (args.prefix + '-producer')
+    producer = repo / 'resources/oracle-runs' / ((args.source_prefix or args.prefix) + '-producer')
     if args.phase != 'producer':
         evidence = json.loads((producer / 'producer-evidence.json').read_text())
         entry = evidence['entry']
@@ -164,7 +164,7 @@ def run_phase(args):
                          observer_outputs=outputs, zip_crc_pass=True))
                     if outputs or enabled:
                         raise RuntimeError('Producer did not satisfy the inactive-hook setup')
-                elif args.system_control:
+                elif args.restore_control:
                     if not self.loaded:
                         raise RuntimeError('Control reached final gate without native restore')
                     dump(run / 'restore-route-evidence.json', dict(
@@ -181,7 +181,7 @@ def run_phase(args):
                 self.loaded = True
                 self.route.allowed = ['at15_4']
                 return
-            if (not args.system_control and args.phase != 'producer' and self.loaded
+            if (not args.restore_control and args.phase != 'producer' and self.loaded
                     and self.last_gate == 'at15_4' and key == 'Right'):
                 checkpoint(self, final=False)
             return super().key(key)
@@ -229,17 +229,21 @@ def run_all(args):
     from parity_report import report
     logs = args.poolrad_repo / 'resources/pinned-play-probes' / args.prefix
     logs.mkdir(parents=True, exist_ok=False)
-    names = ('producer', 'original') if args.system_control else ('producer', 'original', 'replacement')
+    names = (('original',) if args.source_prefix else ('producer', 'original')) if args.restore_control else ('producer', 'original', 'replacement')
     runs = {phase: args.poolrad_repo / 'resources/oracle-runs' / (args.prefix + '-' + phase)
             for phase in names}
+    if args.source_prefix:
+        runs['producer'] = args.poolrad_repo / 'resources/oracle-runs' / (args.source_prefix + '-producer')
     phases = {}
-    for phase in runs:
+    for phase in names:
         with (logs / (phase + '.log')).open('wb') as out:
             completed = subprocess.run(['xvfb-run', '-a', '-s', '-screen 0 1024x768x24',
                                         sys.executable, str(Path(__file__).resolve()),
                                         '--poolrad-repo', str(args.poolrad_repo),
                                         '--prefix', args.prefix, '--phase', phase,
-                                        *(['--system-control'] if args.system_control else [])],
+                                        *(['--system-control'] if args.system_control else []),
+                                        *(['--pinned-control'] if args.pinned_control else []),
+                                        *(['--source-prefix', args.source_prefix] if args.source_prefix else [])],
                                        stdout=out, stderr=subprocess.STDOUT)
         phases[phase] = {'exit_code': completed.returncode}
         load = runs[phase] / 'load-evidence.json'
@@ -251,10 +255,12 @@ def run_all(args):
                   comparison_performed=False, phases=phases,
                   not_verified=['Native exercise incomplete; no frame/register/VGA/RAM comparison established.',
                                 'Live desk transport/audio/video, old-state migration, full-game parity or replacement credit.'])
-    if args.system_control:
-        result.update(case='system-new-tag-restore-control',
+    if args.restore_control:
+        result.update(case=('system' if args.system_control else 'pinned') + '-new-tag-restore-control',
+                      snapshot_reused_from_prior_exercise=bool(args.source_prefix),
+                      consumer_emulator=describe_emulator('/usr/bin/dosbox-x' if args.system_control else pinned_binary()),
                       verdict_scope='Native restore survival through the Right gate; not a parity comparison.')
-        if len(phases) == 2 and all(p['exit_code'] == 0 for p in phases.values()):
+        if len(phases) == len(names) and all(p['exit_code'] == 0 for p in phases.values()):
             producer = json.loads((runs['producer'] / 'producer-evidence.json').read_text())
             entry = producer['entry']
             loaded = json.loads((runs['original'] / 'load-evidence.json').read_text())
@@ -263,10 +269,10 @@ def run_all(args):
             if (not loaded['verified'] or loaded['sha256'] != entry['sha256'] or loaded['tag'] != TAG
                     or hashlib.sha256(copied.read_bytes()).hexdigest() != entry['sha256']
                     or not route['restored_then_right_reached']):
-                raise RuntimeError('System control did not establish the same new snapshot and restored route')
+                raise RuntimeError('Control did not establish the same new snapshot and restored route')
             result.update(result='PASS', not_verified=[
-                'Frame/register/VGA/RAM parity; the system binary has no checkpoint hook.',
-                'Live desk transport/audio/video, old-state migration or pinned-binary restore reliability.'])
+                'Frame/register/VGA/RAM parity; this control does not capture checkpoints.',
+                'Live desk transport/audio/video, old-state migration or reliability beyond this single restore.'])
     if len(phases) == 3 and all(p['exit_code'] == 0 for p in phases.values()):
         producer = json.loads((runs['producer'] / 'producer-evidence.json').read_text())
         entry = producer['entry']
@@ -315,11 +321,20 @@ def main():
     parser.add_argument('--prefix', required=True)
     parser.add_argument('--phase', choices=['all', 'producer', 'original', 'replacement'], default='all')
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--system-control', action='store_true',
+    controls = parser.add_mutually_exclusive_group()
+    controls.add_argument('--system-control', action='store_true',
                         help='Use the hash-pinned system binary for a producer/original restore-survival control')
+    controls.add_argument('--pinned-control', action='store_true',
+                          help='Use the pinned binary for a restore-survival control without checkpoint capture')
+    parser.add_argument('--source-prefix', help='Reuse this prior probe producer snapshot without editing it')
     args = parser.parse_args()
-    if args.system_control and args.phase == 'replacement':
-        parser.error('The system control has no replacement phase')
+    args.restore_control = args.system_control or args.pinned_control
+    if args.restore_control and args.phase == 'replacement':
+        parser.error('Restore controls have no replacement phase')
+    if args.source_prefix and (not args.restore_control or args.phase == 'producer'):
+        parser.error('A prior producer may only be reused by a restore control')
+    if args.source_prefix and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.source_prefix):
+        parser.error('Invalid source producer prefix')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.prefix):
         parser.error('Invalid private run prefix')
     args.poolrad_repo = args.poolrad_repo.resolve()

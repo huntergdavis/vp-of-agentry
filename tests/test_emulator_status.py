@@ -1,13 +1,14 @@
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from server.emulator_build import describe_emulator, pinned_binary
-from server.gameplay import GameSession
+from server.gameplay import GameError, GameSession
 from server.state_archive import archive_status
 
 
@@ -74,6 +75,39 @@ class EmulatorStatusTests(unittest.TestCase):
         self.assertEqual(self.session().play_build, 'original')
         os.environ['VP_PLAY_BUILD'] = 'replacement'
         self.assertEqual(self.session().dosbox_x, pinned_binary())
+
+    def test_bare_override_hash_and_launch_ignore_retained_tmux_path(self):
+        server_bin, tmux_bin = self.root / 'server-bin', self.root / 'tmux-bin'
+        for directory, label in ((server_bin, 'server'), (tmux_bin, 'retained-tmux')):
+            directory.mkdir()
+            script = directory / 'dosbox-x'
+            script.write_text("#!/bin/sh\nprintf '%s' " + label + '\n')
+            script.chmod(0o700)
+        selected = server_bin / 'dosbox-x'
+        expected_hash = hashlib.sha256(selected.read_bytes()).hexdigest()
+        for mode in ('original', 'replacement'):
+            with self.subTest(mode=mode):
+                os.environ.update(PATH=str(server_bin), VP_PLAY_BUILD=mode,
+                                  VP_DOSBOX_X='dosbox-x', VP_REPLACEMENT_DOSBOX_X='dosbox-x')
+                session = self.session()
+                os.environ['PATH'] = str(tmux_bin)
+                command = session._dosbox_command(self.root)
+                executable = command[command.index('--chdir') + 2]
+                self.assertEqual(executable, str(selected.resolve()))
+                identity = describe_emulator(session.dosbox_x)
+                self.assertEqual(identity['sha256'], expected_hash)
+                launched = subprocess.run([executable], env={'PATH': str(tmux_bin)},
+                                          check=True, capture_output=True, text=True)
+                self.assertEqual(launched.stdout, 'server')
+                session._launched_emulator = identity
+                session.tmux_session = 'synthetic'
+                session._game_running = lambda: True
+                self.assertEqual(session.status()['emulator']['sha256'], expected_hash)
+
+    def test_missing_bare_override_has_clear_configuration_error(self):
+        os.environ.update(PATH=str(self.root / 'absent'), VP_DOSBOX_X='missing-dosbox-x')
+        with self.assertRaisesRegex(GameError, 'server PATH'):
+            self.session()
 
 
 class ArchiveStatusTests(unittest.TestCase):

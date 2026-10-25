@@ -12,6 +12,10 @@ of a producer lane's checkout. `VP_DOSBOX_X` overrides that executable.
 Replacement mode defaults to the same executable, retains its separate
 `VP_REPLACEMENT_DOSBOX_X` override and requires the reviewed registry/dispatch
 assets. The `build` field still describes **dispatch mode**, not binary identity.
+Executable selection resolves once to an absolute path when the session
+object is configured. Both identity hashing and launch use that path, so a
+retained tmux PATH cannot select a different binary. An unresolved bare
+override is rejected with a server-PATH configuration error.
 
 The installed binary is 62,790,864 bytes, advertises `2026.01.02 SDL2`, and has
 SHA-256 `fc66e91e8e8d48cc0b176bc350febab753bff297f2d93fc6c1e9d1f21cb6efae`.
@@ -96,7 +100,9 @@ with count 0. Only verified status supports an archived-state claim.
 
 Synthetic tests cover hash-based identification, changed binaries, running
 identity retention, missing identity, next-start semantics, one-variable
-rollback and archive integrity failures. The 40 focused backend tests passed.
+rollback and archive integrity failures. The 42 focused backend tests passed,
+including two different scripts on server versus retained-tmux PATHs in both
+execution modes.
 
 [Native v1 receipt](PINNED_PLAY_E2E_V1.json): the producer saved a 283,572-byte
 new tagged snapshot with a passing ZIP CRC, no PR environment controls and no
@@ -109,10 +115,14 @@ save; its driver phase exited 0.
 The receipt is **FAIL, comparison_performed=false**. Native loader completion
 does not establish successful resumed execution. No frame/register/VGA/RAM
 comparison or reliable cross-process restore is established by this run.
-The system control uses a separately produced new snapshot from system
-binary `99d74601`, the same tag, transport, normal core, keystrokes and route.
+The system control uses system binary `99d74601` to restore a byte-identical
+copy of the **same pinned-produced snapshot**, with the same tag, transport,
+normal core, keystrokes and route.
 It requires native loading and survival through the post-load Right gate;
-it makes no checkpoint/parity claim. That control is pending.
+it makes no checkpoint/parity claim. That control is pending, followed by
+two pinned-binary restore attempts of the same snapshot and a backtrace of
+the original crash. A system failure would not by itself prove the pinned
+binary innocent: the same state may expose a shared loader or capture defect.
 
 The live Play implementation also creates Xvfb, rather than using a physical
 desktop display. Its display is 800x600 with Xauthority; the probe uses
@@ -145,10 +155,11 @@ measure C returns during the restored route. The existing unmasked
 comparator produces the receipt, including a FAIL if differences remain.
 Raw state, frame and child-log files stay under ignored Poolrad resources.
 
-The matched system control uses the same script with `--system-control`, a
-new prefix and a separate receipt path. It performs producer and original
-consumer phases only, checking the recorded system executable hash before
-launch. Do not reuse or modify a pinned-build snapshot for this control.
+The system control uses `--system-control --source-prefix t140-newtag-v1`,
+a new run prefix and a separate receipt path. It checks the system binary
+hash and restores a copy of the earlier producer snapshot without changing
+the source. Two subsequent controls use `--pinned-control` with that same
+source prefix and distinct run/output paths. None reads the old owner states.
 
 The 14 earlier owner states have **not** been archived or migrated. VP's
 preservation hold remains in effect until the owner's in-progress-run answer
