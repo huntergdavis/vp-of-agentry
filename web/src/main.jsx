@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMessageScroll, mergeMessages } from './useMessageScroll';
 import { createRoot } from 'react-dom/client';
+import EmergencyDock from './EmergencyDock';
 import { Message, MessageList } from '@chatscope/chat-ui-kit-react';
 import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -62,7 +63,7 @@ function DashNav({ view }) {
     <span className="dash-nav-links">
       {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
     </span>
-    <span className="dash-nav-right"><a className="dash-link" href="/">Open the desk ↗</a></span>
+    <span className="dash-nav-right"><EmergencyDock request={api} /><a className="dash-link" href="/">Open the desk ↗</a></span>
   </nav>;
 }
 

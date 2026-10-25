@@ -435,3 +435,15 @@
 .ops-reference td small { display: block; color: var(--dash-muted); }
 .conversation, .game-chat-log { overflow-anchor: none; }
 .chat-new-messages { align-self: center; flex: none; margin: 6px; padding: 8px 14px; border: 1px solid var(--dash-border); border-radius: 16px; background: var(--dash-panel); color: var(--dash-accent); }
+.dash-nav-right { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.dock-trigger { padding: 5px 8px; border: 1px solid var(--dash-border); border-radius: 6px; background: var(--dash-panel); color: var(--dash-fg); font-size: 12px; }
+.dock-trigger kbd { margin-left: 6px; color: var(--dash-muted); }
+.message-dock { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid var(--dash-border); border-radius: 12px; background: var(--dash-panel); color: var(--dash-fg); }
+.message-dock::backdrop { background: #0009; }
+.message-dock header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.message-dock h2 { font-size: 18px; margin: 0; }
+.message-dock form, .message-dock label { display: flex; flex-direction: column; gap: 8px; }
+.message-dock form { margin-top: 16px; }
+.message-dock textarea, .message-dock select { width: 100%; padding: 10px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: 6px; font: inherit; }
+.message-dock button { padding: 8px 12px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: 6px; }
+.message-dock a { color: var(--dash-accent); }
