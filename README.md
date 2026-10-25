@@ -103,6 +103,33 @@ The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the defau
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
+## Play: original or replacement build
+
+`VP_PLAY_BUILD=original` is the default. It launches the original `START.EXE`
+using `VP_DOSBOX_X` (default `dosbox-x`). To select the experimental hybrid,
+set `VP_PLAY_BUILD=replacement` in the server environment and restart the server.
+The Play status API reports the selected `build`. Switching the flag back to
+`original` restores the original launch path.
+
+Replacement mode uses these private files under the configured Poolrad checkout:
+
+- `resources/hybrid/bin/dosbox-x`, overridden by `VP_REPLACEMENT_DOSBOX_X`;
+- `resources/hybrid/registry_all.tsv`, overridden by `VP_REPLACEMENT_REGISTRY`;
+- `resources/hybrid/play-dispatch.txt`, overridden by `VP_REPLACEMENT_DISPATCH`.
+
+The dispatch file contains one comma-separated line of supported `RES_…` / `OVL_…`
+IDs from the measured hybrid build. Missing assets, invalid IDs and ambiguous
+registry rows fail startup. Each run copies the registry and dispatch list,
+uses the normal CPU core and routed bus, and records hybrid logs in its private
+run directory. Both modes clear inherited hybrid and checkpoint controls,
+including test seed pins. Replacement mode still starts `START.EXE`; only the
+listed functions can run as C. Registry membership alone does not prove that
+the emulator implements an ID; use a dispatch list from the reviewed build.
+
+NOT verified by the selector tests: live desk audio/video, save-state migration
+between builds, replacement gameplay parity, or complete C execution. No
+production binary or service configuration is changed by this feature.
+
 ## Play: save states
 
 While a private run is live, the **Save states** row in **Play Poolrad** drives
