@@ -20,6 +20,8 @@ Requires exactly one FILE OFFSET: <decimal> (0x<hex>) declaration. All parsed
 byte sequences must match; no matching dump can rescue a conflicting one.
 Addressed rows must be contiguous. Address labels may be VMAs; their relocation
 provenance and all assembly/prose semantics are NOT verified by this tool.
+Every verdict reports dropped dump-shaped candidates (count and locations) and
+ambiguous-prose noise runs. Any dropped dump is an error; noise is a warning.
 It must not be read as a credit decision.
 
 Usage: free_body_check.py <report.md> [--ovr PATH]
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import re
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_OVR = Path("resources/DOS/POOLRAD/GAME.OVR")
@@ -59,8 +62,8 @@ def claimed_offsets(text: str) -> list[int]:
 # Address labels may be file offsets or a disassembler VMA. Check their
 # continuity, not relocation provenance; the strict header fixes the file slice.
 ADDRESS_LINE_RE = re.compile(
-    r"^\s*(?:(?:0x)?([0-9A-Fa-f]{1,8}):[ \t]+|"
-    r"([0-9A-Fa-f]{6,8})[ \t]+|([0-9A-Fa-f]{4})[ \t]{2,})(.*)$"
+    r"^\s*(?:row[ \t]+)?(?:(?:0x)?([0-9A-Fa-f]{1,8}):[ \t]*|"
+    r"([0-9A-Fa-f]{6,8})[ \t]+|([0-9A-Fa-f]{4})[ \t]{2,})(.*)$", re.I
 )
 HEX_TOKEN_RE = re.compile(r"(?:[0-9A-Fa-f]{2})+")
 INLINE_BYTES_RE = re.compile(
@@ -80,49 +83,112 @@ def byte_column(text: str) -> bytes:
     return bytes.fromhex("".join(tokens))
 
 
-def dump_candidates(text: str) -> list[bytes]:
-    """Keep independent dumps separate and refuse broken addressed sequences.
+@dataclass(frozen=True)
+class DiscardedDump:
+    line: int
+    report_offset: int
+    address: int | None
+    reason: str
 
-    Supported: xxd rows, addressed objdump rows, byte-leading instruction
-    listings, plain hex rows and an explicit inline 'Disassembly (bytes):'.
-    Prose hashes are not dumps. No longest-fragment rescue across bad rows.
+    def describe(self) -> str:
+        location = f"line {self.line}, report offset {self.report_offset}"
+        if self.address is not None:
+            location += f", address 0x{self.address:x}"
+        return f"{location}: {self.reason}"
+
+
+@dataclass
+class DumpParse:
+    candidates: list[bytes] = field(default_factory=list)
+    dropped: list[DiscardedDump] = field(default_factory=list)
+    noise_runs: int = 0
+
+    def diagnostic(self) -> str:
+        details = "; ".join(item.describe() for item in self.dropped)
+        return (f"dropped: {len(self.dropped)}" + (f" [{details}]" if details else "") +
+                f"; noise: {self.noise_runs}")
+
+
+def parse_dump_report(text: str) -> DumpParse:
+    """Account for every recognized dump, including one-byte candidates.
+
+    Explicit addresses/labels, bare hex rows and byte columns separated from
+    annotations by a tab or two spaces are dump-shaped. Malformed rows and
+    discontinuities are counted errors, never silently omitted. A short hex
+    prefix followed by ordinary prose outside a dump section is ambiguous
+    noise; it is counted separately, without supplying evidence for a match.
     """
-    runs: list[bytes] = []
+    result = DumpParse()
     current = bytearray()
     mode = None
     next_address = None
+    dump_section = False
+    report_offset = 0
 
     def flush():
-        if len(current) >= 6:
-            runs.append(bytes(current))
+        if current:
+            result.candidates.append(bytes(current))
         current.clear()
 
-    for line in text.splitlines():
+    for line_number, raw_line in enumerate(text.splitlines(keepends=True), 1):
+        line = raw_line.rstrip("\r\n")
+        line_offset = report_offset
+        report_offset += len(raw_line)
         match = ADDRESS_LINE_RE.match(line)
+        label = INLINE_BYTES_RE.match(line.strip())
+        address = None
         if match:
             address = int(next(part for part in match.groups()[:3] if part is not None), 16)
-            chunk = byte_column(match[4])
-            if not chunk:
-                flush(); mode = None; next_address = None
-                continue
-            if mode == "addressed" and address != next_address:
-                raise ValueError(f"addressed dump gap/overlap: 0x{address:x}, expected 0x{next_address:x}")
-            if mode != "addressed":
-                flush()
-            mode = "addressed"
-            next_address = address + len(chunk)
+            payload = match[4]
         else:
-            chunk = byte_column(INLINE_BYTES_RE.sub("", line.strip()))
-            if not chunk:
+            payload = line.strip()[label.end():] if label else line.strip()
+        if label and not payload:
+            flush(); mode = None; next_address = None
+            dump_section = True
+            continue  # a heading alone is not a candidate
+        if label:
+            flush(); mode = None; next_address = None
+        column = re.split(r"\t| {2,}", payload.lstrip(), maxsplit=1)[0]
+        chunk = byte_column(payload)
+        tokens = column.split()
+        malformed = any(not HEX_TOKEN_RE.fullmatch(token) for token in tokens)
+        reason = None
+        if match or label:
+            if not chunk or malformed:
+                reason = "empty or malformed explicit byte column"
+        elif chunk and malformed:
+            if dump_section or len(chunk) >= 6:
+                reason = "malformed dump-shaped byte column"
+            else:
+                result.noise_runs += 1
                 flush(); mode = None; next_address = None
                 continue
-            if mode != "plain":
-                flush()
-            mode = "plain"
-            next_address = None
+        if reason is None and match and mode == "addressed" and address != next_address:
+            reason = f"addressed dump gap/overlap: expected 0x{next_address:x}"
+        if reason:
+            result.dropped.append(DiscardedDump(line_number, line_offset, address, reason))
+            flush(); mode = None; next_address = None
+            continue
+        if not chunk:
+            flush(); mode = None; next_address = None
+            dump_section = False
+            continue
+        new_mode = "addressed" if match else "plain"
+        if mode != new_mode:
+            flush()
+        mode = new_mode
+        next_address = address + len(chunk) if match else None
         current.extend(chunk)
     flush()
-    return runs
+    return result
+
+
+def dump_candidates(text: str) -> list[bytes]:
+    """Compatibility helper: discarded dump-shaped content is always an error."""
+    result = parse_dump_report(text)
+    if result.dropped:
+        raise ValueError(result.diagnostic())
+    return result.candidates
 
 
 def claimed_bytes(text: str) -> bytes | None:
@@ -146,8 +212,13 @@ def declared_file_offset(text: str) -> int | None:
 
 
 def main(argv: list[str]) -> int:
+    parsed = DumpParse()
+
+    def verdict(message: str, *, stderr: bool = False):
+        print(f"   {message}; {parsed.diagnostic()}", file=sys.stderr if stderr else sys.stdout)
+
     if len(argv) < 2:
-        print("usage: free_body_check.py <report.md> [--ovr PATH]", file=sys.stderr)
+        verdict("usage: free_body_check.py <report.md> [--ovr PATH]", stderr=True)
         return 2
     rep = Path(argv[1])
     ovr = DEFAULT_OVR
@@ -164,45 +235,47 @@ def main(argv: list[str]) -> int:
         else:
             rest = rest[1:]
     if not rep.exists():
-        print(f"REFUSED: no report at {rep}", file=sys.stderr)
-        return 2
-    if not ovr.exists():
-        print(f"REFUSED: no game file at {ovr}", file=sys.stderr)
+        verdict(f"REFUSED: no report at {rep}", stderr=True)
         return 2
     text = rep.read_text(errors="replace")
+    parsed = parse_dump_report(text)
+    if not ovr.exists():
+        verdict(f"REFUSED: no game file at {ovr}", stderr=True)
+        return 2
     data = ovr.read_bytes()
     print(f"== {rep}")
+    if parsed.noise_runs:
+        print(f"   WARNING: ignored ambiguous-prose noise runs: {parsed.noise_runs}.")
     off = declared_file_offset(text)
     if off is None or (expect is not None and off != expect):
-        print("   OFFSET UNRESOLVED: require exactly one FILE OFFSET declaration: "
+        verdict("OFFSET UNRESOLVED: require exactly one FILE OFFSET declaration: "
               "FILE OFFSET: <decimal> (0x<hex>), with both values equal to the expected body offset.")
         return 1
-    try:
-        candidates = dump_candidates(text)
-    except ValueError as exc:
-        print(f"   BYTES DIFFER: {exc}; malformed addressed dump.")
+    if parsed.dropped:
+        verdict("BYTES DIFFER: discarded dump-shaped content is an error")
         return 1
+    candidates = parsed.candidates
     if not candidates:
-        print("   NO DUMP: the report printed no byte dump, so nothing is checkable.")
+        verdict("NO DUMP: the report printed no byte dump, so nothing is checkable.")
         return 2
     for cb in candidates:
         got = data[off:off + len(cb)]
         if got != cb:
             for i, (x, y) in enumerate(zip(got, cb)):
                 if x != y:
-                    print(f"   BYTES DIFFER: first difference at +{i} (offset {off + i}): "
+                    verdict(f"BYTES DIFFER: first difference at +{i} (offset {off + i}): "
                           f"file {x:02x}, claimed {y:02x}.")
                     print(f"      file   : {' '.join(f'{v:02x}' for v in got[:48])}")
                     print(f"      claimed: {' '.join(f'{v:02x}' for v in cb[:48])}")
                     return 1
-            print(f"   BYTES DIFFER: dump extends outside the file ({len(got)} vs {len(cb)}).")
+            verdict(f"BYTES DIFFER: dump extends outside the file ({len(got)} vs {len(cb)}).")
             return 1
     cb = max(candidates, key=len)
     if expect_len is not None and len(cb) < expect_len:
-        print(f"   PREFIX ONLY: dump has {len(cb)} of the expected {expect_len} bytes "
+        verdict(f"PREFIX ONLY: dump has {len(cb)} of the expected {expect_len} bytes "
               "(matching the file); not a decode.")
         return 1
-    print(f"   BYTES MATCH: {len(cb)} bytes at {off} are byte-identical to {ovr.name}.")
+    verdict(f"BYTES MATCH: {len(cb)} bytes at {off} are byte-identical to {ovr.name}.")
     return 0
 
 

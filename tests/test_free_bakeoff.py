@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from test_free_body_check import reviewer_cases
+from test_free_body_check import reviewer_cases, reviewer_v2_cases
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 BODY = bytes(range(0x10, 0x20))
@@ -111,6 +111,46 @@ class BakeoffTests(unittest.TestCase):
 
     def test_reviewer_strict_correct_plus_old_wrong_separated(self):
         self.reviewer_case("strict-correct-plus-old-wrong-separated", "WRONG OR UNRESOLVED OFFSET")
+
+
+    def test_short_addressed_conflicts_never_verify_in_either_order(self):
+        media = self.repo / "resources/DOS/POOLRAD/GAME.OVR"
+        media.write_bytes(bytes(range(256)) * 4)
+        body = media.read_bytes()[257:274]
+        full = "00000101: " + body.hex(" ")
+        for bad in ("00000101: ff ee dd", "00000101: ff ee dd cc bb",
+                    "row 00000101: ff ee dd"):
+            for first, second in ((full, bad), (bad, full)):
+                with self.subTest(bad=bad, first=first):
+                    shutil.rmtree(self.root / "data", ignore_errors=True)
+                    report = "FILE OFFSET: 257 (0x101)\n" + first + "\n\n" + second + "\n"
+                    self.assert_result(self.invoke(report_text=report, spec="OVL_0025_06AF:257:17"), "DIFFERS")
+                    self.assertNotIn("VERIFIED", self.table)
+                    checks = list((self.root / "data/bakeoff").glob("*/*/*.check"))
+                    self.assertIn("dropped: 0", checks[0].read_text())
+
+    def test_exact_v2_reviewer_short_conflict_never_verifies(self):
+        (self.repo / "resources/DOS/POOLRAD/GAME.OVR").write_bytes(bytes(range(256)) * 4)
+        for name, (text, verdict) in reviewer_v2_cases().items():
+            if not name.startswith("C-"):
+                continue
+            with self.subTest(name=name):
+                shutil.rmtree(self.root / "data", ignore_errors=True)
+                self.assert_result(self.invoke(report_text=text, spec="OVL_0025_06AF:257:17"), "DIFFERS")
+
+    def test_discarded_addressed_content_never_verifies(self):
+        result = self.invoke(dump="00000050: " + BODY.hex(" ") + "\n\n00000050: zz")
+        self.assert_result(result, "DIFFERS")
+        checks = list((self.root / "data/bakeoff").glob("*/*/*.check"))
+        self.assertIn("dropped: 1", checks[0].read_text())
+        self.assertIn("address 0x50", checks[0].read_text())
+
+    def test_noise_warning_preserves_valid_verdict_and_count(self):
+        text = "FILE OFFSET: 80 (0x50)\nbe careful here\n\n" + BODY.hex(" ") + "\n"
+        self.assert_result(self.invoke(report_text=text), "VERIFIED")
+        checks = list((self.root / "data/bakeoff").glob("*/*/*.check"))
+        self.assertIn("WARNING", checks[0].read_text())
+        self.assertIn("dropped: 0; noise: 1", checks[0].read_text())
 
 
 if __name__ == "__main__":

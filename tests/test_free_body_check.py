@@ -241,5 +241,138 @@ class StrictHeaderAndDumpTests(unittest.TestCase):
                                     code, "BYTES MATCH" if code == 0 else "OFFSET UNRESOLVED")
 
 
+def reviewer_v2_cases():
+    """Exact six cases from codex-review-d i24878/new_controls.py."""
+    body = (bytes(range(256)) * 4)[257:274]
+    header = "FILE OFFSET: 257 (0x101)\n"
+    plain = body.hex(" ") + "\n"
+    return {
+        "A-tabbed-competing-declaration": (header + "FILE\tOFFSET: 258\nBYTE DUMP:\n" + plain, "OFFSET UNRESOLVED"),
+        "A-markdown-competing-declaration": ("**FILE OFFSET:** 258\n" + header + plain, "OFFSET UNRESOLVED"),
+        "B-strict-positive-fixture-tail-mutation": (header + body[:-1].hex(" ") + " ff\n", "BYTES DIFFER"),
+        "B-strict-short-fixture-wrong-prefix": (header + "ff " + body[1:6].hex(" ") + "\n", "BYTES DIFFER"),
+        "C-conflicting-addressed-three-byte-fragment": (header + "00000101: " + body.hex(" ") + "\n\n00000101: ff ee dd\n", "BYTES DIFFER"),
+        "C-conflicting-addressed-five-byte-fragment-first": (header + "00000101: ff ee dd cc bb\n\n00000101: " + body.hex(" ") + "\n", "BYTES DIFFER"),
+    }
+
+
+class DumpAccountingTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tmp = Path(directory.name)
+        self.ovr = self.tmp / "GAME.OVR"
+        self.ovr.write_bytes(bytes(range(256)) * 4)
+        self.body = self.ovr.read_bytes()[257:274]
+        self.full = "00000101: " + self.body.hex(" ")
+
+    def judge(self, dump, header="FILE OFFSET: 257 (0x101)", length=17):
+        report = self.tmp / "report.md"
+        report.write_text(header + "\n" + dump + "\n")
+        return run(TOOLS / "free_body_check.py", report, "--ovr", self.ovr,
+                   "--expect-offset", 257, "--expect-length", length)
+
+    def assert_verdict(self, result, code, verdict, dropped=0, noise=0):
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        lines = [line for line in result.stdout.splitlines() if verdict in line]
+        self.assertEqual(len(lines), 1, result.stdout)
+        self.assertIn(f"dropped: {dropped}", lines[0])
+        self.assertIn(f"noise: {noise}", lines[0])
+        if code:
+            self.assertNotIn("BYTES MATCH", result.stdout)
+
+    def test_exact_six_v2_reviewer_cases(self):
+        for name, (text, verdict) in reviewer_v2_cases().items():
+            with self.subTest(name=name):
+                header, dump = text.split("\n", 1)
+                self.assert_verdict(self.judge(dump, header=header), 1, verdict)
+
+    def test_short_conflicting_candidates_never_rescued_in_either_order(self):
+        for size in range(1, 6):
+            for prefix in ("00000101: ", "row 00000101: ", "Bytes: ", ""):
+                bad = prefix + bytes([255] * size).hex(" ")
+                for first, second in ((self.full, bad), (bad, self.full)):
+                    with self.subTest(size=size, prefix=prefix, first=first):
+                        self.assert_verdict(self.judge(first + "\n\n" + second), 1, "BYTES DIFFER")
+
+    def test_short_matching_candidates_are_retained(self):
+        for size in range(1, 6):
+            for prefix in ("00000101: ", "Bytes: ", ""):
+                short = prefix + self.body[:size].hex(" ")
+                with self.subTest(size=size, prefix=prefix):
+                    self.assert_verdict(self.judge(short), 1, "PREFIX ONLY")
+                    self.assert_verdict(self.judge(short + "\n\n" + self.full), 0, "BYTES MATCH")
+
+    def test_one_byte_body_is_checkable(self):
+        self.assert_verdict(self.judge("00000101: 01", length=1), 0, "BYTES MATCH")
+
+    def test_explicit_inline_labels_start_independent_candidates(self):
+        full = "Bytes: " + self.body.hex(" ")
+        self.assert_verdict(self.judge(full + "\nBytes: 01 02 03"), 0, "BYTES MATCH")
+        self.assert_verdict(self.judge(full + "\nBytes: ff ee dd"), 1, "BYTES DIFFER")
+
+    def test_malformed_explicit_rows_are_counted_errors_in_both_orders(self):
+        for bad in ("00000101:", "00000101: zz", "00000101: 01 02 zz", "row 00000101: zz"):
+            for dump in (self.full + "\n\n" + bad, bad + "\n\n" + self.full):
+                with self.subTest(dump=dump):
+                    result = self.judge(dump)
+                    self.assert_verdict(result, 1, "BYTES DIFFER", dropped=1)
+                    self.assertIn("address 0x101", result.stdout)
+                    self.assertIn("report offset", result.stdout)
+                    self.assertIn("line ", result.stdout)
+
+    def test_multiple_dropped_rows_name_every_offset(self):
+        result = self.judge(self.full + "\n\n00000101: zz\n00000200:")
+        self.assert_verdict(result, 1, "BYTES DIFFER", dropped=2)
+        self.assertIn("address 0x101", result.stdout)
+        self.assertIn("address 0x200", result.stdout)
+
+    def test_gap_and_overlap_have_counts_and_offsets(self):
+        for address in (0x101, 0x109, 0x111):
+            dump = "00000101: " + self.body[:8].hex(" ") + f"\n{address:08x}: " + self.body[8:].hex(" ")
+            if address == 0x109:  # positive continuity control
+                self.assert_verdict(self.judge(dump), 0, "BYTES MATCH")
+            else:
+                result = self.judge(dump)
+                self.assert_verdict(result, 1, "BYTES DIFFER", dropped=1)
+                self.assertIn("gap/overlap", result.stdout)
+                self.assertIn(f"address 0x{address:x}", result.stdout)
+
+    def test_malformed_dump_shaped_and_labelled_runs_are_errors(self):
+        for bad in ("Bytes: zz", "Bytes: 01 02 zz", "BYTE DUMP:\n01 02 zz",
+                    "01 02 03 04 05 06 zz"):
+            with self.subTest(bad=bad):
+                result = self.judge(self.full + "\n\n" + bad)
+                self.assert_verdict(result, 1, "BYTES DIFFER", dropped=1)
+                self.assertIn("report offset", result.stdout)
+
+    def test_ambiguous_prose_noise_is_counted_warning(self):
+        result = self.judge("be careful here\nad hoc explanation\n\n" + self.full)
+        self.assert_verdict(result, 0, "BYTES MATCH", noise=2)
+        self.assertIn("WARNING: ignored ambiguous-prose noise runs: 2", result.stdout)
+
+    def test_noise_alone_cannot_supply_dump_evidence(self):
+        self.assert_verdict(self.judge("be careful here"), 2, "NO DUMP", noise=1)
+
+    def test_unresolved_offset_still_reports_discarded_content(self):
+        result = self.judge("00000101: zz", header="FILE OFFSET: 257")
+        self.assert_verdict(result, 1, "OFFSET UNRESOLVED", dropped=1)
+        self.assertIn("address 0x101", result.stdout)
+
+    def test_every_verdict_has_discard_count(self):
+        cases = [(self.full, "FILE OFFSET: 257 (0x101)", 0, "BYTES MATCH"),
+                 ("00000101: ff", "FILE OFFSET: 257 (0x101)", 1, "BYTES DIFFER"),
+                 ("00000101: 01", "FILE OFFSET: 257 (0x101)", 1, "PREFIX ONLY"),
+                 ("cannot confirm", "FILE OFFSET: 257 (0x101)", 2, "NO DUMP"),
+                 (self.full, "FILE OFFSET: 257", 1, "OFFSET UNRESOLVED")]
+        for dump, header, code, verdict in cases:
+            with self.subTest(verdict=verdict):
+                self.assert_verdict(self.judge(dump, header=header), code, verdict)
+        missing = run(TOOLS / "free_body_check.py", self.tmp / "missing.md", "--ovr", self.ovr)
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("REFUSED", missing.stderr)
+        self.assertIn("dropped: 0", missing.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
