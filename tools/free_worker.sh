@@ -26,14 +26,14 @@ If you cannot confirm something, write 'cannot confirm' and say why. A confident
 Keep it under 400 words."
 
 echo "worker $BODY on $MODEL at $(date '+%F %T %Z')" >"$OUT/run.log"
-( cd "$REPO" && nice -n 15 timeout 900 "$HERE/tools/free_sandbox.sh" "$OUT" pi -p -ne --model "$MODEL" "$PROMPT" ) >"$OUT/report.md" 2>>"$OUT/run.log"
+( cd "$REPO" && nice -n 15 timeout 900 env POOLRAD_REPO="$REPO" "$HERE/tools/free_sandbox.sh" "$OUT" pi -p -ne --model "$MODEL" "$PROMPT" ) >"$OUT/report.md" 2>>"$OUT/run.log"
 rc=$?
 if [ ! -s "$OUT/report.md" ]; then
   echo "FAILED: model produced nothing (exit $rc)" | tee -a "$OUT/run.log"
   exit 2
 fi
 
-python3 "$HERE/tools/free_verify_citations.py" "$BODY" "$OUT/report.md" >"$OUT/citations.txt" 2>&1
+POOLRAD_REPO="$REPO" python3 "$HERE/tools/free_verify_citations.py" "$BODY" "$OUT/report.md" >"$OUT/citations.txt" 2>&1
 cits=$?
 EXPECT=$(cd "$REPO" && python3 - "$BODY" <<'PYEOF'
 import json,sys
