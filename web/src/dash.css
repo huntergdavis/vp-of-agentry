@@ -3,28 +3,28 @@
    /dash/... routes, so a framed dashboard and the desk never drift apart. */
 
 .dash-root {
-  --dash-bg: #11111b;
-  --dash-fg: #cdd6f4;
-  --dash-fg-dim: #a6adc8;
-  --dash-panel: #181825;
-  --dash-panel-2: #1e1e2e;
-  --dash-border: #313244;
-  --dash-border-2: #45475a;
-  --dash-muted: #a6adc8;
-  --dash-accent: #89b4fa;
-  --dash-purple: #cba6f7;
-  --dash-green: #a6e3a1;
-  --dash-yellow: #e9d07a;
-  --dash-red: #f38ba8;
-  --dash-orange: #fab387;
-  --dash-teal: #94e2d5;
+  --dash-bg: var(--bg);
+  --dash-fg: var(--ink);
+  --dash-fg-dim: var(--muted);
+  --dash-panel: var(--surface);
+  --dash-panel-2: var(--surface-raised);
+  --dash-border: var(--border);
+  --dash-border-2: var(--border-strong);
+  --dash-muted: var(--muted);
+  --dash-accent: var(--accent);
+  --dash-purple: var(--purple);
+  --dash-green: var(--success);
+  --dash-yellow: var(--warning);
+  --dash-red: var(--danger);
+  --dash-orange: var(--orange);
+  --dash-teal: var(--teal);
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
   background: var(--dash-bg);
   color: var(--dash-fg);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-dashboard);
   font-size: 14px;
   line-height: 1.5;
 }
@@ -58,7 +58,7 @@
 .dash-nav-mark {
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   display: grid;
   place-items: center;
   background: var(--dash-panel-2);
@@ -73,8 +73,8 @@
   text-decoration: none;
   font-size: 11.5px;
   padding: 4px 9px;
-  border-radius: 7px;
-  border: 1px solid transparent;
+  border-radius: var(--radius-7px);
+  border: 1px solid var(--clear);
 }
 .dash-nav-links a:hover { background: var(--dash-panel-2); color: var(--dash-fg); }
 .dash-nav-links a[aria-current="page"] {
@@ -123,7 +123,7 @@
 /* Buttons follow the herdr control shape. */
 .dash-root button {
   font-family: inherit;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--dash-border-2);
   background: var(--dash-panel-2);
   color: var(--dash-fg);
@@ -136,7 +136,7 @@
 .dash-root .dash-primary {
   background: var(--dash-accent);
   border-color: var(--dash-accent);
-  color: #10131f;
+  color: var(--accent-contrast);
 }
 
 /* Status chips: one per data source, green when the read succeeded. */
@@ -145,20 +145,20 @@
   font-size: 9.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  border-radius: 999px;
+  border-radius: var(--radius-999px);
   padding: 3px 8px;
   border: 1px solid var(--dash-border-2);
   background: var(--dash-panel-2);
   color: var(--dash-muted);
 }
-.dash-chip.ok { color: var(--dash-green); border-color: #3f5d4a; background: #16241c; }
-.dash-chip.bad { color: var(--dash-red); border-color: #6a3b48; background: #241a1f; }
+.dash-chip.ok { color: var(--dash-green); border-color: var(--dash-chip-border); background: var(--dash-chip-surface); }
+.dash-chip.bad { color: var(--dash-red); border-color: var(--dash-chip-border-2); background: var(--dash-chip-surface-2); }
 
 /* Panels and figures. */
 .dash-panel {
   background: var(--dash-panel);
   border: 1px solid var(--dash-border);
-  border-radius: 12px;
+  border-radius: var(--radius-12px);
   padding: 14px 16px;
   min-width: 0;
 }
@@ -176,7 +176,7 @@
 .dash-stat {
   background: var(--dash-panel);
   border: 1px solid var(--dash-border);
-  border-radius: 12px;
+  border-radius: var(--radius-12px);
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -211,37 +211,37 @@
 }
 .dash-root th, .dash-root td { border-bottom: 1px solid var(--dash-border); padding: 7px 6px; vertical-align: top; }
 .dash-root td small { display: block; font-size: 10px; color: var(--dash-muted); }
-.dash-root tbody tr:hover { background: #1c1c2c; }
+.dash-root tbody tr:hover { background: var(--dash-root-surface); }
 
 .dash-empty, .dash-error {
-  border-radius: 12px;
+  border-radius: var(--radius-12px);
   padding: 18px 20px;
   font-size: 13px;
   border: 1px solid var(--dash-border);
   background: var(--dash-panel);
   color: var(--dash-muted);
 }
-.dash-error { border-color: #6a3b48; background: #241a1f; color: #f5c2e7; }
+.dash-error { border-color: var(--dash-chip-border-2); background: var(--dash-chip-surface-2); color: var(--dash-error-ink); }
 .dash-error button { margin-left: 10px; }
 .dash-limits { color: var(--dash-muted); font-size: 11px; line-height: 1.6; margin: 16px 0 0; }
 .dash-primary-link {
   display: inline-block;
   background: var(--dash-accent);
-  color: #10131f;
-  border-radius: 8px;
+  color: var(--accent-contrast);
+  border-radius: var(--radius);
   padding: 9px 14px;
   font-size: 12.5px;
   font-weight: 800;
   text-decoration: none;
 }
-.dash-primary-link:hover { background: #9dc0fb; }
+.dash-primary-link:hover { background: var(--dash-primary-link-surface); }
 
 /* Big completion figures (Poolrad). */
 .dash-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .dash-figure {
   background: var(--dash-panel);
   border: 1px solid var(--dash-border);
-  border-radius: 14px;
+  border-radius: var(--radius-14px);
   padding: 20px 22px;
 }
 .dash-figure .num {
@@ -261,8 +261,8 @@
   margin-top: 10px;
 }
 .dash-figure .sub { font-size: 12.5px; color: var(--dash-muted); margin-top: 3px; }
-.dash-track { height: 8px; border-radius: 999px; background: var(--dash-panel-2); overflow: hidden; margin-top: 14px; }
-.dash-track i { display: block; height: 100%; background: var(--dash-green); border-radius: 999px; }
+.dash-track { height: 8px; border-radius: var(--radius-999px); background: var(--dash-panel-2); overflow: hidden; margin-top: 14px; }
+.dash-track i { display: block; height: 100%; background: var(--dash-green); border-radius: var(--radius-999px); }
 .dash-evidence {
   margin: 16px 0 0;
   padding-top: 13px;
@@ -280,7 +280,7 @@
   gap: 3px 12px;
   background: var(--dash-panel-2);
   border: 1px solid var(--dash-border);
-  border-radius: 9px;
+  border-radius: var(--radius-9px);
   padding: 9px 11px;
 }
 .dash-health span { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dash-muted); }
@@ -294,7 +294,7 @@
   border: 1px solid var(--dash-border);
   box-shadow: none !important;
 }
-.dash-root .message-wrap.owner .cs-message__content { background: #1f2a3a !important; }
+.dash-root .message-wrap.owner .cs-message__content { background: var(--dash-root-surface-2) !important; }
 .dash-root .message-meta, .dash-root .message-meta strong { color: var(--dash-muted); }
 .dash-root .conversation { background: var(--dash-bg); }
 .dash-root .composer { background: var(--dash-panel); border-top: 1px solid var(--dash-border); box-shadow: none; }
@@ -303,7 +303,7 @@
   border: 1px solid var(--dash-border-2);
   color: var(--dash-fg);
 }
-.dash-root .editor:focus { border-color: var(--dash-accent); box-shadow: 0 0 0 3px #89b4fa2b; }
+.dash-root .editor:focus { border-color: var(--dash-accent); box-shadow: var(--dash-root-shadow); }
 .dash-root .composer-footer { color: var(--dash-muted); }
 .dash-root .toolbar button { color: var(--dash-muted); }
 .dash-root .toolbar button:hover { background: var(--dash-panel-2); }
@@ -315,17 +315,17 @@
   color: var(--dash-fg);
 }
 .dash-root .search-modal, .dash-root .settings-modal { background: var(--dash-panel); color: var(--dash-fg); }
-.dash-root .search-results .search-result { background: transparent; color: var(--dash-fg); }
+.dash-root .search-results .search-result { background: var(--clear); color: var(--dash-fg); }
 .dash-root .search-results .search-result:hover { background: var(--dash-panel-2); }
 .dash-root .search-results .search-result span { color: var(--dash-muted); }
 .dash-root .search-head, .dash-root .search-head button { border-color: var(--dash-border); background: var(--dash-panel-2); color: var(--dash-fg); }
-.dash-root .search-head input { background: transparent; color: var(--dash-fg); }
+.dash-root .search-head input { background: var(--clear); color: var(--dash-fg); }
 
 .dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .dash-reference {
   margin: 14px 0 0;
   border: 1px solid var(--dash-border);
-  border-radius: 12px;
+  border-radius: var(--radius-12px);
   background: var(--dash-panel);
   padding: 10px 14px;
   color: var(--dash-fg-dim);
@@ -343,13 +343,13 @@
 .dash-root .game-type input, .dash-root .game-saves input, .dash-root .game-saves select,
 .dash-root .game-chat-input textarea { background: var(--dash-panel-2); border-color: var(--dash-border-2); color: var(--dash-fg); }
 .dash-root .game-chat-actions button:not(.primary) { background: var(--dash-panel-2); border-color: var(--dash-border-2); color: var(--dash-fg); }
-.dash-root iframe { width: 100%; flex: 1; min-height: 0; border: 0; background: #0b1116; }
+.dash-root iframe { width: 100%; flex: 1; min-height: 0; border: 0; background: var(--herdr-webui-view-surface); }
 .dash-root .game-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .dash-root .game-actions button {
   border: 1px solid var(--dash-border-2);
   background: var(--dash-panel-2);
   color: var(--dash-fg);
-  border-radius: 7px;
+  border-radius: var(--radius-7px);
   padding: 5px 10px;
   font-size: 11.5px;
   font-weight: 700;
@@ -372,29 +372,29 @@
 /* The password UI follows the herdr login look, framed or standalone. */
 .login-shell {
   min-height: 100vh;
-  background: #11111b;
-  color: #cdd6f4;
+  background: var(--bg);
+  color: var(--ink);
   display: grid;
   place-items: center;
   padding: 20px;
 }
 .login-card {
-  background: #181825;
-  border: 1px solid #313244;
-  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-16px);
   padding: 28px;
   width: min(400px, 100%);
-  box-shadow: 0 20px 60px #00000059;
+  box-shadow: var(--login-card-shadow-2);
 }
-.login-card .brand-mark { background: #1e1e2e; border: 1px solid #313244; color: #89b4fa; }
-.login-card .eyebrow { color: #89b4fa; margin-top: 22px; }
-.login-card h1 { color: #cdd6f4; }
-.login-card p { color: #a6adc8; }
-.login-card label { color: #a6adc8; }
-.login-card input { background: #1e1e2e; border-color: #45475a; color: #cdd6f4; }
-.login-card input:focus { border-color: #89b4fa; }
-.login-card .primary { background: #89b4fa; color: #11111b; }
-.login-card .primary:hover { background: #9dc0fb; }
+.login-card .brand-mark { background: var(--surface-raised); border: 1px solid var(--border); color: var(--accent); }
+.login-card .eyebrow { color: var(--accent); margin-top: 22px; }
+.login-card h1 { color: var(--ink); }
+.login-card p { color: var(--muted); }
+.login-card label { color: var(--muted); }
+.login-card input { background: var(--surface-raised); border-color: var(--border-strong); color: var(--ink); }
+.login-card input:focus { border-color: var(--accent); }
+.login-card .primary { background: var(--accent); color: var(--bg); }
+.login-card .primary:hover { background: var(--dash-primary-link-surface); }
 
 /* The owner overview has three short sections, with reference tables closed by default. */
 .ops-body { flex: 0 1 auto; }
@@ -419,10 +419,10 @@
 
 /* Terminals must scroll inside the viewport; the root intentionally clips overflow. */
 .fleet-body > .fleet-project { margin: 4px 0; }
-.dash-terminal { margin-top: 16px; padding: 14px; border: 1px solid var(--dash-border); border-radius: 8px; }
+.dash-terminal { margin-top: 16px; padding: 14px; border: 1px solid var(--dash-border); border-radius: var(--radius); }
 .dash-terminal h2 { font-size: 16px; margin: 0 0 12px; }
 .dash-terminal form { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.dash-terminal textarea { width: 100%; min-height: 88px; padding: 10px; resize: vertical; background: var(--dash-panel); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: 6px; }
+.dash-terminal textarea { width: 100%; min-height: 88px; padding: 10px; resize: vertical; background: var(--dash-panel); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: var(--radius-6px); }
 .dash-terminal-text { max-height: 55vh; overflow: auto; white-space: pre; padding: 12px; border: 1px solid var(--dash-border); background: var(--dash-panel); font-size: 12px; line-height: 1.45; }
 .dash-terminal .dash-error, .dash-terminal .dash-muted { overflow-wrap: anywhere; }
 .ops-poolrad { margin: 10px 0 !important; padding: 8px 0; border-top: 1px solid var(--dash-border); overflow-wrap: anywhere; }
@@ -433,16 +433,16 @@
 .ops-reference td { padding: 6px 8px; font-size: 12px; vertical-align: top; }
 .ops-reference td small { display: block; color: var(--dash-muted); }
 .conversation, .game-chat-log { overflow-anchor: none; }
-.chat-new-messages { align-self: center; flex: none; margin: 6px; padding: 8px 14px; border: 1px solid var(--dash-border); border-radius: 16px; background: var(--dash-panel); color: var(--dash-accent); }
+.chat-new-messages { align-self: center; flex: none; margin: 6px; padding: 8px 14px; border: 1px solid var(--dash-border); border-radius: var(--radius-16px); background: var(--dash-panel); color: var(--dash-accent); }
 .dash-nav-right { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.dock-trigger { padding: 5px 8px; border: 1px solid var(--dash-border); border-radius: 6px; background: var(--dash-panel); color: var(--dash-fg); font-size: 12px; }
+.dock-trigger { padding: 5px 8px; border: 1px solid var(--dash-border); border-radius: var(--radius-6px); background: var(--dash-panel); color: var(--dash-fg); font-size: 12px; }
 .dock-trigger kbd { margin-left: 6px; color: var(--dash-muted); }
-.message-dock { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid var(--dash-border); border-radius: 12px; background: var(--dash-panel); color: var(--dash-fg); }
-.message-dock::backdrop { background: #0009; }
+.message-dock { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid var(--dash-border); border-radius: var(--radius-12px); background: var(--dash-panel); color: var(--dash-fg); }
+.message-dock::backdrop { background: var(--message-dock-surface); }
 .message-dock header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .message-dock h2 { font-size: 18px; margin: 0; }
 .message-dock form, .message-dock label { display: flex; flex-direction: column; gap: 8px; }
 .message-dock form { margin-top: 16px; }
-.message-dock textarea, .message-dock select { width: 100%; padding: 10px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: 6px; font: inherit; }
-.message-dock button { padding: 8px 12px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: 6px; }
+.message-dock textarea, .message-dock select { width: 100%; padding: 10px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: var(--radius-6px); font: inherit; }
+.message-dock button { padding: 8px 12px; background: var(--dash-bg); color: var(--dash-fg); border: 1px solid var(--dash-border); border-radius: var(--radius-6px); }
 .message-dock a { color: var(--dash-accent); }
