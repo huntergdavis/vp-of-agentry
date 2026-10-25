@@ -103,6 +103,48 @@ The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the defau
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
+## Play: original or replacement build
+
+`VP_PLAY_BUILD=original` is the default. It launches the original `START.EXE`
+using `VP_DOSBOX_X` (default `dosbox-x`). To select the experimental hybrid,
+set `VP_PLAY_BUILD=replacement` in the server environment and restart the server.
+The Play status API reports the selected `build`. Switching the flag back to
+`original` restores the original launch path.
+
+Replacement mode uses these private files under the configured Poolrad checkout:
+
+- `resources/hybrid/bin/dosbox-x`, overridden by `VP_REPLACEMENT_DOSBOX_X`;
+- `resources/hybrid/registry_all.tsv`, overridden by `VP_REPLACEMENT_REGISTRY`;
+- `resources/hybrid/play-dispatch.txt`, overridden by `VP_REPLACEMENT_DISPATCH`.
+
+The dispatch file contains one comma-separated line of supported `RES_…` / `OVL_…`
+IDs from the measured hybrid build. Each selected ID requires exactly one
+registry row: a four-digit hexadecimal IP matching the ID's entry offset,
+a positive signature length up to 256 bytes, equal-length hexadecimal
+signature/mask bytes, and a `unique` marker. Masks use `00`/`ff` bytes and
+must check at least one byte. Missing, duplicated or malformed selected rows
+fail before display or emulator launch. Registry input is bytes separated only
+by LF, with a 4094-byte maximum physical line. Data rows permit ASCII letters,
+digits, underscore, equals, comma, hyphen and TAB; comments must begin with `#`
+and permit printable ASCII and TAB. CRLF, trailing spaces in data, NUL, BOM,
+non-ASCII bytes and other control separators are rejected. Accepted registry
+bytes are copied unchanged. Each run copies the registry and dispatch list,
+uses the normal CPU core and routed bus, and records hybrid logs in its private
+run directory. Both modes clear inherited hybrid and checkpoint controls,
+including test seed pins. Replacement mode still starts `START.EXE`; only the
+listed functions can run as C. Registry membership alone does not prove that
+the emulator implements an ID; use a dispatch list from the reviewed build.
+
+`tests/test_registry_agreement.py` compiles the pinned observer loader with the
+reusable `tests/support/cpp_format_probe.py` harness and synthetic inputs. It
+checks that Python acceptance implies the actual C++ loader reads exactly the
+selected row, including its IP, signature and mask. These tests require `c++`;
+missing compiler support fails the test rather than skipping the agreement gate.
+
+NOT verified by the selector tests: live desk audio/video, save-state migration
+between builds, replacement gameplay parity, or complete C execution. No
+production binary or service configuration is changed by this feature.
+
 ## Play: save states
 
 While a private run is live, the **Save states** row in **Play Poolrad** drives

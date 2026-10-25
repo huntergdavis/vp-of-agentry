@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import signal
 import subprocess
 import threading
@@ -43,7 +44,11 @@ class GameSession:
         self.sink_module: str | None = None
         self.sink_name: str | None = None
         self.active_slot = self.SAVE_SLOT_DEFAULT
-        self.dosbox_x = os.getenv("VP_DOSBOX_X", "dosbox-x")
+        self.play_build = os.getenv("VP_PLAY_BUILD", "original")
+        if self.play_build not in {"original", "replacement"}:
+            raise GameError("VP_PLAY_BUILD must be original or replacement")
+        self.dosbox_x = (os.getenv("VP_REPLACEMENT_DOSBOX_X", str(repo / "resources/hybrid/bin/dosbox-x"))
+                         if self.play_build == "replacement" else os.getenv("VP_DOSBOX_X", "dosbox-x"))
         self.log_files = []
 
     def _run(self, cmd: list[str], **kwargs):
@@ -63,6 +68,7 @@ class GameSession:
                 self._stop_locked()
             last = self.last_file.read_text().strip() if self.last_file.exists() else None
             return {"running": self.tmux_session is not None, "audio": self.sink_name is not None,
+                    "build": self.play_build,
                     "run_name": self.run_dir.name if self.run_dir else last}
 
     def _game_running(self) -> bool:
@@ -102,6 +108,7 @@ class GameSession:
             self.last_file.write_text(name + "\n")
             self.last_file.chmod(0o600)
             try:
+                play_env = self._play_environment(run_dir)
                 for n in range(90, 130):
                     if Path(f"/tmp/.X{n}-lock").exists() or Path(f"/tmp/.X11-unix/X{n}").exists():
                         continue
@@ -134,6 +141,7 @@ class GameSession:
                 except (OSError, subprocess.SubprocessError):
                     pass  # Video remains usable on a host without PulseAudio.
                 env = os.environ.copy()
+                env.update(play_env)
                 env.update({"DISPLAY": self.display, "XAUTHORITY": str(auth),
                             "SDL_AUDIODRIVER": "pulse" if self.sink_name else "dummy",
                             "XDG_CONFIG_HOME": str(run_dir / ".config"),
@@ -145,7 +153,7 @@ class GameSession:
                     (run_dir / key).mkdir(parents=True, exist_ok=True)
                 cmd = self._dosbox_command(run_dir)
                 session = "oracle"
-                env_args = [f"{key}={env[key]}" for key in ("DISPLAY", "XAUTHORITY", "SDL_AUDIODRIVER", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME")]
+                env_args = self._launch_env_args(env, play_env)
                 if self.sink_name:
                     env_args.append(f"PULSE_SINK={self.sink_name}")
                 command = "exec " + shlex.join(["env", *env_args, *cmd])
@@ -167,15 +175,93 @@ class GameSession:
                 raise GameError(f"Could not start Poolrad: {exc}") from exc
 
     def _dosbox_command(self, run_dir: Path) -> list[str]:
-        """Bubblewrap + DOSBox-X argv. VP_DOSBOX_X selects an alternate binary."""
+        """Both builds launch START.EXE; replacement additionally routes selected C bodies."""
         return ["bwrap", "--unshare-net", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
                 "--bind", str(run_dir), str(run_dir), "--chdir", str(run_dir),
                 self.dosbox_x, "-defaultconf", "-defaultmapper", "-nogui", "-nomenu", "-fastlaunch",
+                *(["-set", "cpu core=normal"] if self.play_build == "replacement" else []),
                 "-set", "sdl windowresolution=640x480",
                 "-set", f"dosbox saveslot={self.SAVE_SLOT_DEFAULT}",
                 "-set", "dosbox saveremark=false",
                 "-savedir", str(run_dir / ".dosbox-saves"),
                 "-c", f"mount c {run_dir}", "-c", "c:", "-c", "cd \\POOLRAD", "-c", "START"]
+
+    def _play_environment(self, run_dir: Path) -> dict[str, str]:
+        if self.play_build == "original":
+            return {}
+        registry = Path(os.getenv("VP_REPLACEMENT_REGISTRY", str(self.repo / "resources/hybrid/registry_all.tsv")))
+        dispatch_file = Path(os.getenv("VP_REPLACEMENT_DISPATCH", str(self.repo / "resources/hybrid/play-dispatch.txt")))
+        if not shutil.which(self.dosbox_x):
+            raise GameError("Replacement DOSBox-X binary is unavailable")
+        try:
+            registry_bytes = registry.read_bytes()
+            dispatch = dispatch_file.read_text().strip()
+        except (OSError, UnicodeError) as exc:
+            raise GameError("Replacement registry or dispatch list is unavailable") from exc
+        ids = dispatch.split(",")
+        if (not ids or any(not re.fullmatch(r"(?:RES|OVL)_[0-9A-F]{4}_[0-9A-F]{4}", name) for name in ids)
+                or len(set(ids)) != len(ids)):
+            raise GameError("Replacement dispatch list must name unique registry entries")
+        self._validate_replacement_registry(registry_bytes, ids)
+        copied = run_dir / "vp-replacement-registry.tsv"
+        copied.write_bytes(registry_bytes)
+        (run_dir / "vp-replacement-dispatch.txt").write_text(dispatch + "\n")
+        return {"PR_HYBRID_REGISTRY": str(copied), "PR_HYBRID_LOG": str(run_dir / "vp-replacement"),
+                "PR_HYBRID_DISPATCH": dispatch, "PR_HYBRID_BUS_MODE": "route"}
+
+    @staticmethod
+    def _validate_replacement_registry(data: bytes, selected: list[str]) -> None:
+        # Match the observer's physical LF framing, not Unicode splitlines or
+        # text-mode newline translation. Keep the copied bytes unchanged.
+        # The registry generator also emits count=..., '-' and comma-separated
+        # C symbols in unselected/metadata columns.
+        data_alphabet = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_=,-\t")
+        comment_alphabet = frozenset(range(32, 127)) | {9}
+        rows = {name: [] for name in selected}
+        for line in data.split(b"\n"):
+            # fgets(line, 4096, ...) must consume the complete physical line,
+            # including LF. A long comment must never expose a hidden row.
+            if len(line) > 4094:
+                raise GameError("Invalid replacement registry physical line length")
+            comment = line.startswith(b"#")
+            if not set(line) <= (comment_alphabet if comment else data_alphabet):
+                raise GameError("Invalid replacement registry byte outside format whitelist")
+            if comment or not line:
+                continue
+            row = line.decode("ascii").split("\t")
+            if row[0] in rows:
+                rows[row[0]].append(row)
+        for name, matches in rows.items():
+            if len(matches) != 1:
+                raise GameError(f"Replacement requires exactly one unique registry row for {name}")
+            row = matches[0]
+            if len(row) not in (6, 7) or row[5] != "unique":
+                raise GameError(f"Invalid replacement registry columns or uniqueness for {name}")
+            ip, length, signature, mask = row[1:5]
+            if not re.fullmatch(r"[0-9A-Fa-f]{4}", ip) or int(ip, 16) != int(name[-4:], 16):
+                raise GameError(f"Invalid replacement registry entry IP for {name}")
+            if not re.fullmatch(r"[1-9][0-9]{0,2}", length) or not 1 <= int(length) <= 256:
+                raise GameError(f"Invalid replacement registry signature length for {name}")
+            size = int(length)
+            if any(len(value) != size * 2 or not re.fullmatch(r"[0-9A-Fa-f]+", value)
+                   for value in (signature, mask)):
+                raise GameError(f"Invalid replacement registry signature or mask encoding for {name}")
+            mask_bytes = bytes.fromhex(mask)
+            if not any(mask_bytes) or not set(mask_bytes) <= {0, 255}:
+                raise GameError(f"Invalid replacement registry byte mask for {name}")
+
+    @staticmethod
+    def _launch_env_args(env: dict[str, str], play_env: dict[str, str]) -> list[str]:
+        # tmux can retain an older server environment. Clear known controls even
+        # when absent from this server process, plus every inherited test knob.
+        clear = {"PR_HYBRID_REGISTRY", "PR_HYBRID_LOG", "PR_HYBRID_DISPATCH",
+                 "PR_HYBRID_BUS_MODE", "PR_HYBRID_SEED_PIN", "PR_PARITY_TARGET", "PR_PARITY_PREFIX"}
+        clear.update(k for k in env if k.startswith(("PR_HYBRID_", "PR_PARITY_")))
+        args = [part for key in sorted(clear) for part in ("-u", key)]
+        args.extend(f"{key}={env[key]}" for key in ("DISPLAY", "XAUTHORITY", "SDL_AUDIODRIVER",
+                    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"))
+        args.extend(f"{key}={value}" for key, value in play_env.items())
+        return args
 
     @staticmethod
     def _x_ready(display: str, auth: Path) -> bool:
