@@ -93,14 +93,17 @@ class OpsBoardTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
+        budget = patch("ops_budget.read_usage", return_value=[])
+        budget.start()
+        self.addCleanup(budget.stop)
         self.conn = ops_metrics.connect(Path(self.temporary.name) / "ops.sqlite3")
         self.addCleanup(self.conn.close)
 
-    def test_three_sections_read_only_actionable_sources(self):
+    def test_compact_sections_read_only_actionable_sources(self):
         client = sample_client()
         board = ops_board.build(client, self.conn, now=NOW)
         self.assertEqual(EXPECTED_CALLS, {name for name, _ in client.calls})
-        self.assertEqual({"generated_at", "interval_s", "no_model", "brief", "attention", "reference"}, set(board))
+        self.assertEqual({"generated_at", "interval_s", "no_model", "brief", "attention", "reference", "budget"}, set(board))
         self.assertTrue(board["no_model"])
         self.assertEqual(1, board["brief"]["tasks"]["open"])
         self.assertEqual(1, board["brief"]["lanes"]["working"])

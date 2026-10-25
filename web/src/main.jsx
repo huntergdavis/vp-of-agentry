@@ -550,6 +550,38 @@ function Fleet({ standalone = false }) {
   </DashShell>;
 }
 
+function Budget({ data }) {
+  const percent = value => value == null ? 'unknown' : `${value.toFixed(1)}%`;
+  const time = value => value ? new Date(value).toLocaleString() : 'unknown';
+  return <section className="ops-budget" data-ops-section="budget">
+    <h2>Provider budgets</h2>
+    {data.error && <p className="dash-error">Budget source unavailable: {data.error}</p>}
+    {data.subscription_error && <p>{data.subscription_error}</p>}
+    {data.providers.map(provider => <div className="budget-provider" key={provider.provider}>
+      <div className="budget-provider-head"><strong>{provider.provider}</strong>
+        <span>{provider.subscription ? `$${provider.subscription.monthly_usd.toFixed(2)}/month subscription` : 'Subscription cost unknown'}</span>
+      </div>
+      <small title={`${provider.source} · generated ${data.generated_at}`}>
+        {provider.state} · measured {time(provider.measured_at)}
+        {provider.reason ? ` · ${provider.reason}` : ''}
+      </small>
+      {provider.subscription && <small>Subscription source: {provider.subscription.source} · observed {time(provider.subscription.observed_at)}</small>}
+      {provider.meaning === 'local_session_estimate'
+        ? <p>Local session estimate: {provider.local_estimate?.session_cost_usd == null ? 'unknown' : `$${provider.local_estimate.session_cost_usd.toFixed(4)}`} · {provider.local_estimate?.last_context_tokens?.toLocaleString() ?? 'unknown'} context tokens · {provider.local_estimate?.session_messages_with_usage?.toLocaleString() ?? 'unknown'} messages. Not plan quota or a bill.</p>
+        : provider.windows.length
+          ? <ul>{provider.windows.map((window, i) => <li key={i}>
+              <b>{window.name}</b>: <strong>{percent(window.percent_remaining)} left</strong> · {percent(window.percent_used)} used
+              · resets {time(window.resets_at)}{window.state !== 'ok' ? ` · ${window.state}` : ''}
+            </li>)}</ul>
+          : <p>No window data — remaining allowance unknown.</p>}
+      {provider.extra_usage && <p>Extra usage: {provider.extra_usage.used_credits ?? 'unknown'} / {provider.extra_usage.monthly_limit ?? 'unknown'} credits used
+        · utilization {percent(provider.extra_usage.utilization)}
+        · spend_limit_reached: {String(provider.extra_usage.spend_limit_reached ?? 'unknown')}</p>}
+    </div>)}
+    <p className="dash-muted">{data.dollars_reason}</p>
+  </section>;
+}
+
 function OpsBoard({ standalone = false }) {
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
@@ -589,6 +621,7 @@ function OpsBoard({ standalone = false }) {
           {owner?.state !== 'ok' && <p>Owner task assignments unavailable.</p>}
           {owner?.state === 'ok' && !owner.items.length && <p className="dash-muted">No tasks explicitly assigned to you.</p>}
         </section>
+        {board.budget && <Budget data={board.budget} />}
         <details className="ops-reference" data-ops-section="reference">
           <summary>Reference: tasks, lanes and schedules</summary>
           {alarms.length > 3 && <ul>{alarms.map((alarm, i) => <li key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</li>)}</ul>}

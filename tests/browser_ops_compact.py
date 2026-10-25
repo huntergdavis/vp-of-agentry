@@ -26,10 +26,10 @@ with sync_playwright() as p:
         page.locator("[data-ops-section=brief]").wait_for(timeout=45000)
         board = page.request.get(BASE + "/api/ops-board").json()
         assert board["no_model"] is True
-        assert set(board) - {"generated_at", "interval_s", "no_model", "refresh_error"} == {"brief", "attention", "reference"}
+        assert set(board) - {"generated_at", "interval_s", "no_model", "refresh_error"} == {"brief", "attention", "reference", "budget"}
         for source in board["brief"].values():
             assert source["source"] and source["state"] and source["generated_at"]
-        assert page.locator("[data-ops-section]").count() == 3
+        assert page.locator("[data-ops-section]").count() == 4
         assert page.locator("details").count() == 1
         assert page.locator("details[open]").count() == 0
         assert page.locator("table:visible").count() == 0
@@ -78,6 +78,6 @@ with sync_playwright() as p:
         page.get_by_text("No active agents right now.").wait_for()
         assert page.get_by_role("alert").count() == 0
         assert not errors, errors
-        print(f"{width}x{height}: live three-section API, closed reference, source failure, project grouping and terminal selection pass")
+        print(f"{width}x{height}: live four-section API, closed reference, source failure, project grouping and terminal selection pass")
         page.close()
     browser.close()
