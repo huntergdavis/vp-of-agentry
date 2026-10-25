@@ -528,7 +528,7 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
                     "only through a narrow desk token (send to listed panes). Issue one with "
                     "`dunkingsheep desk-token --panes ...` and put it in data/desk-token.txt "
                     "or DUNKINGSHEEP_DESK_TOKEN. Until then this lane cannot be typed into."))
-    argv = (["dunkingsheep", "owner", "push", pane, text] if route == "owner_push"
+    argv = (["dunkingsheep", "--json", "owner", "push", pane, text] if route == "owner_push"
             else ["dunkingsheep", "send", pane, text, "--desk-token", desk_token, "--json"]
             if route == "guarded"
             else None)
@@ -544,9 +544,22 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
     if route == "owner_push":
         if result.returncode != 0:
             raise HTTPException(status_code=409, detail=detail or "refused")
-        return {"ok": True, "pane": pane, "route": route, "outcome": "ok",
-                "detail": detail,
-                "note": "stored for the lane to drain; nothing typed into the pane"}
+        # Forward the daemon's own outcome (now "stored"), never synthesise "ok": a push is
+        # stored, not delivered, and the difference is the whole point of the field.
+        pushed = {}
+        try:
+            pushed = json.loads(result.stdout or "{}")
+        except ValueError:
+            pushed = {}
+        outcome = str(pushed.get("outcome") or "").strip().lower()
+        if not outcome:
+            raise HTTPException(status_code=502,
+                                detail=("the daemon stored the message but returned no outcome "
+                                        f"field, so the desk will not invent one: {detail[:160]}"))
+        return {"ok": True, "pane": pane, "route": route, "outcome": outcome,
+                "push_id": pushed.get("id"), "detail": detail,
+                "note": ("Stored for the lane to drain; nothing typed into the pane. "
+                         "'stored' is not 'read' - it has not arrived until the lane takes it.")}
 
     # Guarded: the daemon answers with a machine-readable outcome. Branch on THAT - not on
     # the exit code and not on prose. Two earlier versions of this function got the false
