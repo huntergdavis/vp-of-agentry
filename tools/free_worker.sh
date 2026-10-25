@@ -26,7 +26,7 @@ If you cannot confirm something, write 'cannot confirm' and say why. A confident
 Keep it under 400 words."
 
 echo "worker $BODY on $MODEL at $(date '+%F %T %Z')" >"$OUT/run.log"
-( cd "$REPO" && nice -n 15 timeout 900 pi -p -ne --model "$MODEL" "$PROMPT" ) >"$OUT/report.md" 2>>"$OUT/run.log"
+( cd "$REPO" && nice -n 15 timeout 900 "$HERE/tools/free_sandbox.sh" "$OUT" pi -p -ne --model "$MODEL" "$PROMPT" ) >"$OUT/report.md" 2>>"$OUT/run.log"
 rc=$?
 if [ ! -s "$OUT/report.md" ]; then
   echo "FAILED: model produced nothing (exit $rc)" | tee -a "$OUT/run.log"

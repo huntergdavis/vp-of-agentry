@@ -19,11 +19,12 @@ Exit codes: 0 all citations resolve, 1 at least one is false, 2 usage/body-parse
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("POOLRAD_REPO") or Path(__file__).resolve().parents[1])
 
 PATH_RE = re.compile(r"\b((?:docs|src|tools|tests|assets|data|resources)/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+)\b")
 # A path named INSIDE a search/probe command is not a claim about the repo; it is the model

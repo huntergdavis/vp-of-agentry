@@ -35,7 +35,7 @@ run_one() {
   local rep="$dir/$body.md"
   local t0 t1
   t0=$(date +%s)
-  ( cd "$REPO" && nice -n 15 timeout 600 pi -p -ne --model "$model" "$(PROMPT_FOR "$body" "$desc")" ) > "$rep" 2>"$dir/$body.err"
+  ( cd "$REPO" && nice -n 15 timeout 600 "$HERE/tools/free_sandbox.sh" "$dir" pi -p -ne --model "$model" "$(PROMPT_FOR "$body" "$desc")" ) > "$rep" 2>"$dir/$body.err"
   t1=$(date +%s)
   local verdict="EMPTY"
   if [ -s "$rep" ]; then

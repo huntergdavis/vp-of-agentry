@@ -12,6 +12,7 @@ reads those bytes from the game file itself, and compares. It prints one of
 
     BYTES MATCH        the dump is byte-identical to the file at the claimed offset
     BYTES DIFFER       shows the first differing byte, file value vs claimed value
+    PREFIX ONLY        the dump is shorter than --expect-length: bytes may match but it is not a decode
     NO DUMP            the report printed no checkable byte dump
     OFFSET UNRESOLVED  the claimed offset is outside the file
 
@@ -115,13 +116,21 @@ def main(argv: list[str]) -> int:
     if cb is None:
         print("   NO DUMP: the report printed no byte dump, so nothing is checkable.")
         return 2
+    claimed_has_expected = expect is not None and expect in offs
     if expect is not None:
-        offs = [expect] + [o for o in offs if o != expect]
+        # The body implies where its bytes live. A claimed offset that differs does not get
+        # a second chance: a model must not pass by naming the right bytes at a wrong place.
+        offs = [expect]
     if not offs:
         print(f"   OFFSET UNRESOLVED: {len(cb)} bytes claimed, no file offset found.")
         return 1
     # Try every offset the report names: a report may mention the overlay base before the
     # file offset, so the first number is not necessarily the subject.
+    if expect_len is not None and len(cb) < expect_len:
+        ok = 0 <= offs[0] and data[offs[0] : offs[0] + len(cb)] == cb
+        print(f"   PREFIX ONLY: dump has {len(cb)} of the expected {expect_len} bytes"
+              f" ({'matching the file' if ok else 'and they differ from the file'}); not a decode.")
+        return 1
     for cand in offs:
         if 0 <= cand and data[cand : cand + len(cb)] == cb:
             print(f"   BYTES MATCH: {len(cb)} bytes at {cand} are byte-identical to {ovr.name}.")
