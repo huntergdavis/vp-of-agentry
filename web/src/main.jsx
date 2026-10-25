@@ -28,7 +28,6 @@ const api = async (path, options = {}) => {
 const DASH_ROUTES = {
   cos: { eyebrow: 'CONVERSATION', title: 'Chief of Agent Staff', subtitle: 'Ask, decide, and follow up' },
   vp: { eyebrow: 'CONVERSATION', title: 'VP of Agentry', subtitle: 'Engineering direction and progress' },
-  poolrad: { eyebrow: 'POOLRAD', title: 'Poolrad board', subtitle: 'Completion against the PM-reviewed CEILING of 815' },
   fleet: { eyebrow: 'TERMINALS', title: 'Terminals', subtitle: 'See active agents and send a message' },
   operations: { eyebrow: 'OPERATIONS', title: 'Operations board', subtitle: 'Tasks, progress, and service health' },
   play: { eyebrow: 'LIVE GAME', title: 'Play Pool of Radiance', subtitle: 'Private DOS run · save states' },
@@ -592,6 +591,8 @@ function Budget({ data }) {
 }
 
 function OpsBoard({ standalone = false }) {
+  const poolrad = usePoolradProgress();
+  const referenceRef = useRef(null);
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -612,7 +613,7 @@ function OpsBoard({ standalone = false }) {
   return <DashShell standalone={standalone} view="operations">
     <DashHeader title="Operations" view="operations" standalone={standalone} side={<>
       <span className="dash-meta">{board ? `generated ${new Date(board.generated_at).toLocaleString()}` : 'Loading…'}</span>
-      <button onClick={() => load(true)} disabled={busy}>Refresh</button>
+      <button onClick={() => { load(true); poolrad.load(); }} disabled={busy}>Refresh</button>
     </>} />
     <div className="dash-body ops-body">
       {error && <p className="dash-error" role="alert">{error}</p>}
@@ -623,6 +624,13 @@ function OpsBoard({ standalone = false }) {
           <p title={evidence(tasks)}>{number(tasks, 'open')} open tasks · {number(tasks, 'owner')} assigned to you</p>
           <p title={evidence(lanes)}>{number(lanes, 'working')} lanes working · {number(lanes, 'idle')} idle{lanes?.unknown ? ` · ${lanes.unknown} unknown` : ''}</p>
         </section>
+        <p id="poolrad" className="ops-poolrad">
+          <b>Poolrad:</b> {poolrad.data
+            ? <>{poolrad.data.strict_full_c ?? 'unknown'}/{poolrad.data.ceiling ?? 'unknown'} credited strict C ({poolrad.data.strict_percent ?? 'unknown'}%) · {poolrad.data.identities ?? 'unknown'}/{poolrad.data.ceiling ?? 'unknown'} identities ({poolrad.data.identity_percent ?? 'unknown'}%) · CEILING {poolrad.data.ceiling ?? 'unknown'} ({String(poolrad.data.bound_kind || 'unknown').replaceAll('_', ' ')}) · {poolrad.data.replacements?.count ?? 'unknown'} recorded replacements · not whole-game completion. </>
+            : poolrad.error ? 'Source unavailable. ' : 'Loading checkpoint… '}
+          {poolrad.error && poolrad.data && <span>Refresh failed; showing previous checkpoint. </span>}
+          <a href="#poolrad-details" onClick={() => { if (referenceRef.current) referenceRef.current.open = true; }}>Evidence and timestamps</a>
+        </p>
         <section data-ops-section="attention" className="ops-attention">
           {alarms.slice(0, 3).map((alarm, i) => <p key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</p>)}
           {alarms.length > 3 && <p>More alarms in the reference below.</p>}
@@ -631,8 +639,9 @@ function OpsBoard({ standalone = false }) {
           {owner?.state === 'ok' && !owner.items.length && <p className="dash-muted">No tasks explicitly assigned to you.</p>}
         </section>
         {board.budget && <Budget data={board.budget} />}
-        <details className="ops-reference" data-ops-section="reference">
-          <summary>Reference: tasks, lanes and schedules</summary>
+        <details ref={referenceRef} className="ops-reference" data-ops-section="reference">
+          <summary>Reference: Poolrad evidence, tasks, lanes and schedules</summary>
+          <PoolradReference data={poolrad.data} error={poolrad.error} />
           {alarms.length > 3 && <ul>{alarms.map((alarm, i) => <li key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</li>)}</ul>}
           {[
             ['Tasks', board.reference.tasks, ['ID', 'Task', 'Status', 'Assignee'],
@@ -654,46 +663,33 @@ function OpsBoard({ standalone = false }) {
   </DashShell>;
 }
 
-function PoolradProgress({ standalone = false }) {
+function usePoolradProgress() {
   const [data, setData] = useState(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  async function load(force) {
-    if (force) setBusy(true);
-    try {
-      const result = await api('/poolrad-dashboard/progress');
-      setData(result); setError('');
-    } catch (e) { if (force) setError(e.message); } finally { if (force) setBusy(false); }
+  async function load() {
+    try { setData(await api('/poolrad-dashboard/progress')); setError(''); }
+    catch (e) { setError(e.message); }
   }
-  useEffect(() => {
-    load(false);
-    const timer = setInterval(() => load(false), 60000);
-    return () => clearInterval(timer);
-  }, []);
-  async function refresh() {
-    setBusy(true); setError('');
-    try { await api('/poolrad-dashboard/refresh', { method: 'POST' }); await load(false); }
-    catch (e) { setError(e.message); } finally { setBusy(false); }
-  }
-  const share = value => value == null ? '—' : `${value}%`;
-  const width = value => value == null ? 0 : Math.max(0, Math.min(100, value));
-  const route = DASH_ROUTES.poolrad;
-  return <DashShell standalone={standalone} view="poolrad">
-    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view="poolrad" standalone={standalone} side={<>
-      <span className="dash-meta">{data ? `updated ${new Date(data.generated).toLocaleTimeString()}` : 'loading'}</span>
-      <button className="dash-primary" onClick={refresh} disabled={busy}>{busy ? 'Refreshing…' : 'Refresh snapshot'}</button>
-    </>} />
-    <div className="dash-body">
-      {error && <div className="dash-error" role="alert">{error} <button onClick={refresh}>Try again</button></div>}
-      {!data && !error && <div className="dash-empty" role="status">Reading the published checkpoint…</div>}
-      {data && <div className="dash-figures">
-        <div className="dash-figure"><div className="num">{share(data.strict_percent)}</div><div className="label">STRICT C</div><div className="sub">{data.strict_full_c} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="dash-track"><i style={{ width: `${width(data.strict_percent)}%` }} /></div></div>
-        <div className="dash-figure"><div className="num">{share(data.identity_percent)}</div><div className="label">IDENTITIES</div><div className="sub">{data.identities} / {data.ceiling ?? '—'} {String(data.bound_kind ?? '').replace('_', ' ')}</div><div className="dash-track"><i style={{ width: `${width(data.identity_percent)}%` }} /></div></div>
-      </div>}
-      {data && <p className="dash-evidence">{data.evidence_line}</p>}
-      {data && <p className="dash-meta-line">generated {new Date(data.generated).toLocaleString()} · source {data.source} · commit {(data.commit || '').slice(0, 8) || '—'}{data.ceiling ? ` · ${data.remaining} candidate targets still uncredited` : ''}</p>}
-    </div>
-  </DashShell>;
+  useEffect(() => { load(); const timer = setInterval(load, 60000); return () => clearInterval(timer); }, []);
+  return { data, error, load };
+}
+
+function PoolradReference({ data, error }) {
+  return <section id="poolrad-details" className="ops-table">
+    <h2>Poolrad evidence</h2>
+    {error && <p className="dash-error">{error}</p>}
+    {data && <>
+      <p>{data.evidence_line}</p>
+      <small>Source {data.source} · status {data.status} · checkpoint {data.commit} · observed {data.observed_at} · generated {data.generated}</small>
+      <p>{data.accounting_source}</p>
+      <p>Replacements: {data.replacements?.count ?? 'unknown'} · {data.replacements?.state || 'unavailable'} · {data.replacements?.source} · commit {data.replacements?.commit} · observed {data.replacements?.observed_at}. Recorded in source; not rerun by dashboard.</p>
+      <ul>{(data.comparisons || []).map((comparison, i) => <li key={i}>
+        <strong>{comparison.label}</strong>: {comparison.matched ?? 'unknown'}/{comparison.compared ?? 'unknown'} pixels · {comparison.scope}
+        <br />{comparison.status} · {comparison.method}
+        <br /><a href={`/api/poolrad-dashboard/state/reports/${encodeURIComponent(comparison.source.split('/').pop())}`}>{comparison.source}</a>
+      </li>)}</ul>
+    </>}
+  </section>;
 }
 
 function PoolradPlay({ vpChannel, standalone = false }) {
@@ -923,7 +919,6 @@ function StandaloneDesk({ view, known }) {
       </div></div>
     </DashShell>;
   }
-  if (view === 'poolrad') return <PoolradProgress standalone />;
   if (view === 'fleet') return <Fleet standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
   if (view === 'play') return <PoolradPlay standalone />;
