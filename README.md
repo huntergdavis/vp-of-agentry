@@ -168,8 +168,8 @@ After deploying this branch, run `npm run build --prefix web`, restart `vp-of-ag
 ## Operations dashboard
 
 The **Operations dashboard**, also served at `/dash/operations`, has four sections:
-a short task/lane brief, actionable exceptions and explicitly owner-assigned tasks,
-provider budgets, and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
+a short brief with task/lane counts and a compact Poolrad headline, actionable
+exceptions and explicitly owner-assigned tasks, provider budgets, and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
 unknown; a blocked agent task is not inferred to require the owner. Terminals are
 grouped by project in single-level disclosures.
 
@@ -180,6 +180,15 @@ carries its status and timestamp; unavailable values stay null. The board refres
 on its existing timer and the view polls every 15 seconds. Healthy source chips,
 empty throughput/configuration panels, duplicate credit cards, the inbox table,
 and the nested legacy metrics view have been removed from this overview.
+
+Poolrad now lives on Operations at `/dash/operations#poolrad`; the former
+`/dash/poolrad` route redirects there after authentication, and its separate
+navigation entry is removed. The headline preserves strict-C and identity counts
+against the labelled CEILING; published scoped comparisons, source status,
+commit and timestamps live in the same reference disclosure. Comparison rows
+remain labelled as reported in source and not rerun by the dashboard.
+Recorded replacements are read from the exact checkpoint commit; an absent
+record remains unknown instead of borrowing a count from another revision.
 
 The budget section reads `dunkingsheep --json usage --max-age 60` on the
 existing board refresh. It preserves provider window names, used/remaining

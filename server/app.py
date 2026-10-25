@@ -1462,6 +1462,33 @@ def _published_accounting():
     }
 
 
+def _replacement_count(commit):
+    """Read recorded replacements at the same exact commit as the displayed checkpoint."""
+    from ops_metrics import POOLRAD_REPO
+    result = {"state": "unavailable", "count": None, "commit": commit,
+              "source": "docs/re/replaced_bodies.json",
+              "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if not re.fullmatch(r"[0-9a-f]{40}", commit or ""):
+        return result
+    try:
+        process = subprocess.run(["git", "-C", str(POOLRAD_REPO), "show",
+                                  f"{commit}:docs/re/replaced_bodies.json"],
+                                 capture_output=True, text=True, timeout=5, check=True)
+        record = json.loads(process.stdout)
+        bodies = record.get("bodies")
+        if record.get("schema") != "replaced/1" or not isinstance(bodies, list):
+            return result
+        if any(not isinstance(row, dict) or not isinstance(row.get("id"), str)
+               or not row.get("proven_at") or not row.get("evidence") for row in bodies):
+            return result
+        if len({row["id"] for row in bodies}) != len(bodies):
+            return result
+        result.update(state="ok", count=len(bodies), truth=record.get("truth"))
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        pass
+    return result
+
+
 @app.get("/api/poolrad-dashboard/progress")
 def poolrad_dashboard_progress(_: Annotated[str, Depends(require_auth)]):
     """The compact Poolrad completion view: two percentages and one evidence line.
@@ -1489,6 +1516,7 @@ def poolrad_dashboard_progress(_: Annotated[str, Depends(require_auth)]):
             raise
         except Exception as exc:  # noqa: BLE001 - keep the error generic
             raise HTTPException(503, "Poolrad dashboard progress unavailable") from exc
+        view["replacements"] = _replacement_count(view.get("commit"))
         POOLRAD_PROGRESS_CACHE.update(data=view, expires=now + POOLRAD_PROGRESS_TTL_S)
     view = dict(POOLRAD_PROGRESS_CACHE["data"] or {})
     view["refresh_after_seconds"] = POOLRAD_PROGRESS_TTL_S
@@ -1663,6 +1691,8 @@ def dash_route(path: str, request: Request):
     if not _session_valid(request):
         target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
         return RedirectResponse(f"/?next={quote(target, safe='')}", status_code=302)
+    if name == "poolrad":
+        return RedirectResponse("/dash/operations#poolrad", status_code=307)
     index = DIST / "index.html"
     if not index.is_file():
         raise HTTPException(404, "Desk UI is not built")
