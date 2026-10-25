@@ -30,15 +30,29 @@ with sync_playwright() as p:
         for source in board["brief"].values():
             assert source["source"] and source["state"] and source["generated_at"]
         assert page.locator("[data-ops-section]").count() == 4
-        assert page.locator("details").count() == 1
+        assert page.locator("details").count() == 0
         assert page.locator("details[open]").count() == 0
-        assert page.locator("table:visible").count() == 0
+        assert page.locator("table:visible").count() == 3
         assert not errors, errors
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         page.screenshot(path=str(ROOT / "data" / f"ops-live-{width}.png"))
-        page.locator("summary").click()
         assert page.locator("table:visible").count() == 3
-        page.locator("summary").click()
+
+        expanded = json.loads(json.dumps(board))
+        expanded["reference"]["tasks"].update(state="ok", items=[dict(
+            id=f"t{i}", title=f"Visible task {i}", status="blocked" if i==44 else "in_progress" if i==43 else "open",
+            assignees=["owner"] if i==42 else ["%18"], age_s=120) for i in range(45)])
+        page.route("**/api/ops-board", lambda r: r.fulfill(json=expanded))
+        page.reload()
+        page.get_by_text("Visible task 44").wait_for()
+        task_table=page.locator(".ops-reference .ops-table").filter(has=page.get_by_role("heading",name="Tasks",exact=True)).locator("table")
+        assert task_table.locator("tbody tr").count()==45
+        assert task_table.locator("tbody tr").nth(0).locator("td").first.inner_text()=="t44"
+        assert task_table.locator("tbody tr").nth(1).locator("td").first.inner_text()=="t42"
+        assert task_table.locator("tbody tr").nth(2).locator("td").first.inner_text()=="t43"
+        assert page.locator("details, summary").count()==0
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.screenshot(path=str(ROOT / "data" / f"ops-expanded-{width}.png"),full_page=True)
 
         # Source failures never look like healthy zeroes.
         missing = json.loads(json.dumps(board))
@@ -61,7 +75,6 @@ with sync_playwright() as p:
         page.locator(".fleet-project").first.wait_for()
         assert page.locator(".fleet-project").count() == 2
         assert page.locator("details details").count() == 0
-        page.locator(".fleet-project summary").first.click()
         page.get_by_role("button", name="alpha").click()
         page.get_by_text("synthetic terminal").wait_for()
         assert page.get_by_role("button", name="Send", exact=True).is_disabled()
@@ -78,6 +91,6 @@ with sync_playwright() as p:
         page.get_by_text("No active agents right now.").wait_for()
         assert page.get_by_role("alert").count() == 0
         assert not errors, errors
-        print(f"{width}x{height}: live four-section API, closed reference, source failure, project grouping and terminal selection pass")
+        print(f"{width}x{height}: live four-section API, always-visible reference, source failure, project grouping and terminal selection pass")
         page.close()
     browser.close()

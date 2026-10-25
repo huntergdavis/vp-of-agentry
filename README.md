@@ -169,7 +169,7 @@ After deploying this branch, run `npm run build --prefix web`, restart `vp-of-ag
 
 The **Operations dashboard**, also served at `/dash/operations`, has four sections:
 a short brief with task/lane counts and a compact Poolrad headline, actionable
-exceptions and explicitly owner-assigned tasks, provider budgets, and one closed reference for tasks, lanes and schedules. Unknown lane activity stays
+exceptions and explicitly owner-assigned tasks, provider budgets, and one always-visible reference for tasks, lanes and schedules. Unknown lane activity stays
 unknown; a blocked agent task is not inferred to require the owner. Terminals are
 grouped by project in single-level disclosures. The Terminals page scrolls within
 the viewport, with the selected agent's composer above its captured screen. The
@@ -188,7 +188,7 @@ Poolrad now lives on Operations at `/dash/operations#poolrad`; the former
 `/dash/poolrad` route redirects there after authentication, and its separate
 navigation entry is removed. The headline preserves strict-C and identity counts
 against the labelled CEILING; published scoped comparisons, source status,
-commit and timestamps live in the same reference disclosure. Comparison rows
+commit and timestamps live in the same visible reference. Comparison rows
 remain labelled as reported in source and not rerun by the dashboard.
 Recorded replacements are read from the exact checkpoint commit; an absent
 record remains unknown instead of borrowing a count from another revision.
@@ -227,3 +227,5 @@ When PM records an accepted body without a trial ID, Operations inherits the tri
 Create a private bot with [@BotFather](https://t.me/BotFather), then run `./telegram-bridge setup` locally and paste the token at the hidden prompt. Run `./install-telegram-service.sh`, then DM the bot the `/pair` command printed by setup. The token and one-chat pairing stay in ignored `data/telegram.json` (mode `0600`); `./telegram-bridge status` shows pairing without revealing secrets. The bridge uses outbound long polling, forwards text/photos/files to the VP inbox, and sends new VP briefs and attachments back to the paired chat. Telegram's hosted Bot API limits downloads to 20 MB; use the web desk for larger files. Do not run a second poller or configure a webhook for this bot.
 
 Terminals also lists detected agent processes without a desk pane route, with workspace, PID, routing reason and session-write age where a single open session file identifies it. This inventory reads local process metadata and file mtimes, never session contents. Missing ages remain unknown; process presence is not evidence of active work. Codex app-server processes are excluded, and unknown harnesses are not inferred from prompt text. An unavailable inventory is shown as unavailable rather than an empty success.
+
+Owner #1702: every former disclosure is now an always-visible section. Operations keeps all task rows visible, with blocked, owner-assigned and in-progress tasks first; project lanes and evidence also require no expansion.

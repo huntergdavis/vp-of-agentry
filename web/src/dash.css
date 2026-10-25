@@ -403,7 +403,7 @@
 .ops-brief { font-size: 15px; }
 .ops-attention { margin: 12px 0; }
 .ops-reference { border-top: 1px solid var(--dash-border); padding-top: 10px; }
-.ops-reference summary, .fleet-project summary { cursor: pointer; }
+.ops-reference > h2, .fleet-project > h2 { font-size: 15px; margin: 0 0 8px; }
 .ops-table { margin-top: 16px; }
 .ops-table h2 { font-size: 14px; margin-bottom: 2px; }
 .fleet-project { margin: 4px 20px; padding: 10px 0; border-bottom: 1px solid var(--dash-border); }
@@ -430,3 +430,6 @@
 .ops-poolrad a, #poolrad-details a { color: var(--dash-accent); }
 #poolrad-details small { display: block; overflow-wrap: anywhere; }
 #poolrad-details li { margin: 8px 0; }
+
+.ops-reference td { padding: 6px 8px; font-size: 12px; vertical-align: top; }
+.ops-reference td small { display: block; color: var(--dash-muted); }

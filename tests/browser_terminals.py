@@ -31,7 +31,7 @@ with sync_playwright() as p:
   assert "No pane route" in inventory.inner_text()
   assert inventory.locator("button").count()==0
   group=page.locator(".fleet-project").last
-  group.locator("summary").click();group.locator("button").click()
+  group.locator("button").click()
   page.locator(".dash-terminal-text").wait_for()
   box=page.locator("#lane-draft").bounding_box()
   assert box["y"]>=0 and box["y"]+box["height"]<=height,(width,box)
