@@ -1,5 +1,11 @@
 # Pinned Play (t140)
 
+**Deployment hold:** the first native exercise saved a new tagged snapshot,
+but both pinned-binary consumers exited 139 after reporting it loaded.
+Do not switch Play or claim reliable restore from this result. The matched
+system-binary control and crash backtrace are pending; old-state migration
+remains held.
+
 The default original-mode Play session uses
 `~/.local/share/vp-of-agentry/dosbox-x-5a9c7c53/dosbox-x`. It is independent
 of a producer lane's checkout. `VP_DOSBOX_X` overrides that executable.
@@ -90,9 +96,34 @@ with count 0. Only verified status supports an archived-state claim.
 
 Synthetic tests cover hash-based identification, changed binaries, running
 identity retention, missing identity, next-start semantics, one-variable
-rollback and archive integrity failures. Native tagged-state validation is
-pending and must be recorded before presenting the migration as ready for an
-extended play session.
+rollback and archive integrity failures. The 40 focused backend tests passed.
+
+[Native v1 receipt](PINNED_PLAY_E2E_V1.json): the producer saved a 283,572-byte
+new tagged snapshot with a passing ZIP CRC, no PR environment controls and no
+observer output. Both consumers confirmed the native loader's `Loaded`
+message, then exited **139 (SIGSEGV)** before reaching the restored route
+gate or either checkpoint. Their driver phases exited 1. The producer's
+emulator was terminated by the driver's normal cleanup after its successful
+save; its driver phase exited 0.
+
+The receipt is **FAIL, comparison_performed=false**. Native loader completion
+does not establish successful resumed execution. No frame/register/VGA/RAM
+comparison or reliable cross-process restore is established by this run.
+The system control uses a separately produced new snapshot from system
+binary `99d74601`, the same tag, transport, normal core, keystrokes and route.
+It requires native loading and survival through the post-load Right gate;
+it makes no checkpoint/parity claim. That control is pending.
+
+The live Play implementation also creates Xvfb, rather than using a physical
+desktop display. Its display is 800x600 with Xauthority; the probe uses
+1024x768 through `xvfb-run`. Play uses tmux and PulseAudio when available;
+the probe uses pipes and dummy audio. Play adds `-nomenu` and a 640x480 window
+setting. The probe forces the normal CPU core in both consumers, whereas
+Play explicitly selects it only for replacement mode. Original-mode Play
+clears PR controls; the probe's original consumer enables the read-only
+observer/checkpoint infrastructure. These differences remain material until
+the crash is localized. This private failure alone does not establish
+whether the live Play path would crash on load.
 
 The private native exercise is `tools/pinned_play_probe.py`. Run it once
 through the shared heavy-job wrapper with a fresh prefix and output path:
@@ -114,12 +145,17 @@ measure C returns during the restored route. The existing unmasked
 comparator produces the receipt, including a FAIL if differences remain.
 Raw state, frame and child-log files stay under ignored Poolrad resources.
 
+The matched system control uses the same script with `--system-control`, a
+new prefix and a separate receipt path. It performs producer and original
+consumer phases only, checking the recorded system executable hash before
+launch. Do not reuse or modify a pinned-build snapshot for this control.
+
 The 14 earlier owner states have **not** been archived or migrated. VP's
 preservation hold remains in effect until the owner's in-progress-run answer
 arrives. The old indices do not record a creator-binary hash; any attribution
 to the system executable must retain that uncertainty. No old state is to be
 edited, force-loaded or discarded.
 
-NOT verified here: native save/load in both execution modes, live desk
+NOT verified here: successful resumed execution after native restore, live desk
 audio/video, full-machine or full-game parity, complete C execution, or a clean
 rebuild of all emulator objects. No replacement credit is claimed.

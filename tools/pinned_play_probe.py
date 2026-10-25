@@ -71,8 +71,12 @@ def checkpoint(driver, final):
 def run_phase(args):
     from r1_driver import Driver
     repo = args.poolrad_repo
-    binary = pinned_binary()
-    if describe_emulator(binary)['kind'] != 'checkpoint':
+    binary = '/usr/bin/dosbox-x' if args.system_control else pinned_binary()
+    identity = describe_emulator(binary)
+    if args.system_control:
+        if identity['sha256'] != '99d7460153175d13a21036fb4b0e7524e05b6a1e50cd4e59f2470afad12a0df3':
+            raise RuntimeError('System control executable changed from the recorded hash')
+    elif identity['kind'] != 'checkpoint':
         raise RuntimeError('Installed executable does not match the pinned binary hash')
     for key in list(os.environ):
         if key.startswith(('PR_HYBRID_', 'PR_PARITY_')):
@@ -160,6 +164,11 @@ def run_phase(args):
                          observer_outputs=outputs, zip_crc_pass=True))
                     if outputs or enabled:
                         raise RuntimeError('Producer did not satisfy the inactive-hook setup')
+                elif args.system_control:
+                    if not self.loaded:
+                        raise RuntimeError('Control reached final gate without native restore')
+                    dump(run / 'restore-route-evidence.json', dict(
+                        restored_then_right_reached=True, frame_sha256=self.final_pixels_sha256))
                 else:
                     checkpoint(self, final=True)
 
@@ -172,7 +181,8 @@ def run_phase(args):
                 self.loaded = True
                 self.route.allowed = ['at15_4']
                 return
-            if args.phase != 'producer' and self.loaded and self.last_gate == 'at15_4' and key == 'Right':
+            if (not args.system_control and args.phase != 'producer' and self.loaded
+                    and self.last_gate == 'at15_4' and key == 'Right'):
                 checkpoint(self, final=False)
             return super().key(key)
 
@@ -185,19 +195,51 @@ def run_phase(args):
         driver.close()
 
 
+def add_phase_evidence(result, runs):
+    """Publish only metadata from this exercise's new states and private logs."""
+    for phase, run in runs.items():
+        events = run / 'r1-events.jsonl'
+        if phase not in result['phases'] or not events.exists():
+            continue
+        rows = [json.loads(line) for line in events.read_text().splitlines()]
+        exits = [row for row in rows if row['event'] == 'shutdown']
+        if exits:
+            result['phases'][phase]['emulator_exit_code'] = exits[-1]['launch_rc']
+            result['phases'][phase]['shutdown_method'] = exits[-1]['method']
+        detail = result['phases'][phase]
+        if phase != 'producer':
+            loaded = run / 'load-evidence.json'
+            confirmed = loaded.exists() and json.loads(loaded.read_text())['verified']
+            detail['restored_route_completed'] = bool(confirmed and any(row['event'] == 'final' for row in rows))
+        else:
+            detail.pop('restored_route_completed', None)
+    evidence = runs['producer'] / 'producer-evidence.json'
+    if evidence.exists():
+        producer = json.loads(evidence.read_text())
+        entry = producer['entry']
+        result.update(emulator=producer['emulator'], tagged_snapshot=dict(
+            tag=entry['tag'], slot=entry['slot'], size=entry['size'], sha256=entry['sha256'],
+            zip_crc_pass=producer['zip_crc_pass']),
+            producer_pr_environment_present=producer['pr_environment_present'],
+            producer_observer_outputs=producer['observer_outputs'])
+    return result
+
+
 def run_all(args):
     from parity_report import report
     logs = args.poolrad_repo / 'resources/pinned-play-probes' / args.prefix
     logs.mkdir(parents=True, exist_ok=False)
+    names = ('producer', 'original') if args.system_control else ('producer', 'original', 'replacement')
     runs = {phase: args.poolrad_repo / 'resources/oracle-runs' / (args.prefix + '-' + phase)
-            for phase in ('producer', 'original', 'replacement')}
+            for phase in names}
     phases = {}
     for phase in runs:
         with (logs / (phase + '.log')).open('wb') as out:
             completed = subprocess.run(['xvfb-run', '-a', '-s', '-screen 0 1024x768x24',
                                         sys.executable, str(Path(__file__).resolve()),
                                         '--poolrad-repo', str(args.poolrad_repo),
-                                        '--prefix', args.prefix, '--phase', phase],
+                                        '--prefix', args.prefix, '--phase', phase,
+                                        *(['--system-control'] if args.system_control else [])],
                                        stdout=out, stderr=subprocess.STDOUT)
         phases[phase] = {'exit_code': completed.returncode}
         load = runs[phase] / 'load-evidence.json'
@@ -209,6 +251,22 @@ def run_all(args):
                   comparison_performed=False, phases=phases,
                   not_verified=['Native exercise incomplete; no frame/register/VGA/RAM comparison established.',
                                 'Live desk transport/audio/video, old-state migration, full-game parity or replacement credit.'])
+    if args.system_control:
+        result.update(case='system-new-tag-restore-control',
+                      verdict_scope='Native restore survival through the Right gate; not a parity comparison.')
+        if len(phases) == 2 and all(p['exit_code'] == 0 for p in phases.values()):
+            producer = json.loads((runs['producer'] / 'producer-evidence.json').read_text())
+            entry = producer['entry']
+            loaded = json.loads((runs['original'] / 'load-evidence.json').read_text())
+            route = json.loads((runs['original'] / 'restore-route-evidence.json').read_text())
+            copied = runs['original'] / '.dosbox-saves/1.sav'
+            if (not loaded['verified'] or loaded['sha256'] != entry['sha256'] or loaded['tag'] != TAG
+                    or hashlib.sha256(copied.read_bytes()).hexdigest() != entry['sha256']
+                    or not route['restored_then_right_reached']):
+                raise RuntimeError('System control did not establish the same new snapshot and restored route')
+            result.update(result='PASS', not_verified=[
+                'Frame/register/VGA/RAM parity; the system binary has no checkpoint hook.',
+                'Live desk transport/audio/video, old-state migration or pinned-binary restore reliability.'])
     if len(phases) == 3 and all(p['exit_code'] == 0 for p in phases.values()):
         producer = json.loads((runs['producer'] / 'producer-evidence.json').read_text())
         entry = producer['entry']
@@ -243,6 +301,7 @@ def run_all(args):
             'The 14 old owner states: none were read, edited, loaded, archived or migrated by this exercise.',
             'A clean rebuild of all emulator objects; unchanged base objects were reused.'
         ])
+    add_phase_evidence(result, runs)
     output = args.output or logs / 'receipt.json'
     dump(output, result)
     print(json.dumps(dict(result=result['result'], comparison_performed=result['comparison_performed'],
@@ -256,7 +315,11 @@ def main():
     parser.add_argument('--prefix', required=True)
     parser.add_argument('--phase', choices=['all', 'producer', 'original', 'replacement'], default='all')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--system-control', action='store_true',
+                        help='Use the hash-pinned system binary for a producer/original restore-survival control')
     args = parser.parse_args()
+    if args.system_control and args.phase == 'replacement':
+        parser.error('The system control has no replacement phase')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', args.prefix):
         parser.error('Invalid private run prefix')
     args.poolrad_repo = args.poolrad_repo.resolve()
