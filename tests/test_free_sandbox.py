@@ -54,6 +54,22 @@ class SandboxTests(unittest.TestCase):
         self.assertFalse((self.repo / "x").exists())
         self.assertTrue((self.out / "y").exists())
 
+    def test_caller_environment_secrets_do_not_reach_the_model(self):
+        env = dict(self.env, UNRELATED_PROVIDER_TEST_TOKEN="s3cret-sentinel", OPENAI_API_KEY="sk-sentinel")
+        r = subprocess.run([str(SANDBOX), str(self.out), "env"], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("sentinel", r.stdout)
+        self.assertNotIn("UNRELATED_PROVIDER_TEST_TOKEN", r.stdout)
+
+    def test_the_throwaway_credential_copy_is_always_deleted(self):
+        scratch = self.tmp / "scratch"; scratch.mkdir()
+        env = dict(self.env, TMPDIR=str(scratch))
+        ok = subprocess.run([str(SANDBOX), str(self.out), "true"], capture_output=True, text=True, env=env)
+        bad = subprocess.run([str(SANDBOX), str(self.out), "false"], capture_output=True, text=True, env=env)
+        self.assertEqual(ok.returncode, 0)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual([p.name for p in scratch.iterdir()], [], "a free-agent copy was left behind")
+
     def test_user_files_outside_the_allowlist_are_invisible(self):
         r = self.sandbox("bash", "-c", "ls -A ~ | tr '\\n' ' '")
         self.assertNotIn(".ssh", r.stdout)
