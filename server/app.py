@@ -585,6 +585,13 @@ async def api_pane_send(request: Request, _: Annotated[str, Depends(require_auth
                 "unconfirmed": True, "message_id": message_id, "detail": detail,
                 "note": ("Neither witness fired. It may well have arrived - do NOT resend "
                          "blindly; ask the lane first.")}
+    if outcome == "stored":
+        # The daemon's fifth value. It only arrives on a durable push today, but the desk
+        # must not 502 on a legitimate vocabulary item if that changes.
+        return {"ok": True, "pane": pane, "route": route, "outcome": "stored",
+                "message_id": message_id, "detail": detail,
+                "note": ("Stored in a durable queue the lane drains itself. That is NOT "
+                         "'read' - it has not arrived until the lane takes it.")}
     if outcome in ("ok", "sent"):
         return {"ok": True, "pane": pane, "route": route, "outcome": "ok",
                 "message_id": message_id, "detail": detail,
