@@ -118,8 +118,12 @@ Replacement mode uses these private files under the configured Poolrad checkout:
 - `resources/hybrid/play-dispatch.txt`, overridden by `VP_REPLACEMENT_DISPATCH`.
 
 The dispatch file contains one comma-separated line of supported `RES_…` / `OVL_…`
-IDs from the measured hybrid build. Missing assets, invalid IDs and ambiguous
-registry rows fail startup. Each run copies the registry and dispatch list,
+IDs from the measured hybrid build. Each selected ID requires exactly one
+registry row: a four-digit hexadecimal IP matching the ID's entry offset,
+a positive signature length up to 256 bytes, equal-length hexadecimal
+signature/mask bytes, and a `unique` marker. Masks use `00`/`ff` bytes and
+must check at least one byte. Missing, duplicated or malformed selected rows
+fail before display or emulator launch. Each run copies the registry and dispatch list,
 uses the normal CPU core and routed bus, and records hybrid logs in its private
 run directory. Both modes clear inherited hybrid and checkpoint controls,
 including test seed pins. Replacement mode still starts `START.EXE`; only the

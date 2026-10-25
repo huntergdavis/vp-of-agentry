@@ -196,19 +196,44 @@ class GameSession:
         try:
             registry_text = registry.read_text()
             dispatch = dispatch_file.read_text().strip()
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             raise GameError("Replacement registry or dispatch list is unavailable") from exc
         ids = dispatch.split(",")
-        available = {row[0] for line in registry_text.splitlines()
-                     if not line.startswith("#") and len(row := line.split("\t")) >= 6 and row[5] == "unique"}
         if (not ids or any(not re.fullmatch(r"(?:RES|OVL)_[0-9A-F]{4}_[0-9A-F]{4}", name) for name in ids)
-                or len(set(ids)) != len(ids) or not set(ids) <= available):
+                or len(set(ids)) != len(ids)):
             raise GameError("Replacement dispatch list must name unique registry entries")
+        self._validate_replacement_registry(registry_text, ids)
         copied = run_dir / "vp-replacement-registry.tsv"
         copied.write_text(registry_text)
         (run_dir / "vp-replacement-dispatch.txt").write_text(dispatch + "\n")
         return {"PR_HYBRID_REGISTRY": str(copied), "PR_HYBRID_LOG": str(run_dir / "vp-replacement"),
                 "PR_HYBRID_DISPATCH": dispatch, "PR_HYBRID_BUS_MODE": "route"}
+
+    @staticmethod
+    def _validate_replacement_registry(text: str, selected: list[str]) -> None:
+        rows = {name: [] for name in selected}
+        for line in text.splitlines():
+            row = line.split("\t")
+            if row[0] in rows:
+                rows[row[0]].append(row)
+        for name, matches in rows.items():
+            if len(matches) != 1:
+                raise GameError(f"Replacement requires exactly one unique registry row for {name}")
+            row = matches[0]
+            if len(row) not in (6, 7) or row[5] != "unique":
+                raise GameError(f"Invalid replacement registry columns or uniqueness for {name}")
+            ip, length, signature, mask = row[1:5]
+            if not re.fullmatch(r"[0-9A-Fa-f]{4}", ip) or int(ip, 16) != int(name[-4:], 16):
+                raise GameError(f"Invalid replacement registry entry IP for {name}")
+            if not re.fullmatch(r"[1-9][0-9]{0,2}", length) or not 1 <= int(length) <= 256:
+                raise GameError(f"Invalid replacement registry signature length for {name}")
+            size = int(length)
+            if any(len(value) != size * 2 or not re.fullmatch(r"[0-9A-Fa-f]+", value)
+                   for value in (signature, mask)):
+                raise GameError(f"Invalid replacement registry signature or mask encoding for {name}")
+            mask_bytes = bytes.fromhex(mask)
+            if not any(mask_bytes) or not set(mask_bytes) <= {0, 255}:
+                raise GameError(f"Invalid replacement registry byte mask for {name}")
 
     @staticmethod
     def _launch_env_args(env: dict[str, str], play_env: dict[str, str]) -> list[str]:

@@ -81,6 +81,71 @@ class PlayBuildTests(unittest.TestCase):
             self.assertEqual(args[args.index(key) - 1], '-u')
         self.assertFalse(any(x.startswith('PR_') and '=' in x for x in args))
 
+    def test_duplicate_registry_rows_rejected_even_if_one_is_malformed(self):
+        run = self.fixture()
+        os.environ['VP_PLAY_BUILD'] = 'replacement'
+        registry = self.root / 'resources/hybrid/registry_all.tsv'
+        good = registry.read_text()
+        for extra in (good, 'RES_0709_01DF\tgarbage\n'):
+            with self.subTest(extra=extra):
+                registry.write_text(good + extra)
+                with self.assertRaisesRegex(GameError, 'exactly one'):
+                    self.session()._play_environment(run)
+                self.assertFalse((run / 'vp-replacement-registry.tsv').exists())
+
+    def test_malformed_selected_registry_rows_rejected(self):
+        run = self.fixture()
+        os.environ['VP_PLAY_BUILD'] = 'replacement'
+        registry = self.root / 'resources/hybrid/registry_all.tsv'
+        rows = [
+            'RES_0709_01DF\tgarbage\tgarbage\tgarbage\tgarbage\tunique',
+            'RES_0709_01DF\t10000\t1\t00\tff\tunique',
+            'RES_0709_01DF\t01DE\t1\t00\tff\tunique',
+            'RES_0709_01DF\t01DF\t0\t\t\tunique',
+            'RES_0709_01DF\t01DF\t257\t00\tff\tunique',
+            'RES_0709_01DF\t01DF\t2\t00\tff\tunique',
+            'RES_0709_01DF\t01DF\t1\t0g\tff\tunique',
+            'RES_0709_01DF\t01DF\t1\t0\tff\tunique',
+            'RES_0709_01DF\t01DF\t1\t00\tzz\tunique',
+            'RES_0709_01DF\t01DF\t1\t00\t00\tunique',
+            'RES_0709_01DF\t01DF\t1\t00\t01\tunique',
+            'RES_0709_01DF\t01DF\t1\t00\tff\tcount=2',
+            'RES_0709_01DF\t01DF\t1\t00\tff\tunique\tsymbol\textra',
+        ]
+        for row in rows:
+            with self.subTest(row=row):
+                registry.write_text(row + '\n')
+                with self.assertRaisesRegex(GameError, 'Invalid replacement registry'):
+                    self.session()._play_environment(run)
+                self.assertFalse((run / 'vp-replacement-registry.tsv').exists())
+
+    def test_valid_masked_seven_column_row_is_accepted(self):
+        run = self.fixture()
+        os.environ['VP_PLAY_BUILD'] = 'replacement'
+        (self.root / 'resources/hybrid/registry_all.tsv').write_text(
+            'RES_0709_01DF\t01df\t2\t00ab\tFF00\tunique\tpr_example\n'
+            'UNSELECTED\t0\t0\t\t\tcount=2\n')
+        self.assertEqual(self.session()._play_environment(run)['PR_HYBRID_DISPATCH'], 'RES_0709_01DF')
+
+    def test_start_refuses_malformed_registry_before_external_launch(self):
+        self.fixture()
+        os.environ['VP_PLAY_BUILD'] = 'replacement'
+        (self.root / 'resources/hybrid/registry_all.tsv').write_text(
+            'RES_0709_01DF\tbad\tbad\tbad\tbad\tunique\n')
+        run = self.root / 'resources/oracle-runs/prepared'
+        (run / 'POOLRAD').mkdir(parents=True)
+        (run / 'POOLRAD/START.EXE').write_text('synthetic')
+        (run / '.oracle-input-sha256').write_text('synthetic')
+        (self.root / 'data').mkdir()
+        session = self.session()
+        session.last_file.write_text('prepared')
+        with patch.object(session, '_stop_locked'), patch.object(session, '_run') as external, \
+                patch('server.gameplay.subprocess.Popen') as launch:
+            with self.assertRaisesRegex(GameError, 'Invalid replacement registry'):
+                session.start()
+            external.assert_not_called()
+            launch.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
