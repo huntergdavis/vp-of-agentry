@@ -92,3 +92,37 @@
   --update-banner-surface: var(--surface-raised);
   --update-banner-border: var(--border-strong);
 }
+
+/* Remap inherited legacy component borders/inks onto Dune's own surfaces. */
+:root[data-theme="dune"] {
+  --activity-border: var(--border);
+  --activity-toggle-border: var(--border);
+  --composer-border: var(--border);
+  --older-marker-border: var(--border);
+  --topbar-border: var(--border);
+  --jump-banner-border: var(--border);
+  --jump-latest-border: var(--border);
+  --queue-help-border: var(--border);
+  --queue-help-border-2: var(--border);
+  --search-head-border-2: var(--border);
+  --search-more-border: var(--border);
+  --rune-choice-border-2: var(--border);
+  --sidebar-border: var(--border-strong);
+  --game-type-border: var(--border-strong);
+  --game-type-border-2: var(--border-strong);
+  --game-type-border-3: var(--ink);
+  --ops-credit-chart-border: var(--border-strong);
+  --ops-executive-border: var(--border-strong);
+  --ops-executive-head-border: var(--border-strong);
+  --ops-kpis-border: var(--border-strong);
+  --ops-lab-panel-border: var(--border-strong);
+  --ops-metrics-border: var(--border-strong);
+  --ops-mission-head-border: var(--border-strong);
+  --ops-panel-border: var(--border-strong);
+  --ops-source-border: var(--border-strong);
+  --ops-source-border-2: var(--border-strong);
+  --poolrad-stat-border: var(--border-strong);
+  --search-head-ink: #3f2f1c;
+  --status-badge-ink: #4f606c;
+  --status-badge-ink-3: #7a5c1f;
+}
