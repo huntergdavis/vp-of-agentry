@@ -18,8 +18,8 @@ with sync_playwright() as pw:
     browser=pw.chromium.launch(executable_path=str(chrome),args=['--no-sandbox'])
     try:
         for theme in ('default','crt'):
-            for width,height in ((1440,900),(390,844),(320,844)):
-                page=browser.new_page(viewport=dict(width=width,height=height))
+            for width,height,text_scale in [(w,900 if w>480 else 844,1) for w in (1440,1422,1280,1100,1067,1024,960,900,800,720,700,480,390,320)]+[(320,844,2)]:
+                page=browser.new_page(viewport=dict(width=width,height=height),device_scale_factor=1.8,screen=dict(width=1920,height=1080))
                 page.add_init_script(f"localStorage.setItem('vp-theme',{json.dumps(theme)})")
                 errors=[];writes=[];available=[True]
                 page.on('pageerror',lambda e:errors.append(str(e)))
@@ -35,6 +35,13 @@ with sync_playwright() as pw:
                 page.goto(BASE+'/dash/cos')
                 editor=page.get_by_label('Message text',exact=True)
                 editor.wait_for();page.evaluate('document.fonts.ready')
+                if text_scale==2:
+                    # Computed sizes are snapshotted before applying any changes, avoiding inherited double scaling.
+                    page.evaluate("""() => {
+                        const sizes=[...document.querySelectorAll('body *')].map(e=>[e,parseFloat(getComputedStyle(e).fontSize)]);
+                        sizes.forEach(([e,size])=>e.style.fontSize=(size*2)+'px');
+                    }""")
+                suffix=f'{theme}-{width}-text{text_scale}'
                 metrics=page.evaluate("""() => {
                     const rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height,clientWidth:e.clientWidth,scrollWidth:e.scrollWidth};};
                     const composer=document.querySelector('.composer'), editor=document.querySelector('.editor'), send=composer.querySelector('.send');
@@ -44,7 +51,20 @@ with sync_playwright() as pw:
                         return {text:e.textContent,...rect(e),textLines:new Set([...range.getClientRects()].map(r=>Math.round(r.y))).size};
                     });
                     const toolbar=[...composer.querySelectorAll('.toolbar button')].map(rect);
-                    return {composer:box,editor:input,send:button,controls,above:conversation.y,below:innerHeight-conversation.bottom,
+                    const descendants=[...composer.querySelectorAll('*')].filter(e=>e.getClientRects().length);
+                    const overflow=descendants.filter(e=>e.scrollWidth>e.clientWidth).map(e=>({tag:e.tagName,classes:e.className,client:e.clientWidth,scroll:e.scrollWidth}));
+                    const targets=controls.every(r=>r.width>=24&&r.height>=24);
+                    const rgb=value=>value.match(/[0-9.]+/g).map(Number);
+                    const blend=(f,b)=>f.slice(0,3).map((v,i)=>v*(f[3]??1)+b[i]*(1-(f[3]??1)));
+                    const surface=e=>e ? blend(rgb(getComputedStyle(e).backgroundColor),surface(e.parentElement)) : [255,255,255];
+                    const luminance=c=>c.map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((v,c,i)=>v+c*[.2126,.7152,.0722][i],0);
+                    const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);};
+                    const colorTargets=[...composer.querySelectorAll('button,.editor,.composer-placeholder')];
+                    const textContrasts=colorTargets.map(e=>{const bg=e.classList.contains('composer-placeholder')?surface(editor):surface(e);
+                        return {label:e.getAttribute('title')||e.className,ratio:contrast(blend(rgb(getComputedStyle(e).color),bg),bg)};});
+                    const editorBoundary=contrast(rgb(getComputedStyle(editor).borderTopColor),surface(composer));
+
+                    return {composer:box,editor:input,send:button,controls,overflow,targets,textContrasts,editorBoundary,above:conversation.y,below:innerHeight-conversation.bottom,
                         pageOverflow:document.documentElement.scrollWidth>innerWidth,
                         footerCount:composer.querySelectorAll('.composer-footer').length,
                         composerDisplay:getComputedStyle(composer).display,
@@ -56,18 +76,36 @@ with sync_playwright() as pw:
                         sendFullHeight:Math.abs(button.height-input.height)<1,
                         sendNarrower:button.width<input.width};
                 }""")
-                record=dict(theme=theme,width=width,height=height,timestamp=stamp,**metrics)
+                record=dict(theme=theme,width=width,height=height,timestamp=stamp,textScale=text_scale,deviceScaleFactor=1.8,emulated=True,**metrics)
                 results.append(record)
-                record.update(capture(page,OUT/f'{theme}-{width}-empty.png'))
+                record.update(capture(page,OUT/f'{suffix}-empty.png'))
                 if MODE=='candidate':
                     checks=dict(flexRow=metrics['composerDisplay']=='flex',
                                 noFooter=metrics['footerCount']==0,noBottomPadding=metrics['bottomPadding']=='0px',
                                 sendBeside=metrics['sendBeside'],sendFullHeight=metrics['sendFullHeight'],
                                 sendNarrower=metrics['sendNarrower'],controlsFit=metrics['controlsFit'],
-                                controlsSingleLine=metrics['controlsSingleLine'],toolbarSingleRow=metrics['toolbarSingleRow'],
+                                controlsSingleLine=metrics['controlsSingleLine'],targets24=metrics['targets'],noDescendantOverflow=not metrics['overflow'],
+                                textContrast=all(c['ratio']>=4.5 for c in metrics['textContrasts']),editorBoundaryContrast=metrics['editorBoundary']>=3,
                                 noPageOverflow=not metrics['pageOverflow'])
                     record['checks']=checks
-                    failures.extend(f'{theme}/{width}: {k}' for k,v in checks.items() if not v)
+                    failures.extend(f'{theme}/{width}/text{text_scale}: {k}' for k,v in checks.items() if not v)
+                    if width in (480,320):
+                        controls=page.locator('.composer button:not([disabled]), .composer [contenteditable="true"]')
+                        controls.first.focus();walk=[]
+                        for _ in range(controls.count()):
+                            item=page.evaluate("""() => {
+                                const e=document.activeElement,r=e.getBoundingClientRect();
+                                const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                                return {label:e.getAttribute('title')||e.getAttribute('aria-label')||e.textContent,
+                                    inside:!!e.closest('.composer'),x:r.x,y:r.y,right:r.right,bottom:r.bottom,
+                                    visible:r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,
+                                    unobscured:hit===e||e.contains(hit)};
+                            }""")
+                            walk.append(item)
+                            if not (item['inside'] and item['visible'] and item['unobscured']):
+                                failures.append(f'{theme}/{width}/text{text_scale}: keyboard focus '+str(item))
+                            page.keyboard.press('Tab')
+                        record['tabWalk']=walk
                     placeholder=page.locator('.composer-placeholder')
                     def rendered_hint():
                         return placeholder.evaluate("e=>getComputedStyle(e,'::before').content")
@@ -83,12 +121,12 @@ with sync_playwright() as pw:
                     placeholder.wait_for()
                     assert rendered_hint()==json.dumps(HINT)
                     record['placeholderEmptyFocusedTypedCleared']=True
-                    available[0]=False;page.reload();editor.wait_for()
+                    available[0]=False;page.clock.install();page.clock.run_for(6000);editor.wait_for()
                     page.get_by_role('button',name='Send message',exact=True).wait_for()
                     assert page.get_by_role('button',name='Send message',exact=True).is_disabled()
                     assert rendered_hint()==json.dumps('Agent unavailable')
                     editor.focus();assert rendered_hint()==json.dumps('Agent unavailable')
-                    capture(page,OUT/f'{theme}-{width}-unavailable.png')
+                    capture(page,OUT/f'{suffix}-unavailable.png')
                     editor.fill('Unavailable draft');editor.press('Enter')
                     assert editor.inner_text().strip()=='Unavailable draft'
                     record['unavailableVisibleAndSendBlocked']=True

@@ -264,6 +264,10 @@
 .composer-input { flex: 1; min-width: 0; display: grid; }
 .composer-input > div, .composer-placeholder { grid-area: 1 / 1; min-width: 0; }
 .composer-input .editor { height: 100%; min-width: 0; }
-.composer-placeholder { align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }
+.composer-placeholder { overflow-wrap: anywhere; align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }
 .composer-placeholder:empty::before { content: attr(data-hint); }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
+/* Keep every toolbar action usable as CSS viewport width or text size changes. */
+.composer > .toolbar { min-width: 0; flex-wrap: wrap; gap: 4px; }
+.composer button { min-width: 24px; min-height: 24px; }
+.composer > .toolbar button { flex: none; padding: 4px 7px; white-space: nowrap; }
