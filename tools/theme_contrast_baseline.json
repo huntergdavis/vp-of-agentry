@@ -248,12 +248,6 @@
           "line": 428,
           "selector": ".login-card .brand-mark",
           "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 505,
-          "selector": ".dash-root .settings-modal .icon-button",
-          "context": []
         }
       ],
       "suggestion_for_this_pair_only": "#686976"
@@ -533,12 +527,6 @@
           "source": "web/src/dash.css",
           "line": 361,
           "selector": ".dash-root .search-head, .dash-root .search-head button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 505,
-          "selector": ".dash-root .settings-modal .icon-button",
           "context": []
         }
       ],
@@ -1750,12 +1738,6 @@
           "line": 428,
           "selector": ".login-card .brand-mark",
           "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 505,
-          "selector": ".dash-root .settings-modal .icon-button",
-          "context": []
         }
       ],
       "suggestion_for_this_pair_only": "#50745a"
@@ -1955,12 +1937,6 @@
           "source": "web/src/dash.css",
           "line": 361,
           "selector": ".dash-root .search-head, .dash-root .search-head button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 505,
-          "selector": ".dash-root .settings-modal .icon-button",
           "context": []
         }
       ],
