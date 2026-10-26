@@ -15,3 +15,7 @@ To check another file without writing:
     node web/tools/format-css.cjs --check /path/to/file.css
 
 The helper resolves dependencies and its default style.css relative to itself, so invocation does not depend on the working directory. It retains design's raw-layout rules: one declaration block per line, two-space indentation for nested rules, original rule order, and a final newline. No CSS files are changed by adding these tools.
+
+Exit contract: 0 means the check is byte-identical (or an explicit write succeeded); 1 means a byte mismatch, printed on one stderr line as MISMATCH <absolute-path>:<first-differing-line>. Usage, parse, safety and I/O errors exit 2 and report CSS formatter: <reason>. Neither check failure nor usage failure writes.
+
+Write mode runs the AST comparison and declaration negative control first. Only after all checks pass does it write a temporary file beside the target, flush and close it, and atomically rename it over the target. Before rename the original stays intact; failed writes remove the temporary file.

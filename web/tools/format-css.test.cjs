@@ -13,7 +13,7 @@ test('check rejects a formatting difference without writing, and write is explic
     fs.writeFileSync(file,source);
     const check=spawnSync(process.execPath,[script,'--check',file],{cwd:dir,encoding:'utf8'});
     assert.equal(check.status,1);
-    assert.match(check.stderr,/differs at line 1; no file written/);
+    assert.match(check.stderr,/^MISMATCH .+:1\n$/);
     assert.equal(fs.readFileSync(file,'utf8'),source);
     const write=spawnSync(process.execPath,[script,'--write',file],{cwd:dir,encoding:'utf8'});
     assert.equal(write.status,0,write.stderr);
@@ -38,7 +38,7 @@ test('malformed CSS fails without replacing source',()=>{
     const file=path.join(dir,'fixture.css'),source='a { color: red;';
     fs.writeFileSync(file,source);
     const result=spawnSync(process.execPath,[script,'--write',file],{encoding:'utf8'});
-    assert.equal(result.status,1);
+    assert.equal(result.status,2);
     assert.match(result.stderr,/CSS formatter:/);
     assert.equal(fs.readFileSync(file,'utf8'),source);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
@@ -54,8 +54,50 @@ test('no mode defaults to a read-only check, including no arguments',()=>{
     for(const args of [[],[file]]) {
       const result=spawnSync(process.execPath,[path.join(dir,'tools/format-css.cjs'),...args],{cwd:dir,encoding:'utf8'});
       assert.equal(result.status,1);
-      assert.match(result.stderr,/differs at line 1; no file written/);
+      assert.match(result.stderr,/^MISMATCH .+:1\n$/);
       assert.equal(fs.readFileSync(file,'utf8'),source);
     }
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('check mismatch and usage have stable, distinct exit codes',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vp-css-exits-'));
+  try {
+    const file=path.join(dir,'fixture.css'),source='a { color: red; }\nb{color:blue}\n';
+    fs.writeFileSync(file,source);
+    const mismatch=spawnSync(process.execPath,[script,'--check',file],{encoding:'utf8'});
+    assert.equal(mismatch.status,1);
+    assert.equal(mismatch.stderr,'MISMATCH '+file+':2\n');
+    const usage=spawnSync(process.execPath,[script,'--unknown',file],{encoding:'utf8'});
+    assert.equal(usage.status,2);
+    assert.match(usage.stderr,/Usage:/);
+    assert.equal(fs.readFileSync(file,'utf8'),source);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+test('write safety failures and failed atomic rename leave original bytes intact',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vp-css-atomic-'));
+  try {
+    const file=path.join(dir,'fixture.css');
+    const run=preload=>spawnSync(process.execPath,[...(preload?['--require',preload]:[]),script,'--write',file],{encoding:'utf8'});
+    fs.writeFileSync(file,'/* no declaration for negative control */\n');
+    let before=fs.readFileSync(file,'utf8');
+    let result=run();
+    assert.equal(result.status,2);
+    assert.match(result.stderr,/negative control was not detected/);
+    assert.equal(fs.readFileSync(file,'utf8'),before);
+    fs.writeFileSync(file,'a{color:red}\n');before=fs.readFileSync(file,'utf8');
+    const preload=path.join(dir,'fault.cjs');
+    // Mutate the second parser result: the same safety comparator must catch it.
+    fs.writeFileSync(preload,"const p=require("+JSON.stringify(require.resolve('postcss'))+");const parse=p.parse;let n=0;p.parse=(...args)=>{const root=parse(...args);if(++n===2)root.walkDecls(d=>d.value='initial');return root;};");
+    result=run(preload);
+    assert.equal(result.status,2);
+    assert.match(result.stderr,/changed normalized CSS AST/);
+    assert.equal(fs.readFileSync(file,'utf8'),before);
+    // A failed replacement must preserve the original and clean up the temp file.
+    fs.writeFileSync(preload,"require('fs').renameSync=()=>{throw Error('injected rename failure')};");
+    result=run(preload);
+    assert.equal(result.status,2);
+    assert.match(result.stderr,/injected rename failure/);
+    assert.equal(fs.readFileSync(file,'utf8'),before);
+    assert.equal(fs.readdirSync(dir).filter(name=>name.includes('.format-')).length,0);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });

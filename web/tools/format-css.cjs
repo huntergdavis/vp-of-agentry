@@ -59,9 +59,20 @@ function main(args) {
   const {after,evidence}=formatCss(before);
   const line=firstDifference(before,after);
   if(mode==='--check' && line!==null)
-    throw Error(file+': formatting differs at line '+line+'; no file written');
+    throw Object.assign(Error('MISMATCH '+file+':'+line),{exitCode:1});
   if(mode==='--write' && line!==null) {
-    fs.writeFileSync(file,after);
+    const temporary=file+'.format-'+crypto.randomUUID()+'.tmp';
+    let fd;
+    try {
+      fd=fs.openSync(temporary,'wx',fs.statSync(file).mode & 0o777);
+      fs.writeFileSync(fd,after);
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);fd=undefined;
+      fs.renameSync(temporary,file);
+    } finally {
+      if(fd!==undefined)fs.closeSync(fd);
+      if(fs.existsSync(temporary))fs.unlinkSync(temporary);
+    }
     console.error(file+': formatted (first changed line '+line+')');
   }
   console.log(JSON.stringify({...evidence,mode,byteIdentical:line===null},null,2));
@@ -69,5 +80,5 @@ function main(args) {
 module.exports={formatCss,firstDifference};
 if(require.main===module) {
   try { main(process.argv.slice(2)); }
-  catch(error) { console.error('CSS formatter: '+error.message); process.exitCode=1; }
+  catch(error) { console.error(error.exitCode===1 ? error.message : 'CSS formatter: '+error.message); process.exitCode=error.exitCode||2; }
 }
