@@ -1,7 +1,7 @@
 """Synthetic composer layout/placeholder checks; no messages leave the browser."""
 from pathlib import Path
 import os, json, subprocess
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 BASE=os.environ['VP_BASE_URL']
 OUT=Path(os.environ['VP_TEST_ARTIFACTS']);OUT.mkdir(parents=True,exist_ok=True)
 MODE=os.environ.get('VP_TEST_MODE','candidate')
@@ -35,6 +35,7 @@ with sync_playwright() as pw:
                 page.goto(BASE+'/dash/cos')
                 editor=page.get_by_label('Message text',exact=True)
                 editor.wait_for();page.evaluate('document.fonts.ready')
+                hint_font=page.locator('.composer-placeholder').evaluate('e=>parseFloat(getComputedStyle(e).fontSize)') if MODE=='candidate' else 10
                 if text_scale==2:
                     # Computed sizes are snapshotted before applying any changes, avoiding inherited double scaling.
                     page.evaluate("""() => {
@@ -119,11 +120,12 @@ with sync_playwright() as pw:
                     assert placeholder.count()==0
                     editor.fill('')
                     placeholder.wait_for()
+                    if text_scale==2:placeholder.evaluate('(e,size)=>e.style.fontSize=size+"px"',hint_font*2)
                     assert rendered_hint()==json.dumps(HINT)
                     record['placeholderEmptyFocusedTypedCleared']=True
                     available[0]=False;page.clock.install();page.clock.run_for(6000);editor.wait_for()
                     page.get_by_role('button',name='Send message',exact=True).wait_for()
-                    assert page.get_by_role('button',name='Send message',exact=True).is_disabled()
+                    expect(page.get_by_role('button',name='Send message',exact=True)).to_be_disabled()
                     assert rendered_hint()==json.dumps('Agent unavailable')
                     editor.focus();assert rendered_hint()==json.dumps('Agent unavailable')
                     capture(page,OUT/f'{suffix}-unavailable.png')
