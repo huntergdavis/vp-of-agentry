@@ -64,10 +64,6 @@ h1,h2,p { margin-top: 0; }
 .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .attachments a { background: var(--attachments-surface); color: var(--attachments-ink); border-radius: var(--radius-6px); padding: 5px 8px; text-decoration: none; font-size: 11px; }
 .composer { background: var(--topbar-surface); border-top: 1px solid var(--composer-border); padding: 14px 34px 0; box-shadow: var(--composer-shadow); display: flex; flex-wrap: wrap; gap: 6px; }
-.toolbar { display: flex; align-items: center; gap: 4px; }
-.toolbar button { border: 0; background: var(--clear); color: var(--toolbar-ink); border-radius: var(--radius-5px); min-width: 30px; padding: 5px; font-size: 13px; }
-.toolbar button:hover { background: var(--toolbar-surface); }
-.toolbar-spacer { flex: 1; }
 .editor { border: 1px solid var(--editor-border); outline: none; border-radius: var(--radius-9px); padding: 11px 14px; min-height: 70px; max-height: 210px; overflow-y: auto; color: var(--editor-ink); font-size: 13px; line-height: 1.55; }
 .editor:focus { border-color: var(--editor-border-2); box-shadow: var(--editor-shadow); }
 .editor p { margin: 0; }
@@ -519,30 +515,29 @@ h1,h2,p { margin-top: 0; }
 .message-meta { flex-wrap: wrap; }
 .message-meta > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 /* Send shares the growing input's height; the empty hint occupies the same grid cell. */
-.composer > .toolbar, .composer > .pending-files, .composer > .form-error { flex-basis: 100%; }
+.composer > .pending-files, .composer > .form-error { flex-basis: 100%; }
 .composer-input { flex: 1; min-width: 0; display: grid; isolation: isolate; }
 .composer-input > div, .composer-placeholder { grid-area: 1 / 1; min-width: 0; }
 .composer-input > div { z-index: 0; }
 .composer-input .editor { height: 100%; min-width: 0; }
 .composer .composer-input:has(.composer-placeholder) .editor { max-height: none; }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
-/* Reserve the formatting row while idle; DOM order stays input, Send, Attach, formatting. */
-.composer { padding-bottom: 2px; }
+/* One visual row; keyboard order remains input, Send, Attach, formatting. */
+.composer { --control-boundary: var(--muted); padding-bottom: 2px; }
 .composer > .pending-files { order: -2; }
-.composer > .toolbar { order: -1; min-width: 0; flex-wrap: wrap; gap: 4px; opacity: 0; pointer-events: none; }
-.composer:hover > .toolbar, .composer:focus-within > .toolbar, .composer[data-nonempty="true"] > .toolbar { opacity: 1; pointer-events: auto; }
-.composer > .attach { flex: none; align-self: center; border: 0; background: var(--clear); color: var(--toolbar-ink); border-radius: var(--radius-5px); padding: 4px 7px; font-size: 13px; white-space: nowrap; }
-.composer > .attach:hover { background: var(--toolbar-surface); }
-.dash-root .composer > .attach { color: var(--dash-muted); }
-.dash-root .composer > .attach:hover { background: var(--dash-panel-2); }
+.composer > .formatting-controls { order: -1; flex: none; align-self: center; display: grid; grid-template-columns: repeat(3, 24px); grid-template-rows: repeat(2, 24px); gap: 2px; }
+.composer > .send { order: 2; }
+.composer > .attach { order: 1; flex: none; align-self: center; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--control-boundary); background: var(--surface-raised); color: var(--muted); border-radius: var(--radius-5px); padding: 3px; font-size: 13px; white-space: nowrap; }
+.composer .composer-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.composer button { min-width: 24px; min-height: 24px; }
+.composer > .formatting-controls button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: var(--clear); color: var(--toolbar-ink); border-radius: var(--radius-5px); }
+.composer > .formatting-controls button:hover { background: var(--toolbar-surface); }
+.composer > .form-error { order: 3; }
 @media (max-width: 480px) {
   .composer { gap: 4px; }
-  .composer .send-decoration, .composer .attach-decoration { display: none; }
+  .composer .send-decoration, .composer .attach-label { display: none; }
   .composer > .send { padding: 0 2px; }
-  .composer > .attach { padding: 4px 0; }
   .composer .composer-placeholder { padding: 6px 4px; }
 }
-.composer button { min-width: 24px; min-height: 24px; }
-.composer > .toolbar button { flex: none; padding: 2px 4px; white-space: nowrap; }
 .composer-placeholder { z-index: 1; overflow-wrap: anywhere; align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }
 .composer-placeholder:empty::before { content: attr(data-hint); }

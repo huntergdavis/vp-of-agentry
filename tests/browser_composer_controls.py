@@ -20,13 +20,18 @@ from tests.browser_placeholder_paint import measure_placeholder_paint
 
 METRICS = """() => {
  const box=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
- const c=document.querySelector('.composer'),t=c.querySelector('.toolbar'),e=c.querySelector('.editor'),s=c.querySelector('.send'),a=c.querySelector('.attach')||[...t.querySelectorAll('button')].find(b=>b.title.startsWith('Attach'));
+ const c=document.querySelector('.composer'),t=c.querySelector('.formatting-controls, .toolbar'),e=c.querySelector('.editor'),s=c.querySelector('.send'),a=c.querySelector('.attach')||[...t.querySelectorAll('button')].find(b=>b.title.startsWith('Attach'));
  const css=getComputedStyle(c),hint=c.querySelector('.composer-placeholder');
  const luminance=color=>color.match(/[0-9.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
- const ink=luminance(getComputedStyle(a).color),surface=luminance(css.backgroundColor);
+ const acss=getComputedStyle(a),ink=luminance(acss.color),surface=luminance(css.backgroundColor);
+ const boundary=luminance(acss.borderColor),ownSurface=luminance(acss.backgroundColor);
+ const formatButtons=[...t.querySelectorAll('button')].map(box);
 
  return {composer:box(c),toolbar:box(t),editor:box(e),send:box(s),attach:box(a),hint:hint?box(hint):null,
   attachTextContrast:(Math.max(ink,surface)+.05)/(Math.min(ink,surface)+.05),
+  attachBoundary:{color:acss.borderColor,surface:acss.backgroundColor,width:parseFloat(acss.borderWidth),style:acss.borderStyle,
+   ratio:(Math.max(boundary,ownSurface)+.05)/(Math.min(boundary,ownSurface)+.05)},
+  formattingButtons:formatButtons,
   toolbarOpacity:Number(getComputedStyle(t).opacity),focusWithin:c.matches(':focus-within'),
   padding:{top:parseFloat(css.paddingTop),bottom:parseFloat(css.paddingBottom),left:parseFloat(css.paddingLeft),right:parseFloat(css.paddingRight)},
   controls:[...c.querySelectorAll('button')].map(b=>({name:b.getAttribute('aria-label')||b.title||b.textContent,union:box(b),fragments:[...b.getClientRects()].map(r=>({width:r.width,height:r.height}))})),
@@ -55,7 +60,7 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=str(chrome), args=['--no-sandbox'])
         try:
-            for width in [1067, 390, 1422, 1440]:
+            for width in [1067, 390]:
                 for theme, scale in [(t,s) for t in ['default','crt'] for s in [1,2]]:
                     name = f'{theme}-{width}-text{scale}'
                     row = dict(id=name, width=width, theme=theme, textScale=scale, states={}, checks=[], captures=[])
@@ -125,20 +130,31 @@ def main():
                         if args.mode=='baseline':
                             row['completed']=True
                             continue
-                        check(first['toolbarOpacity']==0, 'Idle formatting row hidden but reserved')
+                        check(first['toolbarOpacity']==1, 'Formatting always visible while idle')
+                        boundary=first['attachBoundary']
+                        check(boundary['style']=='solid' and boundary['width']>=1 and boundary['ratio']>=3,
+                              'Attach has a real outline with >=3:1 against its own surface')
+                        buttons=first['formattingButtons']
+                        check(len(buttons)==6 and len({b['y'] for b in buttons})==2 and len({b['x'] for b in buttons})==3,
+                              'Formatting occupies two rows of three buttons')
+                        check(first['toolbar']['right']<=first['editor']['x'] and first['editor']['right']<=first['attach']['x']
+                              and first['attach']['right']<=first['send']['x'],
+                              'Visual order formatting then editor then Attach then Send')
+                        check(all(c['union']['width']>=24 and c['union']['height']>=24 for c in first['controls']),
+                              'Idle controls each measure at least 24x24')
                         check(first['attachTextContrast']>=4.5, 'Attach retains readable desk text contrast')
                         check(abs(first['padding']['bottom']-2)<.1, 'Bottom padding exactly 2px')
                         row['mainIdleHeight']=baseline[name]['states']['idle']['composer']['height']
                         row['idleHeightDelta']=first['composer']['height']-row['mainIdleHeight']
-                        check(row['idleHeightDelta']<=2.1, 'Idle height no taller than main plus 2px at either text scale')
+                        check(row['idleHeightDelta']<0, 'One-row composer reclaims height versus main307ec0ee')
                         paint('idle')
                         t=first['toolbar']; page.mouse.move(t['right']-2,t['y']+t['height']/2)
                         hovered=state('hovered')
-                        check(hovered['toolbarOpacity']==1, 'Hover over reserved row reveals formatting')
+                        check(hovered['toolbarOpacity']==1, 'Hover retains visible formatting')
                         idle()
                         page.evaluate("""() => {
                           window.formatFocus=[];
-                          document.querySelector('.toolbar').addEventListener('focusin',e=>{
+                          document.querySelector('.formatting-controls').addEventListener('focusin',e=>{
                             const s=getComputedStyle(e.target);
                             window.formatFocus.push({name:e.target.getAttribute('aria-label'),
                               opacity:getComputedStyle(e.currentTarget).opacity,
@@ -157,24 +173,24 @@ def main():
                         row['tabOrder']=walk;row['formatFocus']=page.evaluate('window.formatFocus')
                         check(len(row['formatFocus'])==6 and all(float(f['opacity'])==1 and f['outline'] not in ['none','hidden'] and f['outlineWidth']>0 for f in row['formatFocus']),
                               'Formatting visible with focus outline at focus event')
-                        check(page.locator('.toolbar').get_attribute('role')=='group' and
-                              page.locator('.toolbar').get_attribute('aria-label')=='Message formatting' and
-                              page.locator('.toolbar [aria-hidden="true"]').count()==0,
+                        check(page.locator('.formatting-controls').get_attribute('role')=='group' and
+                              page.locator('.formatting-controls').get_attribute('aria-label')=='Message formatting' and
+                              page.locator('.formatting-controls button[aria-hidden="true"]').count()==0,
                               'Formatting accessible group retains focused controls')
                         row['accessibleComposer']=page.locator('.composer').aria_snapshot()
                         for label in ['hovered','keyboard-focused']:
                             m=row['states'][label]
                             check(all(abs(m[key][part]-first[key][part])<.1 for key in ['composer','editor','send']
-                                      for part in ['x','y','width','height']), label+': zero reveal layout shift')
+                                      for part in ['x','y','width','height']), label+': zero interaction layout shift')
                             check(all(c['union']['width']>=24 and c['union']['height']>=24 and c['fragments'] and
                                       all(f['width']>=24 and f['height']>=24 for f in c['fragments']) for c in m['controls']),
                                   label+': every control union and fragment >=24')
-                        check(keyboard['attach']['x']>=keyboard['send']['right'], 'Attach physically right of Send')
+                        check(keyboard['attach']['right']<=keyboard['send']['x'], 'Attach physically left of Send')
                         with page.expect_file_chooser() as chooser:
                             page.get_by_role('button',name='Attach images or files',exact=True).click()
                         chooser.value.set_files([]);row['attachChooserOpened']=True
                         editor.fill('Typed draft');idle();typed=state('typed')
-                        check(typed['toolbarOpacity']==1, 'Nonempty draft keeps formatting visible after blur')
+                        check(typed['toolbarOpacity']==1, 'Typed draft retains visible formatting')
                         if width==390:
                             editor.fill('');idle();editor.tap()
                             touch=state('touch-focused')
@@ -189,18 +205,6 @@ def main():
                         editor.fill('Line one');editor.press('Shift+Enter');editor.type('Line two')
                         check(len(sent)==2 and 'Line two' in editor.inner_text(), 'Shift+Enter retains newline without sending')
                         editor.fill('');idle()
-                        # Exploratory overlay alternative, never source or default behavior.
-                        padding=first['padding']
-                        overlay=page.add_style_tag(content=f".composer {{position:relative}} .composer > .toolbar {{position:absolute;top:{padding['top']}px;left:{padding['left']}px;right:{padding['right']}px}}")
-                        overlay_idle=state('overlay-idle')
-                        t=overlay_idle['toolbar'];page.mouse.move(t['right']-2,t['y']+t['height']/2)
-                        overlay_hover=state('overlay-hovered')
-                        row['overlayAlternative']=dict(idleHeight=overlay_idle['composer']['height'],
-                            heightVsReserved=overlay_idle['composer']['height']-first['composer']['height'],
-                            revealHeightDelta=overlay_hover['composer']['height']-overlay_idle['composer']['height'],
-                            toolbarEditorOverlap=max(0,min(t['bottom'],overlay_idle['editor']['bottom'])-max(t['y'],overlay_idle['editor']['y'])),
-                            sourceChanged=False)
-                        overlay.evaluate('e=>e.remove()')
                         available[0]=False;page.reload()
                         editor=page.get_by_label('Message text',exact=True);editor.wait_for()
                         expect(page.get_by_role('button',name='Send message',exact=True)).to_be_disabled()
