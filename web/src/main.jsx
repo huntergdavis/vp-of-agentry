@@ -213,20 +213,22 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
     } catch (e) { setError(e.message); } finally { sendingRef.current = false; setBusy(false); }
   }
   sendRef.current = send;
-  return <section className="composer" aria-label="Write message" data-nonempty={!empty || pending.length > 0}>
+  return <section className="composer" aria-label="Write message">
     {pending.length > 0 && <div className="pending-files">{pending.map(file => <span key={file.id} className="file-pill">📎 {file.filename}<button aria-label={`Remove ${file.filename}`} onClick={() => setPending(items => items.filter(x => x.id !== file.id))}>×</button></span>)}</div>}
     <div className="composer-input" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}>
       <EditorContent editor={editor} />
       {empty && <span className="composer-placeholder" data-hint={disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'} />}
     </div>
     <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : <>Send<span className="send-decoration" aria-hidden="true"> ↗</span></>}</button>
-    <button className="attach" title="Attach images or files" aria-label="Attach images or files" onClick={() => fileRef.current?.click()}><span className="attach-decoration" aria-hidden="true">＋ </span>Attach</button>
+    <button className="attach" title="Attach images or files" aria-label="Attach images or files" onClick={() => fileRef.current?.click()}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l10-10" /></svg><span className="attach-label">Attach</span></button>
     <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
-    <div className="toolbar" role="group" aria-label="Message formatting">
-      <button title="Bold" aria-label="Bold" onClick={() => command('toggleBold')}><b>B</b></button><button title="Italic" aria-label="Italic" onClick={() => command('toggleItalic')}><i>I</i></button>
-      <button title="Heading" aria-label="Heading" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>H</button>
-      <button title="Bullet list" aria-label="Bullet list" onClick={() => command('toggleBulletList')}>≡</button><button title="Quote" aria-label="Quote" onClick={() => command('toggleBlockquote')}>❞</button>
-      <button title="Code block" aria-label="Code block" onClick={() => command('toggleCodeBlock')}>&lt;/&gt;</button>
+    <div className="formatting-controls" role="group" aria-label="Message formatting">
+      <button title="Bold" aria-label="Bold" onClick={() => command('toggleBold')}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h6a4 4 0 0 1 0 8H7V4Zm0 8h7a4 4 0 0 1 0 8H7v-8Z" /></svg></button>
+      <button title="Italic" aria-label="Italic" onClick={() => command('toggleItalic')}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4h10M4 20h10M15 4 9 20" /></svg></button>
+      <button title="Heading" aria-label="Heading" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M19 4v16M5 12h14" /></svg></button>
+      <button title="Bullet list" aria-label="Bullet list" onClick={() => command('toggleBulletList')}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h.01M3 12h.01M3 19h.01" /></svg></button>
+      <button title="Quote" aria-label="Quote" onClick={() => command('toggleBlockquote')}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h7v8H3V5Zm7 8c0 4-3 6-6 6M14 5h7v8h-7V5Zm7 8c0 4-3 6-6 6" /></svg></button>
+      <button title="Code block" aria-label="Code block" onClick={() => command('toggleCodeBlock')}><svg className="composer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6-5 6 5 6m10-12 5 6-5 6M14 3l-4 18" /></svg></button>
     </div>
     {error && <span className="form-error" role="alert">{error}</span>}
   </section>;

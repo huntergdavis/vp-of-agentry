@@ -343,10 +343,11 @@
   color: var(--dash-fg);
 }
 .dash-root .composer .editor, .dash-root .composer button { border-color: var(--dash-muted); }
+.dash-root .composer > .attach { border-color: var(--control-boundary); background: var(--dash-panel-2); color: var(--dash-muted); }
 .dash-root .editor:focus { border-color: var(--dash-accent); box-shadow: var(--dash-root-shadow); }
 .dash-root .composer-placeholder { color: var(--dash-muted); }
-.dash-root .toolbar button { color: var(--dash-muted); }
-.dash-root .toolbar button:hover { background: var(--dash-panel-2); }
+.dash-root .formatting-controls button { color: var(--dash-muted); }
+.dash-root .formatting-controls button:hover { background: var(--dash-panel-2); }
 .dash-root .empty-state, .dash-root .empty-state h2, .dash-root .empty-state p { color: var(--dash-muted); }
 .dash-root .older-marker { color: var(--dash-muted); }
 .dash-root .older-marker button {
