@@ -14,6 +14,7 @@ Use system font stacks, or bundle an openly licensed font with its license text 
 
 Run from the repository root:
 
+    node web/tools/check-theme-scope.cjs
     .venv/bin/python tools/theme_contrast.py --json
     .venv/bin/python -m unittest tests.test_theme_contrast tests.test_theme_capture
 
@@ -24,3 +25,5 @@ Capture the actual theme with all dialogs closed at1067 and390, plus the owner18
 Record CSS viewport size and raw devicePixelRatio. Viewport plus deviceScaleFactor1.8 is EMULATION, not proof of real browser zoom, operating-system scaling or physical-screen dimensions. Scanlines can rasterize differently across DPR values; report the configuration and inspect the actual result.
 
 The stylesheet loader imports Default before the separate eager variant-glob module, at the original theme position between library and component CSS. main.jsx imports that loader and eagerly discovers the JSON manifests. This module boundary prevents Vite from hoisting the variant CSS before the existing library/default styles; adding a theme still changes only its own pair.
+
+The selector-scope gate (also run by the web Node test suite) exempts Default and requires every selector branch in a variant, including nested conditional rules, to begin with that variant's own :root[data-theme="<id>"]. Variant imports are rejected because they could bypass inspection. This keeps variant file order from changing another theme's cascade; it does not replace contrast or rendered-page checks.
