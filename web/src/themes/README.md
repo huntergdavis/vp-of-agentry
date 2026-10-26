@@ -22,3 +22,5 @@ Attach the gate report: ink/bg >=7, muted/bg >=4.5, accent/bg >=3, accent-contra
 Capture the actual theme with all dialogs closed at1067 and390, plus the owner1881 blocking widths1422/1067/960/800/700/390. Keep24x24 targets, unobscured keyboard focus,200% text, contrast4.5/3 and no clipping/overflow at blocking widths.320 is advisory: measure and name failures without treating them as blockers. Use the capture guard; a screenshot through an open Appearance dialog is invalid evidence.
 
 Record CSS viewport size and raw devicePixelRatio. Viewport plus deviceScaleFactor1.8 is EMULATION, not proof of real browser zoom, operating-system scaling or physical-screen dimensions. Scanlines can rasterize differently across DPR values; report the configuration and inspect the actual result.
+
+The stylesheet loader imports Default before the separate eager variant-glob module, at the original theme position between library and component CSS. main.jsx imports that loader and eagerly discovers the JSON manifests. This module boundary prevents Vite from hoisting the variant CSS before the existing library/default styles; adding a theme still changes only its own pair.

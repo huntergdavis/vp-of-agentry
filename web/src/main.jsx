@@ -9,6 +9,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import ReactMarkdown from 'react-markdown';
 import TurndownService from 'turndown';
+import { themeStyles } from './theme-styles.js';
 import './style.css';
 import './dash.css';
 import './scrollbars.css';
@@ -17,7 +18,6 @@ import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry } from './theme-registry.js';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
-const themeStyles = import.meta.glob('./themes/*.css', { eager: true });
 const themeManifests = import.meta.glob('./themes/*.json', { eager: true, import: 'default' });
 const THEMES = buildThemeRegistry(themeManifests, themeStyles);
 const ThemeContext = createContext(null);

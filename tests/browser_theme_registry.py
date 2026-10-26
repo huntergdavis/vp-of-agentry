@@ -12,8 +12,8 @@ base=os.environ['VP_BASE_URL'].rstrip('/')
 stamp=os.environ.get('VP_TEST_STAMP') or subprocess.check_output(['date','-Iseconds'],text=True).strip()
 recorder=ThemeCapture(out,{'source_head':os.environ.get('VP_TEST_SOURCE_SHA'),'timestamp':stamp,'emulated':True,'requested_dpr':1.8})
 probes=[]
-def probe(page,theme,width):
- return dict(theme=theme,width=width,styles=page.evaluate('''() => {
+def probe(page,theme,width,text_scale):
+ return dict(theme=theme,width=width,textScale=text_scale,styles=page.evaluate('''() => {
    const targets=['html','body','.dash-root','.dash-nav','.dash-header','h1','.conversation',
      '.message-wrap','.cs-message','.cs-message__content','.composer','.editor','.toolbar button','.composer .send'];
    const snapshot=(element,pseudo)=>{const s=getComputedStyle(element,pseudo);return Object.fromEntries([...s].sort().map(k=>[k,s.getPropertyValue(k)]));};
@@ -24,7 +24,7 @@ version=re.search(r'src="([^"]+\.js)"',dist.joinpath('index.html').read_text())[
 chrome=sorted((Path.home()/'.cache/ms-playwright').glob('chromium-*/chrome-linux64/chrome'))[-1]
 with sync_playwright() as p:
  browser=p.chromium.launch(executable_path=str(chrome),args=['--no-sandbox'])
- for width in (1440,1422,1067,960,800,700,390):
+ for width,text_scale in [(w,1) for w in (1440,1422,1067,960,800,700,390)]+[(390,2)]:
   height=900 if width>480 else 844
   page=browser.new_page(viewport={'width':width,'height':height},device_scale_factor=1.8);errors=[];writes=[]
   page.on('pageerror',lambda e:errors.append(str(e)))
@@ -41,6 +41,11 @@ with sync_playwright() as p:
   page.goto(base+'/dash/cos')
   trigger=page.get_by_role('button',name='Appearance',exact=True);trigger.wait_for()
   assert page.locator('html').get_attribute('data-theme')=='default'
+  if text_scale==2:
+   page.evaluate('''() => {
+     const sizes=[...document.querySelectorAll('body *')].map(e=>[e,parseFloat(getComputedStyle(e).fontSize)]);
+     sizes.forEach(([e,size])=>e.style.fontSize=(size*2)+'px');
+   }''')
   page.evaluate('window.pickerNavigationMarker=42')
   trigger.click();dialog=page.get_by_role('dialog',name='Appearance',exact=True)
   select=dialog.get_by_label('Theme',exact=True)
@@ -52,8 +57,8 @@ with sync_playwright() as p:
   page.keyboard.press('Escape')
   page.locator('.message-wrap').first.wait_for()
   page.evaluate('document.fonts.ready')
-  probes.append(probe(page,'default',width))
-  recorder.capture(page,f'default-{width}.png',theme='default',width=width,height=height)
+  probes.append(probe(page,'default',width,text_scale))
+  recorder.capture(page,f'default-{width}-text{text_scale}.png',theme='default',width=width,height=height,textScale=text_scale)
   trigger.click()
   select.select_option('crt')
   assert page.locator('html').get_attribute('data-theme')=='crt'
@@ -64,8 +69,8 @@ with sync_playwright() as p:
   assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
   page.keyboard.press('Escape')
   page.evaluate('document.fonts.ready')
-  probes.append(probe(page,'crt',width))
-  recorder.capture(page,f'crt-{width}.png',theme='crt',width=width,height=height)
+  probes.append(probe(page,'crt',width,text_scale))
+  recorder.capture(page,f'crt-{width}-text{text_scale}.png',theme='crt',width=width,height=height,textScale=text_scale)
   trigger.click()
   # Focus wraps within this appearance surface; Escape restores the trigger.
   page.keyboard.press('Tab');assert dialog.get_by_role('button',name='Close appearance').evaluate('e=>e===document.activeElement')
@@ -86,7 +91,7 @@ with sync_playwright() as p:
   dialog.get_by_role('status').wait_for()
   assert not errors,errors
   assert not writes,writes
-  print(f'{width}x{height}: default/CRT live swap, distinct bg tokens, reload and route persistence, invalid/blocked storage fallback, focus/Escape, no password surface/unexpected API writes/JS errors PASS',flush=True)
+  print(f'{width}x{height}/text{text_scale}: default/CRT live swap, distinct bg tokens, reload and route persistence, invalid/blocked storage fallback, focus/Escape, no password surface/unexpected API writes/JS errors PASS',flush=True)
   page.close()
  browser.close()
 
