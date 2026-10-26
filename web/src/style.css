@@ -266,3 +266,7 @@
   .message-wrap .cs-message__content-wrapper,
   .message-wrap .cs-message__content { width: 100%; }
 }
+
+/* Keep message labels and timestamps readable when text is enlarged. */
+.message-meta { flex-wrap: wrap; }
+.message-meta > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
