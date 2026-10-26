@@ -1,3 +1,4 @@
+import './viewportReport';
 import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMessageScroll, mergeMessages } from './useMessageScroll';
 import { createRoot } from 'react-dom/client';
