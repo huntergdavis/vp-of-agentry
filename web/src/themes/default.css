@@ -11,6 +11,7 @@
   --surface-raised: #1e1e2e;
   --ink: #cdd6f4;
   --muted: #a6adc8;
+  --control-boundary: var(--muted);
   --accent: #89b4fa;
   --accent-contrast: #10131f;
   --border: #313244;

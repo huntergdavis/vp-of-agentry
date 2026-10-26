@@ -523,7 +523,7 @@ h1,h2,p { margin-top: 0; }
 .composer .composer-input:has(.composer-placeholder) .editor { max-height: none; }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
 /* One visual row; keyboard order remains input, Send, Attach, formatting. */
-.composer { --control-boundary: var(--muted); padding-bottom: 2px; }
+.composer { padding-bottom: 2px; }
 .composer > .pending-files { order: -2; }
 .composer > .formatting-controls { order: -1; flex: none; align-self: center; display: grid; grid-template-columns: repeat(3, 24px); grid-template-rows: repeat(2, 24px); gap: 2px; }
 .composer > .send { order: 2; }
