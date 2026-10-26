@@ -68,7 +68,7 @@ function DashNav({ view, side }) {
   const settingsButton = useRef(null);
   function closeSettings() { setSettingsOpen(false); settingsButton.current?.focus(); }
   return <nav className="dash-nav" aria-label="Dashboards">
-    <a className="dash-nav-brand" href="/" aria-label="VP of Agentry home"><span className="dash-nav-mark">VA</span><span>VP OF AGENTRY</span></a>
+    <a className="dash-nav-brand" href="/" aria-label="VP of Agentry home"><span className="dash-nav-mark">VA</span></a>
     <span className="dash-nav-links">
       {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
     </span>
