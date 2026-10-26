@@ -20,13 +20,60 @@ def consumer_scope(evidence):
                    for item in evidence})
 
 
+def baseline_provenance(baseline):
+    """Resolve ordered input ranges; reject gaps, overlaps and expiry drift."""
+    entries = baseline.get('entries')
+    if not isinstance(entries, list):
+        raise ValueError('Baseline requires entries')
+    if baseline.get('version') == 1:
+        if not re.fullmatch(r'[0-9a-f]{40}', baseline.get('source_head', '')):
+            raise ValueError('Baseline requires a measured source_head')
+        return [dict(source_head=baseline['source_head']) for _ in entries]
+    if baseline.get('version') != 2:
+        raise ValueError('Baseline requires version 1 or 2')
+    inputs = baseline.get('inputs')
+    if not isinstance(inputs, list) or not inputs:
+        raise ValueError('Version 2 baseline requires provenance inputs')
+    resolved, seen = [], set()
+    for source in inputs:
+        if not isinstance(source, dict):
+            raise ValueError('Invalid baseline input')
+        identity = source.get('id')
+        if not isinstance(identity, str) or not identity or identity in seen:
+            raise ValueError('Baseline input ids must be unique and nonempty')
+        seen.add(identity)
+        for key, length in [('source_head', 40), ('input_sha256', 64)]:
+            value = source.get(key)
+            if not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{%d}' % length, value):
+                raise ValueError('Invalid baseline input ' + key)
+        start, count = source.get('entry_start'), source.get('entry_count')
+        expiry = source.get('expires_with')
+        if (type(start) is not int or start != len(resolved) or
+                type(count) is not int or count <= 0 or start + count > len(entries)):
+            raise ValueError('Baseline input ranges must cover entries once in order')
+        if not isinstance(expiry, str) or not re.fullmatch(r't[0-9]+', expiry):
+            raise ValueError('Baseline input requires expiry task')
+        if any(entry.get('expires_with') != expiry for entry in entries[start:start + count]):
+            raise ValueError('Baseline input expiry differs from its entries')
+        provenance = dict(input_id=identity, source_head=source['source_head'],
+                          input_sha256=source['input_sha256'])
+        adjusted = source.get('adjusted_input_sha256')
+        if adjusted is not None:
+            if not isinstance(adjusted, str) or not re.fullmatch(r'[0-9a-f]{64}', adjusted):
+                raise ValueError('Invalid adjusted baseline input SHA256')
+            provenance['adjusted_input_sha256'] = adjusted
+        resolved.extend(dict(provenance) for _ in range(count))
+    if len(resolved) != len(entries):
+        raise ValueError('Baseline input ranges must cover every entry')
+    return resolved
+
+
 def apply_baseline(rows, baseline, completed_tasks=()):
     """Defer only design-triaged exact-value failures until their expiry task."""
-    if baseline.get('version') != 1 or not re.fullmatch(r'[0-9a-f]{40}', baseline.get('source_head', '')):
-        raise ValueError('Baseline requires version 1 and a measured source_head')
+    provenance = baseline_provenance(baseline)
     entries = {}
     if not isinstance(baseline.get('entries'), list): raise ValueError('Baseline requires entries')
-    for entry in baseline['entries']:
+    for entry, source in zip(baseline['entries'], provenance):
         if (any(field not in entry for field in BASELINE_FIELDS) or
                 not re.fullmatch(r't[0-9]+', entry.get('expires_with', '')) or
                 not isinstance(entry.get('reason'), str) or not entry['reason'].strip() or
@@ -36,15 +83,16 @@ def apply_baseline(rows, baseline, completed_tasks=()):
         except (KeyError, TypeError): raise ValueError('Invalid baseline consumer scope') from None
         key = tuple(entry[field] for field in BASELINE_FIELDS)
         if key in entries: raise ValueError('Duplicate baseline entry: ' + str(key))
-        entries[key] = entry
+        entries[key] = (entry, source)
     result = []
     for original in rows:
         row = dict(original)
-        entry = entries.get(tuple(row.get(field) for field in BASELINE_FIELDS))
+        match = entries.get(tuple(row.get(field) for field in BASELINE_FIELDS))
+        entry, source = match if match else (None, None)
         if entry and row['status'] == 'FAIL' and not row.get('error') and not row.get('control'):
             expired = entry['expires_with'] in completed_tasks or bool((row.get('known_fail') or {}).get('expired'))
             scope_changed = consumer_scope(entry['evidence']) != consumer_scope(row.get('evidence', []))
-            row['baseline'] = dict(entry, expired=expired, scope_changed=scope_changed, source_head=baseline['source_head'])
+            row['baseline'] = dict(entry, expired=expired, scope_changed=scope_changed, **source)
             if not expired and not scope_changed: row['status'] = 'BASELINE-FAIL'
         result.append(row)
     return result

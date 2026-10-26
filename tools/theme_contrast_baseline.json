@@ -1,10 +1,39 @@
 {
-  "version": 1,
-  "source_head": "4a85540b66aa57185becc1ea12072b5c3fe6ac85",
-  "input_sha256": "b8f8402339a52c92e62e61a0c1c78775aceae0872ec7934ad4a73e9ec11fda7f",
+  "version": 2,
   "status": "design triage; exact-value BASELINE-FAIL deferrals, not PASS or whole-page acceptance",
   "reference": "https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html",
-  "policy": "Decorative static separators can receive narrow design waivers; controls, selected/focus cues and text are retained for fixes. These waivers expire with t192 and do not override stricter owner acceptance.",
+  "policy": "Decorative static separators can receive narrow design waivers; controls, selected/focus cues and text are retained for fixes. These waivers expire with t192 (Default/CRT) or t203 (Nostromo/2001) and do not override stricter owner acceptance.",
+  "review": {
+    "source": "VP i26980 relaying pi-review-1",
+    "confirmedScopedWaivers": 42,
+    "correctedToFix": 2,
+    "limits": "static CSS classification, not rendered reachability"
+  },
+  "inputs": [
+    {
+      "id": "default-crt",
+      "source_head": "4a85540b66aa57185becc1ea12072b5c3fe6ac85",
+      "input_sha256": "b8f8402339a52c92e62e61a0c1c78775aceae0872ec7934ad4a73e9ec11fda7f",
+      "entry_start": 0,
+      "entry_count": 99,
+      "expires_with": "t192"
+    },
+    {
+      "id": "nostromo-2001",
+      "source_head": "e0249105e62f5ee94d560f998653f2f4fd74e698",
+      "input_sha256": "3c7080eb66f3b486cb93a743c4c0153ea34e6bab8293afab1b45d53d39865406",
+      "adjusted_input_sha256": "31e4fcdf0aecfa08b0a2063066946edc6757b0c88176b2f03ec1145c10745f98",
+      "entry_start": 99,
+      "entry_count": 80,
+      "expires_with": "t203",
+      "remediation": "t203: design repairs new-theme referenced contrast failures and revisits scoped waivers",
+      "expiry_override": {
+        "previous": "t191",
+        "authority": "VP i27515/i27522: triage is complete; remediation is t203"
+      }
+    }
+  ],
+  "provenance_policy": "Input ranges index the ordered entries array and must cover it exactly once. input_sha256 preserves the cited original input; adjusted_input_sha256 identifies the same approved new-theme file with only expires_with changed to t203. Historical reason text is preserved verbatim; expires_with is authoritative under the recorded VP override.",
   "entries": [
     {
       "theme": "default",
@@ -2822,7 +2851,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static activity-pane separator; headings and pane layout identify the region. No control, focus or selected-state cue is waived. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1200515095442358,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2845,7 +2874,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1963199534462652,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2866,7 +2895,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Composer section separator; editor and button boundaries remain separately gated. This does not waive any input boundary. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.2476600749949796,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2887,7 +2916,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.6140473221711915,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2908,7 +2937,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5003695035862854,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2929,7 +2958,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.4162670679305418,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2956,7 +2985,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5567624298287486,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -2977,7 +3006,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.46332604974677,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3028,7 +3057,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.0076069986839395,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3067,7 +3096,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.4297766933444875,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3088,7 +3117,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Informational banner frame; message text and its action are separately identifiable. Action text/focus contrast remains required. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1892401320801493,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3109,7 +3138,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.350175644612505,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3130,7 +3159,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.336432470788954,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3151,7 +3180,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer chart/model card frame, not plotted lines, axes or data glyphs. Chart graphical marks and text remain separately required. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.2423862104360586,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3172,7 +3201,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled executive-card frame; the three reported backgrounds are gradient stops. No meaningful chart/control/state cue uses this frame. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.9879189606843957,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3193,7 +3222,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled executive-card frame; the three reported backgrounds are gradient stops. No meaningful chart/control/state cue uses this frame. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.375026068633185,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3214,7 +3243,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled executive-card frame; the three reported backgrounds are gradient stops. No meaningful chart/control/state cue uses this frame. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.4995029185714674,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3235,7 +3264,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Divider below labelled capacity/signal text rows; it does not encode the row value or status. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5845569668588242,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3256,7 +3285,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Divider below labelled capacity/signal text rows; it does not encode the row value or status. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.453633869033,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3277,7 +3306,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static labelled KPI tile frame; value, label and layout convey the content without the outline. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.456959588207574,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3298,7 +3327,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled panel frame; table rules, disclosure control, text and focus indicators are outside this waiver. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.57496458237904,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3337,7 +3366,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static metrics-panel separators; text, chart graphical marks and interactive components remain separately gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.7085100458165514,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3358,7 +3387,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static metrics-panel separators; text, chart graphical marks and interactive components remain separately gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.9220731235354,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3379,7 +3408,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Separator under the labelled mission heading, not a control or state indicator. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.665644614512371,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3400,7 +3429,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.702460350354094,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3421,7 +3450,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.2053319932171567,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3442,7 +3471,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.150614494107836,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3463,7 +3492,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static labelled statistic-card outline; the numeric value and its label carry the information. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.8685110015251638,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3484,7 +3513,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.7769513118374005,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3505,7 +3534,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Long-wait container frame; main.jsx renders explicit waiting/action-needed text and alert semantics. Send-now control and all text remain gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.4943900098026048,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3526,7 +3555,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix theme-owned rune-choice boundary/selected-state contrast. The selected selector is meaningful control state, so no decorative waiver. Temporary baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.3688707286913273,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3547,7 +3576,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1924363142357421,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3568,7 +3597,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix text color in the owning theme: this is actual label/status text below4.5, not decorative graphics. No waiver; preserve the current FAIL as an exact-value temporary baseline until t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 3.045404309508075,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3589,7 +3618,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.2136440015662555,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3610,7 +3639,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static sidebar/main-content separator; navigation labels and their selected/focus states remain gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.3574075848923295,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3631,7 +3660,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix text color in the owning theme: this is actual label/status text below4.5, not decorative graphics. No waiver; preserve the current FAIL as an exact-value temporary baseline until t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 4.393894402021144,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3658,7 +3687,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix text color in the owning theme: this is actual label/status text below4.5, not decorative graphics. No waiver; preserve the current FAIL as an exact-value temporary baseline until t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 4.461204837584184,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3679,7 +3708,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix shared topbar-border theme token: style.css also consumes it on .icon-button, so a separator-only waiver would exempt a control boundary. Preserve this exact-value FAIL as a temporary baseline until t191; independently reviewed correction i26980.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.2225475216564594,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3706,7 +3735,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static activity-pane separator; headings and pane layout identify the region. No control, focus or selected-state cue is waived. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1200515095442358,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3729,7 +3758,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1963199534462652,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3750,7 +3779,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Composer section separator; editor and button boundaries remain separately gated. This does not waive any input boundary. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.2476600749949796,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3771,7 +3800,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Text on this inherited dark surface must retain floor4.5; remap the theme-specific surface or component text alias rather than changing shared ink indiscriminately.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1859246412881677,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3792,7 +3821,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.6140473221711915,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3813,7 +3842,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5003695035862854,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3834,7 +3863,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.4162670679305418,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3861,7 +3890,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Container separators around labelled game sections; inputs and buttons use separate border-2/border-3 tokens and remain fix-in-theme. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5567624298287486,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3882,7 +3911,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.46332604974677,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3933,7 +3962,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.0076069986839395,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3972,7 +4001,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.4297766933444875,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -3993,7 +4022,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Text on this inherited dark surface must retain floor4.5; remap the theme-specific surface or component text alias rather than changing shared ink indiscriminately.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5004317999460939,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4014,7 +4043,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Text on this inherited dark surface must retain floor4.5; remap the theme-specific surface or component text alias rather than changing shared ink indiscriminately.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1859246412881677,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4035,7 +4064,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Text on this inherited dark surface must retain floor4.5; remap the theme-specific surface or component text alias rather than changing shared ink indiscriminately.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.6419456636359815,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4056,7 +4085,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Informational banner frame; message text and its action are separately identifiable. Action text/focus contrast remains required. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1892401320801493,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4077,7 +4106,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.350175644612505,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4104,7 +4133,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Input boundary uses inherited pale border on the new light surface; remap this component border to meet floor3. No decorative waiver.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.111929543925322,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4125,7 +4154,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.336432470788954,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4146,7 +4175,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer chart/model card frame, not plotted lines, axes or data glyphs. Chart graphical marks and text remain separately required. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.2423862104360586,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4167,7 +4196,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled executive-card frame; the three reported backgrounds are gradient stops. No meaningful chart/control/state cue uses this frame. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.9879189606843957,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4188,7 +4217,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled executive-card frame; the three reported backgrounds are gradient stops. No meaningful chart/control/state cue uses this frame. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.375026068633185,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4209,7 +4238,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled executive-card frame; the three reported backgrounds are gradient stops. No meaningful chart/control/state cue uses this frame. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.4995029185714674,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4230,7 +4259,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Divider below labelled capacity/signal text rows; it does not encode the row value or status. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.5845569668588242,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4251,7 +4280,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Divider below labelled capacity/signal text rows; it does not encode the row value or status. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.453633869033,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4272,7 +4301,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static labelled KPI tile frame; value, label and layout convey the content without the outline. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.456959588207574,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4293,7 +4322,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Outer labelled panel frame; table rules, disclosure control, text and focus indicators are outside this waiver. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.57496458237904,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4332,7 +4361,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static metrics-panel separators; text, chart graphical marks and interactive components remain separately gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.7085100458165514,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4353,7 +4382,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static metrics-panel separators; text, chart graphical marks and interactive components remain separately gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.9220731235354,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4374,7 +4403,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Separator under the labelled mission heading, not a control or state indicator. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.665644614512371,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4395,7 +4424,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.702460350354094,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4416,7 +4445,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.2053319932171567,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4437,7 +4466,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 2.150614494107836,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4458,7 +4487,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static labelled statistic-card outline; the numeric value and its label carry the information. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.8685110015251638,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4479,7 +4508,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.7769513118374005,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4500,7 +4529,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Long-wait container frame; main.jsx renders explicit waiting/action-needed text and alert semantics. Send-now control and all text remain gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.4943900098026048,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4521,7 +4550,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.1924363142357421,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4542,7 +4571,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix text color in the owning theme: this is actual label/status text below4.5, not decorative graphics. No waiver; preserve the current FAIL as an exact-value temporary baseline until t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 3.045404309508075,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4563,7 +4592,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix the theme-owned control, attachment, status or information boundary. The current source does not establish that this boundary is safely decorative; no waiver inferred. Temporary exact-value baseline expires with t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.2136440015662555,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4584,7 +4613,7 @@
       ],
       "decision": "scoped-waiver",
       "reason": "Static sidebar/main-content separator; navigation labels and their selected/focus states remain gated. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t191 completion. Static design classification, not rendered conformance.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.3574075848923295,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4605,7 +4634,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix text color in the owning theme: this is actual label/status text below4.5, not decorative graphics. No waiver; preserve the current FAIL as an exact-value temporary baseline until t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 4.393894402021144,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4632,7 +4661,7 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix text color in the owning theme: this is actual label/status text below4.5, not decorative graphics. No waiver; preserve the current FAIL as an exact-value temporary baseline until t191.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 4.461204837584184,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
@@ -4653,16 +4682,10 @@
       ],
       "decision": "fix-in-theme",
       "reason": "Fix shared topbar-border theme token: style.css also consumes it on .icon-button, so a separator-only waiver would exempt a control boundary. Preserve this exact-value FAIL as a temporary baseline until t191; independently reviewed correction i26980.",
-      "expires_with": "t191",
+      "expires_with": "t203",
       "measured_ratio": 1.2225475216564594,
       "status": "BASELINE-FAIL",
       "baseline_eligible": true
     }
-  ],
-  "review": {
-    "source": "VP i26980 relaying pi-review-1",
-    "confirmedScopedWaivers": 42,
-    "correctedToFix": 2,
-    "limits": "static CSS classification, not rendered reachability"
-  }
+  ]
 }
