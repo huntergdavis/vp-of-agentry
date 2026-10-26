@@ -38,9 +38,11 @@
 
 /* Slim strip on the standalone routes: where you are and how to get back. */
 .dash-nav {
+  position: relative;
+  min-height: 39px;
   flex: none;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-wrap: nowrap;
   gap: 6px;
   padding: 5px 8px;
@@ -61,7 +63,6 @@
   color: var(--dash-fg);
   font-size: 12px;
 }
-.dash-nav-brand:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 .dash-nav-mark {
   width: 22px;
   height: 22px;
@@ -76,15 +77,15 @@
 }
 .dash-nav-links { display: flex; gap: 4px; }
 .dash-nav > .dash-nav-links {
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
+  flex: none;
+  align-items: center;
   flex-wrap: nowrap;
-  scrollbar-width: none;
-  mask-image: linear-gradient(to right, var(--clear), var(--ink) 6px, var(--ink) calc(100% - 6px), var(--clear));
 }
-.dash-nav > .dash-nav-links::-webkit-scrollbar { display: none; }
 .dash-nav-links a {
+  min-width: 24px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
   color: var(--dash-muted);
   text-decoration: none;
   font-size: 11.5px;
@@ -101,6 +102,38 @@
   border-color: var(--dash-border-2);
 }
 .dash-nav-right { margin-left: auto; display: flex; flex: none; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.dash-nav-status { margin-left: auto; display: flex; flex: none; align-items: center; gap: 6px; }
+.dash-nav-status + .dash-nav-right { margin-left: 0; }
+.dash-nav-boards { display: none; }
+.nav-action-icon { display: none; }
+.dash-nav-boards summary { cursor: pointer; list-style: none; padding: 4px 7px; font-size: 12px; border: 1px solid var(--dash-border); border-radius: var(--radius-6px); }
+.dash-nav-boards summary::-webkit-details-marker { display: none; }
+.dash-nav-boards > .dash-nav-links { position: absolute; top: 100%; left: 8px; z-index: 20; flex-direction: column; max-width: calc(100% - 16px); padding: 6px; border: 1px solid var(--dash-border); border-radius: var(--radius); background: var(--dash-panel); }
+.dash-nav-boards a { white-space: normal; }
+.dash-nav-boards:not([open]) > .dash-nav-links { display: none; }
+.dash-nav :is(a, button, summary):focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
+@media (max-width: 1360px) {
+  .dash-nav > .dash-nav-links a { padding: 2px 0; font-size: 10.5px; }
+  .dash-nav .dash-meta { font-size: 10px; }
+  .dash-root .dash-nav .dock-trigger { font-size: 11px; }
+}
+@media (max-width: 1280px) {
+  .dash-nav, .dash-nav-status, .dash-nav-right { gap: 4px; }
+}
+@media (max-width: 1100px) {
+  .dash-nav > .dash-nav-links { display: none; }
+  .dash-nav-boards { display: block; flex: none; }
+}
+/* Owner #1827: controls on row one, full status and update time on row two. */
+@media (max-width: 699px) {
+  .dash-nav { flex-wrap: wrap; padding-inline: 4px; }
+  .dash-nav-status { order: 1; flex-basis: 100%; justify-content: space-between; gap: 2px; }
+  .dash-nav-status > .dash-meta { min-width: 0; white-space: normal; }
+  .dash-nav-mark { min-width: max-content; min-height: 1.5em; }
+  .dash-nav-status + .dash-nav-right { margin-left: auto; }
+  .dash-nav .nav-action-label { display: none; }
+  .dash-nav .nav-action-icon { display: inline; font-size: 1.45em; line-height: 1; }
+}
 
 /* Actions remain available when an embedded or game view has no title band. */
 .dash-header {
@@ -359,7 +392,7 @@
   .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 700px) {
+@media (max-width: 699px) {
   .dash-header { justify-content: flex-start; }
   .dash-side { justify-content: flex-start; }
   .dash-body { padding: 14px 13px 22px; }

@@ -66,13 +66,35 @@ function DashHeader({ side, view, standalone }) {
 function DashNav({ view, side }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef(null);
+  const boards = useRef(null);
+  useEffect(() => {
+    function dismiss(event) {
+      if (!boards.current?.open) return;
+      if (event.type === 'keydown' && event.key === 'Escape') {
+        boards.current.open = false;
+        boards.current.querySelector('summary').focus();
+      } else if (event.type === 'pointerdown' && !boards.current.contains(event.target)) {
+        boards.current.open = false;
+      }
+    }
+    document.addEventListener('keydown', dismiss);
+    document.addEventListener('pointerdown', dismiss);
+    return () => {
+      document.removeEventListener('keydown', dismiss);
+      document.removeEventListener('pointerdown', dismiss);
+    };
+  }, []);
+  const links = Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>);
   function closeSettings() { setSettingsOpen(false); settingsButton.current?.focus(); }
   return <nav className="dash-nav" aria-label="Dashboards">
     <a className="dash-nav-brand" href="/" aria-label="VP of Agentry home"><span className="dash-nav-mark">VA</span></a>
-    <span className="dash-nav-links">
-      {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
-    </span>
-    <span className="dash-nav-right">{side}<button className="dock-trigger" ref={settingsButton} onClick={() => setSettingsOpen(true)}>Appearance</button><EmergencyDock request={api} /></span>
+    <span className="dash-nav-links">{links}</span>
+    <details className="dash-nav-boards" ref={boards}>
+      <summary>Boards <span aria-hidden="true">▾</span></summary>
+      <div className="dash-nav-links">{links}</div>
+    </details>
+    {side && <span className="dash-nav-status">{side}</span>}
+    <span className="dash-nav-right"><button className="dock-trigger" aria-label="Appearance" title="Appearance" ref={settingsButton} onClick={() => setSettingsOpen(true)}><span className="nav-action-label">Appearance</span><span className="nav-action-icon" aria-hidden="true">◐</span></button><EmergencyDock request={api} /></span>
     {settingsOpen && <AppearanceSettings onClose={closeSettings} />}
   </nav>;
 }
