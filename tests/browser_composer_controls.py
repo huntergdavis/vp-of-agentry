@@ -130,8 +130,7 @@ def main():
                         check(abs(first['padding']['bottom']-2)<.1, 'Bottom padding exactly 2px')
                         row['mainIdleHeight']=baseline[name]['states']['idle']['composer']['height']
                         row['idleHeightDelta']=first['composer']['height']-row['mainIdleHeight']
-                        if scale==1:
-                            check(row['idleHeightDelta']<=2.1, 'Normal-text idle height no taller than main plus 2px')
+                        check(row['idleHeightDelta']<=2.1, 'Idle height no taller than main plus 2px at either text scale')
                         paint('idle')
                         t=first['toolbar']; page.mouse.move(t['right']-2,t['y']+t['height']/2)
                         hovered=state('hovered')

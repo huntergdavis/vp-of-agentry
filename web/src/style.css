@@ -538,10 +538,11 @@ h1,h2,p { margin-top: 0; }
 .dash-root .composer > .attach { color: var(--dash-muted); }
 .dash-root .composer > .attach:hover { background: var(--dash-panel-2); }
 @media (max-width: 480px) {
+  .composer { gap: 4px; }
   .composer .send-decoration, .composer .attach-decoration { display: none; }
-  .composer > .send { padding: 0 4px; }
+  .composer > .send { padding: 0 2px; }
   .composer > .attach { padding: 4px 0; }
-  .composer .composer-placeholder { padding: 6px 8px; }
+  .composer .composer-placeholder { padding: 6px 4px; }
 }
 .composer button { min-width: 24px; min-height: 24px; }
 .composer > .toolbar button { flex: none; padding: 2px 4px; white-space: nowrap; }
