@@ -200,10 +200,10 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
       <span className="toolbar-spacer" /><button title="Attach images or files" onClick={() => fileRef.current?.click()}>＋ Attach</button>
       <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
     </div>
-    <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}><EditorContent editor={editor} /></div>
+    <div className="composer-input" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}><EditorContent editor={editor} /></div>
+    <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send ↗'}</button>
     <div className="composer-footer"><span>{disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'}</span>
-      {error && <span className="form-error" role="alert">{error}</span>}
-      <button className="primary send" disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send message ↗'}</button></div>
+      {error && <span className="form-error" role="alert">{error}</span>}</div>
   </section>;
 }
 
