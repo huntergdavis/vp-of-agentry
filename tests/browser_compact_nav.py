@@ -78,7 +78,7 @@ with sync_playwright() as pw:
                 assert widths[status[0]] == max(widths.values())
                 metrics = page.evaluate("""() => {
                     const rect = s => { const e=document.querySelector(s),r=e.getBoundingClientRect();
-                        return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,scrollWidth:e.scrollWidth}; };
+                        return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,clientWidth:e.clientWidth,scrollWidth:e.scrollWidth}; };
                     const nav=rect('.dash-nav'), body=rect('.conversation'), links=rect('.dash-nav > .dash-nav-links');
                     const fixed=[...document.querySelectorAll('.dash-nav-brand, .dash-nav-right > .dash-meta, .dash-nav-right > button')].map(e=>{
                         const r=e.getBoundingClientRect();return {text:e.textContent,x:r.x,right:r.right,y:r.y,bottom:r.bottom,width:r.width};
@@ -96,6 +96,7 @@ with sync_playwright() as pw:
                 record = dict(theme=theme, width=width, height=height, timestamp=stamp,
                               statusWidths=widths, widestState=status[0], fullTimestamp=expected_time,
                               dialogCounts=dialog_counts, dialog_closed=True, **metrics)
+                results.append(record)
                 page.screenshot(path=str(OUT/f'{theme}-{width}.png'))
                 # Incoming polling preserves reading position; jump re-enables following.
                 pane = page.locator('.conversation')
@@ -125,14 +126,13 @@ with sync_playwright() as pw:
                     assert page.locator('.dash-nav-brand').get_attribute('href') == '/'
                     assert page.get_by_role('link', name='Open the desk ↗').count() == 0
                     links = page.locator('.dash-nav > .dash-nav-links')
-                    if metrics['links']['scrollWidth']>metrics['links']['width']:
+                    if metrics['links']['scrollWidth']>metrics['links']['clientWidth']:
                         links.evaluate('e=>e.scrollLeft=e.scrollWidth')
                         record['linksScrollLeft'] = links.evaluate('e=>e.scrollLeft')
                         if metrics['links']['width']>0:
                             assert record['linksScrollLeft']>0
                 assert not errors, errors
                 assert not writes, writes
-                results.append(record)
                 print(json.dumps(record), flush=True)
                 page.close()
     finally:
