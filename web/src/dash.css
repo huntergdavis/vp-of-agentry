@@ -303,6 +303,7 @@
   border: 1px solid var(--dash-border-2);
   color: var(--dash-fg);
 }
+.dash-root .composer .editor, .dash-root .composer button { border-color: var(--dash-muted); }
 .dash-root .editor:focus { border-color: var(--dash-accent); box-shadow: var(--dash-root-shadow); }
 .dash-root .composer-footer { color: var(--dash-muted); }
 .dash-root .toolbar button { color: var(--dash-muted); }
