@@ -168,6 +168,68 @@ def measure_icon_button(css, consumers, math):
     return rows
 
 
+def measure_attach(css, consumers, math):
+    """Gate the explicit base and dashboard Attach rules on their own surfaces.
+
+    This covers the two known default-state contexts, not arbitrary ancestry,
+    conditional overrides, hover states or overlay-composited pixels.
+    Named control failures cannot use the legacy pair baseline.
+    """
+    base_selector = '.composer > .attach'
+    dash_selector = '.dash-root .composer > .attach'
+    rules = {selector: [rule for rule in consumers['rules']
+                       if rule['selector'] == selector and not rule['context']]
+             for selector in (base_selector, dash_selector)}
+    rows = []
+    for selector, prefix in ((base_selector, 'attach-base'), (dash_selector, 'attach')):
+        if not rules[selector]:
+            continue
+        selected = rules[base_selector] + rules[dash_selector] if selector == dash_selector else rules[base_selector]
+        declarations, evidence = {}, []
+        for rule in selected:
+            source = {k: rule[k] for k in ('source', 'line', 'selector', 'context')}
+            evidence.append(source)
+            for declaration in rule['declarations']:
+                category = ('border' if declaration['property'] in ('border', 'border-color') else
+                            'surface' if declaration['property'] in ('background', 'background-color') else
+                            'text' if declaration['property'] == 'color' else None)
+                if category:
+                    old = declarations.get(category)
+                    if not old or declaration['important'] or not old['important']:
+                        declarations[category] = {**declaration, 'evidence': source}
+        for theme, base in math.theme_tokens(css).items():
+            tokens = {**base, **consumer_aliases(consumers['rules'], theme)}
+            for kind, floor in (('border', 3.0), ('text', 4.5)):
+                row = dict(theme=theme, pair=f'{prefix}-{kind}/own-surface',
+                           foreground='control-boundary' if kind == 'border' else 'attach-text',
+                           control=selector, floor=floor, named_case=True, referenced=True,
+                           evidence=evidence, suggestion=None, suggestion_ratio=None,
+                           foreground_expression=declarations.get(kind, {}).get('value'),
+                           surface_expression=declarations.get('surface', {}).get('value'),
+                           foreground_evidence=declarations.get(kind, {}).get('evidence'),
+                           surface_evidence=declarations.get('surface', {}).get('evidence'))
+                try:
+                    def resolved(category):
+                        if category not in declarations:
+                            raise ValueError('Missing ' + selector + ' ' + category)
+                        value = declarations[category]['value']
+                        match = re.search(r'var\(.+\)|#[0-9a-fA-F]{3,8}\b|\b(?:white|black|transparent)\b', value)
+                        if not match:
+                            raise ValueError('Unsupported ' + selector + ' ' + category + ': ' + value)
+                        return math.resolve('attach-control-value',
+                                            {**tokens, 'attach-control-value': match.group()})
+                    fv, bv = resolved(kind), resolved('surface')
+                    bg = math.color(bv)
+                    fg = math.foreground_color(fv, bg)
+                    ratio = math.contrast(fg, bg)
+                    row.update(foreground_value=fv, background_value=bv, ratio=ratio,
+                               status='FAIL' if ratio < floor else 'MARGINAL' if ratio <= floor + .3 else 'PASS')
+                except ValueError as error:
+                    row.update(status='FAIL', ratio=None, error=str(error))
+                rows.append(row)
+    return rows
+
+
 def roles(name):
     # Literal naming convention; names can belong to more than one group.
     return ({'text'} if 'ink' in name or 'fg' in name else set()) | (

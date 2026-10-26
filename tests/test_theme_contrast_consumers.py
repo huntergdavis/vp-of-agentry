@@ -339,5 +339,59 @@ class ConsumerContrastTests(unittest.TestCase):
         baseline = dict(version=1, source_head='0'*40, entries=[entry])
         self.assertEqual(usage.apply_baseline([row], baseline)[0]['status'], 'FAIL')
 
+    def test_attach_named_rows_use_actual_own_surface_and_override(self):
+        css = TOKENS + ':root {--surface-raised:#000;--control-boundary:#fff;--muted:#fff;}'
+        rules = consumers("""
+          .dash-root {--dash-panel-2:var(--surface-raised);--dash-muted:var(--muted);}
+          .composer {background:#fff;}
+          .composer > .attach {border:1px solid var(--control-boundary);background:var(--surface-raised);color:var(--muted);}
+          .dash-root .composer > .attach {background:var(--dash-panel-2);color:#111;}
+        """)
+        rows = gate.measure_all(css, rules)
+        self.assertEqual(pair(rows, 'attach-base-text/own-surface')['status'], 'PASS')
+        text = pair(rows, 'attach-text/own-surface')
+        self.assertEqual(text['status'], 'FAIL')
+        self.assertEqual(text['foreground_value'], '#111')
+        self.assertEqual(text['background_value'], '#000')
+        self.assertEqual(text['foreground_evidence']['selector'], '.dash-root .composer > .attach')
+        self.assertEqual(pair(rows, 'attach-border/own-surface')['status'], 'PASS')
+
+    def test_attach_surface_change_fails_boundary_even_when_token_passes_elsewhere(self):
+        css = TOKENS + ':root {--surface-raised:#000;--control-boundary:#fff;--muted:#000;}'
+        rules = consumers("""
+          .composer > .attach {border:1px solid var(--control-boundary);background:var(--surface-raised);color:#fff;}
+          .dash-root .composer > .attach {background:#fff;color:var(--muted);}
+        """)
+        rows = gate.measure_all(css, rules)
+        self.assertEqual(pair(rows, 'attach-base-border/own-surface')['status'], 'PASS')
+        boundary = pair(rows, 'attach-border/own-surface')
+        self.assertEqual(boundary['foreground'], 'control-boundary')
+        self.assertEqual(boundary['ratio'], 1)
+        self.assertEqual(boundary['status'], 'FAIL')
+        self.assertEqual(pair(rows, 'attach-text/own-surface')['status'], 'PASS')
+        entry = {field: boundary[field] for field in usage.BASELINE_FIELDS}
+        entry.update(evidence=boundary['evidence'], expires_with='t238', reason='Invalid Attach waiver')
+        baseline = dict(version=1, source_head='0'*40, entries=[entry])
+        self.assertEqual(usage.apply_baseline([boundary], baseline)[0]['status'], 'FAIL')
+
+    def test_attach_all_themes_and_alpha_fail_closed(self):
+        css = TOKENS + ':root {--surface-raised:#000;--control-boundary:#fff;--muted:#fff;}'
+        css += ':root[data-theme="dim"] {--control-boundary:#111;--muted:#ffffff00;}'
+        rules = consumers("""
+          .composer > .attach {border:1px solid var(--control-boundary);background:var(--surface-raised);color:var(--muted);}
+          .dash-root .composer > .attach {background:var(--surface-raised);}
+        """)
+        rows = gate.measure_all(css, rules)
+        named = [r for r in rows if r.get('control', '').endswith('.attach')]
+        self.assertEqual(len(named), 8)
+        for theme, status in [('default', 'PASS'), ('dim', 'FAIL')]:
+            for name in ['attach-base-border', 'attach-base-text', 'attach-border', 'attach-text']:
+                self.assertEqual(pair(rows, name+'/own-surface', theme)['status'], status)
+        transparent = gate.measure_all(css+':root {--surface-raised:#0000;}', rules)
+        row = pair(transparent, 'attach-text/own-surface')
+        self.assertEqual(row['status'], 'FAIL')
+        self.assertIn('opaque', row['error'])
+
+
 
 if __name__ == '__main__': unittest.main()

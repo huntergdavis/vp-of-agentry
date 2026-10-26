@@ -167,7 +167,8 @@ def measure_all(css, consumers=None, expired_known_fails=()):
         import theme_contrast_consumers as usage
     if consumers is None: consumers = usage.read_consumers()
     rows = usage.measure_consumers(css, consumers, measure(css), sys.modules[__name__], expired_known_fails)
-    return rows + usage.measure_icon_button(css, consumers, sys.modules[__name__])
+    return (rows + usage.measure_icon_button(css, consumers, sys.modules[__name__]) +
+            usage.measure_attach(css, consumers, sys.modules[__name__]))
 
 
 def main(argv=None):

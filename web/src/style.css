@@ -522,17 +522,14 @@ h1,h2,p { margin-top: 0; }
 .composer-input .editor { height: 100%; min-width: 0; }
 .composer .composer-input:has(.composer-placeholder) .editor { max-height: none; }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
-/* One visual row; keyboard order remains input, Send, Attach, formatting. */
-.composer { padding-bottom: 2px; }
-.composer > .pending-files { order: -2; }
-.composer > .formatting-controls { order: -1; flex: none; align-self: center; display: grid; grid-template-columns: repeat(3, 24px); grid-template-rows: repeat(2, 24px); gap: 2px; }
-.composer > .send { order: 2; }
-.composer > .attach { order: 1; flex: none; align-self: center; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--control-boundary); background: var(--surface-raised); color: var(--muted); border-radius: var(--radius-5px); padding: 3px; font-size: 13px; white-space: nowrap; }
+/* DOM, visual and keyboard order agree: formatting, input, Send, Attach. */
+.composer { padding-block: 5px; }
+.composer > .formatting-controls { flex: none; align-self: center; display: grid; grid-template-columns: repeat(3, 24px); grid-template-rows: repeat(2, 24px); gap: 2px; }
+.composer > .attach { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--control-boundary); background: var(--surface-raised); color: var(--muted); border-radius: var(--radius-5px); padding: 3px; font-size: 13px; white-space: nowrap; }
 .composer .composer-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .composer button { min-width: 24px; min-height: 24px; }
 .composer > .formatting-controls button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; background: var(--clear); color: var(--toolbar-ink); border-radius: var(--radius-5px); }
 .composer > .formatting-controls button:hover { background: var(--toolbar-surface); }
-.composer > .form-error { order: 3; }
 @media (max-width: 480px) {
   .composer { gap: 4px; }
   .composer .send-decoration, .composer .attach-label { display: none; }
