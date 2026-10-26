@@ -12,7 +12,7 @@
   --border: #8a7950;
   --border-strong: #b0a16f;
   --icon-button-border: var(--bg);
-  --icon-button-panel-border: var(--border);
+  --icon-button-panel-border: var(--border-strong);
   --success: #cad5a0;
   --warning: #f6bd60;
   --danger: #ffb0a1;
