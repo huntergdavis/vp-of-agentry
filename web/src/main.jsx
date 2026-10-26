@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useMessageScroll, mergeMessages } from './useMessageScroll';
 import { createRoot } from 'react-dom/client';
 import EmergencyDock from './EmergencyDock';
@@ -15,6 +15,12 @@ import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+const THEMES = [{ id: 'default', name: 'Default' }, { id: 'crt', name: '1980s CRT' }];
+const ThemeContext = createContext(null);
+const validTheme = value => THEMES.some(theme => theme.id === value) ? value : 'default';
+function storedTheme() {
+  try { return validTheme(localStorage.getItem('vp-theme')); } catch { return 'default'; }
+}
 const api = async (path, options = {}) => {
   const response = await fetch(`/api${path}`, { credentials: 'same-origin', ...options });
   if (!response.ok) {
@@ -58,12 +64,16 @@ function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
 }
 
 function DashNav({ view }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButton = useRef(null);
+  function closeSettings() { setSettingsOpen(false); settingsButton.current?.focus(); }
   return <nav className="dash-nav" aria-label="Dashboards">
     <span className="dash-nav-brand"><span className="dash-nav-mark">VA</span>VP OF AGENTRY</span>
     <span className="dash-nav-links">
       {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
     </span>
-    <span className="dash-nav-right"><EmergencyDock request={api} /><a className="dash-link" href="/">Open the desk ↗</a></span>
+    <span className="dash-nav-right"><button className="dock-trigger" ref={settingsButton} onClick={() => setSettingsOpen(true)}>Appearance</button><EmergencyDock request={api} /><a className="dash-link" href="/">Open the desk ↗</a></span>
+    {settingsOpen && <AppearanceSettings onClose={closeSettings} />}
   </nav>;
 }
 
@@ -115,6 +125,27 @@ function PasswordSettings({ onClose }) {
       <label>Confirm new password<input type="password" autoComplete="new-password" minLength={12} value={confirm} onChange={e => setConfirm(e.target.value)} required /></label>
       {error && <div className="form-error" role="alert">{error}</div>}{saved && <div className="settings-success" role="status">Password changed. Other browsers were signed out.</div>}
       <button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button></form>
+  </div></div>;
+}
+
+function AppearanceSettings({ onClose }) {
+  const { theme, chooseTheme, themeError } = useContext(ThemeContext);
+  const modal = useRef(null);
+  function keyDown(event) {
+    if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+    if (event.key !== 'Tab') return;
+    const controls = [...modal.current.querySelectorAll('button:not(:disabled), select:not(:disabled)')];
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="settings-modal" ref={modal} onKeyDown={keyDown} onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Appearance">
+    <div className="settings-head"><h2>Appearance</h2><button className="icon-button" onClick={onClose} aria-label="Close appearance">×</button></div>
+    <label htmlFor="desk-theme">Theme</label>
+    <select id="desk-theme" value={theme} onChange={event => chooseTheme(event.target.value)} autoFocus>
+      {THEMES.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+    </select>
+    {themeError && <p role="status">Theme preference could not be saved. Using Default.</p>}
   </div></div>;
 }
 
@@ -953,6 +984,15 @@ function StandaloneDesk({ view, known }) {
 
 function App() {
   const route = useDashRoute();
+  const [theme, setTheme] = useState(storedTheme);
+  const [themeError, setThemeError] = useState(false);
+  function chooseTheme(value) {
+    let selected = validTheme(value);
+    try { localStorage.setItem('vp-theme', selected); setThemeError(false); }
+    catch { selected = 'default'; setThemeError(true); }
+    setTheme(selected);
+  }
+  useLayoutEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   const [authorized, setAuthorized] = useState(null);
   useEffect(() => { api('/channels').then(() => setAuthorized(true)).catch(() => setAuthorized(false)); }, []);
   useEffect(() => { const expired = () => setAuthorized(false); window.addEventListener('vp-auth-expired', expired); return () => window.removeEventListener('vp-auth-expired', expired); }, []);
@@ -968,7 +1008,7 @@ function App() {
   const content = authorized
     ? <StandaloneDesk view={route.standalone ? route.view : 'cos'} known={route.standalone ? route.known : true} />
     : <Login onSuccess={() => setAuthorized(true)} />;
-  return <>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</>;
+  return <ThemeContext.Provider value={{ theme, chooseTheme, themeError }}>{updateAvailable && <div className="update-banner" role="status">A desk update is ready. Save any draft, then <button onClick={() => window.location.reload()}>Refresh now</button>.</div>}{content}</ThemeContext.Provider>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
