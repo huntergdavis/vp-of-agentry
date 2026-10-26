@@ -40,3 +40,25 @@ test('a textual prefix inside a different theme ID does not grant scope', () => 
 test('variant imports cannot introduce unchecked global selectors', () => {
   assert.match(checkThemeScope('@import "global.css";', 'crt')[0], /bypasses scope checks/);
 });
+
+test('global font, property and keyframe registrations have explicit errors', () => {
+  for (const [name, css] of [
+    ['font-face', '@font-face { font-family: Shared; src: local(Arial) }'],
+    ['property', '@PROPERTY --ink { syntax: "<color>"; inherits: true; initial-value: red }'],
+    ['keyframes', '@keyframes shared { from { opacity: 0 } to { opacity: 1 } }'],
+    ['-webkit-keyframes', '@-webkit-keyframes shared { 0% { opacity: 0 } 100% { opacity: 1 } }'],
+  ]) {
+    const errors = checkThemeScope(css, 'crt');
+    assert.equal(errors.length, 1, css);
+    assert.ok(errors[0].includes('variant @' + name + ' registers a global name'), errors[0]);
+    assert.ok(!errors[0].includes('unscoped selector'), errors[0]);
+  }
+  assert.equal(checkThemeScope('@IMPORT "global.css";', 'crt').length, 1);
+});
+
+test('wrapped root constraints and native nesting are conservatively rejected', () => {
+  for (const selector of [':is(:root[data-theme="crt"])', ':where(:root[data-theme="crt"])']) {
+    assert.equal(checkThemeScope(selector + ' .x { color: red }', 'crt').length, 1);
+  }
+  assert.equal(checkThemeScope(':root[data-theme="crt"] { .nested { color: red } }', 'crt').length, 1);
+});

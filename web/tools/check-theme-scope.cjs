@@ -13,15 +13,24 @@ function checkThemeScope(css, id, file = id + '.css') {
   const ownRoot = new RegExp('^:root\\[data-theme\\s*=\\s*(?:"' + id +
     '"|\'' + id + '\'|' + id + ')\\s*\\](?=$|[\\s.#:\\[>+~])');
   const errors = [];
+  const isKeyframes = name => /^(?:-[a-z]+-)?keyframes$/i.test(name);
   root.walkRules(rule => {
+    // Keyframe steps are not DOM selectors; report their global name below.
+    for (let parent = rule.parent; parent; parent = parent.parent) {
+      if (parent.type === 'atrule' && isKeyframes(parent.name)) return;
+    }
     for (const selector of rule.selectors) {
       if (!ownRoot.test(selector.trim()))
         errors.push(file + ':' + rule.source.start.line + ': unscoped selector: ' + selector);
     }
   });
-  // Imported styles could bypass this file's selector inspection entirely.
-  root.walkAtRules('import', rule => {
-    errors.push(file + ':' + rule.source.start.line + ': variant @import bypasses scope checks');
+  root.walkAtRules(rule => {
+    const name = rule.name.toLowerCase();
+    if (name === 'import')
+      errors.push(file + ':' + rule.source.start.line + ': variant @import bypasses scope checks');
+    if (name === 'font-face' || name === 'property' || isKeyframes(name))
+      errors.push(file + ':' + rule.source.start.line + ': variant @' + name +
+        ' registers a global name outside theme selector scope');
   });
   return errors;
 }
