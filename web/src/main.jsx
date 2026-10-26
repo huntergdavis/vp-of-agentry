@@ -213,21 +213,21 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
     } catch (e) { setError(e.message); } finally { sendingRef.current = false; setBusy(false); }
   }
   sendRef.current = send;
-  return <section className="composer" aria-label="Write message">
+  return <section className="composer" aria-label="Write message" data-nonempty={!empty || pending.length > 0}>
     {pending.length > 0 && <div className="pending-files">{pending.map(file => <span key={file.id} className="file-pill">📎 {file.filename}<button aria-label={`Remove ${file.filename}`} onClick={() => setPending(items => items.filter(x => x.id !== file.id))}>×</button></span>)}</div>}
-    <div className="toolbar" aria-label="Formatting">
-      <button title="Bold" onClick={() => command('toggleBold')}><b>B</b></button><button title="Italic" onClick={() => command('toggleItalic')}><i>I</i></button>
-      <button title="Heading" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>H</button>
-      <button title="Bullet list" onClick={() => command('toggleBulletList')}>≡</button><button title="Quote" onClick={() => command('toggleBlockquote')}>❞</button>
-      <button title="Code block" onClick={() => command('toggleCodeBlock')}>&lt;/&gt;</button>
-      <span className="toolbar-spacer" /><button title="Attach images or files" onClick={() => fileRef.current?.click()}>＋ Attach</button>
-      <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
-    </div>
     <div className="composer-input" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}>
       <EditorContent editor={editor} />
       {empty && <span className="composer-placeholder" data-hint={disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'} />}
     </div>
-    <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send ↗'}</button>
+    <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : <>Send<span className="send-decoration" aria-hidden="true"> ↗</span></>}</button>
+    <button className="attach" title="Attach images or files" aria-label="Attach images or files" onClick={() => fileRef.current?.click()}><span className="attach-decoration" aria-hidden="true">＋ </span>Attach</button>
+    <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
+    <div className="toolbar" role="group" aria-label="Message formatting">
+      <button title="Bold" aria-label="Bold" onClick={() => command('toggleBold')}><b>B</b></button><button title="Italic" aria-label="Italic" onClick={() => command('toggleItalic')}><i>I</i></button>
+      <button title="Heading" aria-label="Heading" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>H</button>
+      <button title="Bullet list" aria-label="Bullet list" onClick={() => command('toggleBulletList')}>≡</button><button title="Quote" aria-label="Quote" onClick={() => command('toggleBlockquote')}>❞</button>
+      <button title="Code block" aria-label="Code block" onClick={() => command('toggleCodeBlock')}>&lt;/&gt;</button>
+    </div>
     {error && <span className="form-error" role="alert">{error}</span>}
   </section>;
 }
