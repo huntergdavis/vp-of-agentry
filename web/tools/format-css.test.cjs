@@ -101,3 +101,22 @@ test('write safety failures and failed atomic rename leave original bytes intact
     assert.equal(fs.readdirSync(dir).filter(name=>name.includes('.format-')).length,0);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('wrong parser version exits 2 with one line and no file changes',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vp-css-version-'));
+  try {
+    fs.mkdirSync(path.join(dir,'tools'));
+    fs.mkdirSync(path.join(dir,'node_modules/postcss'),{recursive:true});
+    fs.copyFileSync(script,path.join(dir,'tools/format-css.cjs'));
+    // A local package fixture resolves the installed parser with incompatible version metadata.
+    fs.writeFileSync(path.join(dir,'node_modules/postcss/package.json'),JSON.stringify({name:'postcss',version:'8.5.8',main:'index.cjs'}));
+    fs.writeFileSync(path.join(dir,'node_modules/postcss/index.cjs'),'module.exports=require('+JSON.stringify(require.resolve('postcss'))+');');
+    const file=path.join(dir,'fixture.css'),source='a{color:red}\n';
+    fs.writeFileSync(file,source);
+    const result=spawnSync(process.execPath,[path.join(dir,'tools/format-css.cjs'),'--write',file],{cwd:dir,encoding:'utf8'});
+    assert.equal(result.status,2);
+    assert.equal(result.stderr,'CSS formatter: Expected PostCSS 8.5.29, got 8.5.8\n');
+    assert.equal(result.stdout,'');
+    assert.equal(fs.readFileSync(file,'utf8'),source);
+    assert.equal(fs.readdirSync(dir).filter(name=>name.includes('.format-')).length,0);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});

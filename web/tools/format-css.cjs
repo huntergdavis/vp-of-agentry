@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const path = require('path');
 const postcss = require('postcss');
 const parserVersion = require('postcss/package.json').version;
-if (parserVersion !== '8.5.29') throw Error('Expected PostCSS 8.5.29, got '+parserVersion);
 
 
 function normalize(node) {
@@ -17,6 +16,7 @@ function normalize(node) {
   }
 }
 function formatCss(before) {
+if (parserVersion !== '8.5.29') throw Error('Expected PostCSS 8.5.29, got '+parserVersion);
 const root=postcss.parse(before);
 root.walk(node => {
   const depth=(()=>{let n=node.parent,d=0;while(n&&n.type!=='root'){d++;n=n.parent;}return d;})();
