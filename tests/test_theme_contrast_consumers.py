@@ -24,6 +24,28 @@ def pair(rows, name, theme='default'):
 
 
 class ConsumerContrastTests(unittest.TestCase):
+    def test_default_only_control_tokens_do_not_leak_to_variants(self):
+        css = TOKENS + """
+        :root { --white:#fff; --topbar-border:#eee; --border:#000; }
+        :root:not([data-theme]), :root[data-theme="default"] {
+          --icon-button-border:var(--border);
+        }
+        :root[data-theme="future"] { --bg:#fff; }
+        """
+        parsed = gate.theme_tokens(css)
+        self.assertIn('icon-button-border', parsed['default'])
+        self.assertNotIn('icon-button-border', parsed['future'])
+        rules = consumers('.icon-button { border:1px solid var(--icon-button-border,var(--topbar-border)); background:var(--white); }')
+        rows = usage.measure_icon_button(css, rules, gate)
+        self.assertEqual(pair(rows, 'icon-button-border/own-surface')['status'], 'PASS')
+        self.assertEqual(pair(rows, 'icon-button-border/own-surface', 'future')['status'], 'FAIL')
+        self.assertEqual(pair(rows, 'icon-button-border/own-surface', 'future')['foreground_value'], '#eee')
+        for selector in (':root:not([data-theme])',
+                         ':root:not([data-theme]), :root[data-theme="future"]',
+                         ':root:not([data-theme]), :root[data-theme="default"], body'):
+            with self.subTest(selector=selector), self.assertRaises(ValueError):
+                gate.theme_tokens(TOKENS + selector + ' { --icon-button-border:#000; }')
+
     def test_pale_alias_consumed_by_rule_fails_while_palette_passes(self):
         css = TOKENS + ':root[data-theme="fake"] { --alias-ink:#eee; }'
         rows = gate.measure_all(css, consumers('.panel { color:var(--alias-ink); background:var(--surface); }'))

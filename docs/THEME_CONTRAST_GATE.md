@@ -40,6 +40,11 @@ Two mandatory 3:1 checks resolve actual unconditional declarations:
   against its own background, inheriting base properties before applying that
   known higher-specificity override. !important precedence is retained.
 
+Default-only tokens may use the exact combined scope
+:root:not([data-theme]), :root[data-theme="default"]. These values apply only
+to Default; other themes retain generic-root inheritance and their own fallback
+branches. Other complex token selectors still fail closed.
+
 Both use the existing nested var() resolver. Defined primary tokens win;
 missing primaries select their fallbacks. Aliases such as --white and
 --dash-panel-2 resolve to the actual surfaces. Reports include the winning

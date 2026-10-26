@@ -61,6 +61,13 @@ def theme_tokens(css):
         match = THEME_SELECTOR.fullmatch(selector)
         if selector == ':root': target = base
         elif match: target = overrides.setdefault(next(v for v in match.groups() if v), {})
+        elif (len(branches := [part.strip() for part in selector.split(',')]) == 2 and
+              ':root:not([data-theme])' in branches and
+              any((m := THEME_SELECTOR.fullmatch(part)) and
+                  next(v for v in m.groups() if v) == 'default' for part in branches)):
+            # Both no-theme and explicit Default use these values. Other themes
+            # inherit only generic :root, so their fallback branches stay active.
+            target = overrides.setdefault('default', {})
         else:
             if declarations:
                 raise ValueError(f'Unsupported token selector: {selector}')
