@@ -90,6 +90,30 @@ with sync_playwright() as pw:
                                 noPageOverflow=not metrics['pageOverflow'])
                     record['checks']=checks
                     failures.extend(f'{theme}/{width}/text{text_scale}: {k}' for k,v in checks.items() if not v)
+                    if width==320 and text_scale==2:
+                        reach=[]
+                        for control in page.locator('.composer button:not([disabled]), .composer [contenteditable="true"]').all():
+                            before=control.bounding_box()
+                            control.evaluate("e=>e.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'})")
+                            after=control.evaluate("""e=>{
+                                const r=e.getBoundingClientRect();
+                                const points=[[r.x+r.width/2,r.y+r.height/2],[r.x+1,r.y+r.height/2],
+                                    [r.right-1,r.y+r.height/2],[r.x+r.width/2,r.y+1],[r.x+r.width/2,r.bottom-1]];
+                                const uncovered=points.every(([x,y])=>{const hit=document.elementFromPoint(x,y);return hit===e||e.contains(hit);});
+                                const ancestors=[];for(let p=e.parentElement;p;p=p.parentElement){
+                                    const c=getComputedStyle(p);if(p.scrollHeight>p.clientHeight||c.overflowY!=='visible')
+                                        ancestors.push({tag:p.tagName,classes:p.className,height:p.clientHeight,scrollHeight:p.scrollHeight,
+                                            scrollTop:p.scrollTop,overflowY:c.overflowY,position:c.position});
+                                }
+                                return {label:e.getAttribute('title')||e.getAttribute('aria-label')||e.textContent,
+                                    x:r.x,y:r.y,right:r.right,bottom:r.bottom,
+                                    insideViewport:r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,
+                                    uncovered,ancestors};
+                            }""")
+                            reach.append(dict(before=before,after=after))
+                            if not (after['insideViewport'] and after['uncovered']):
+                                failures.append(f'{theme}/{width}/text{text_scale}: unreachable composer control '+after['label'])
+                        record['scrollIntoViewReachability']=reach
                     if width in (480,320):
                         controls=page.locator('.composer button:not([disabled]), .composer [contenteditable="true"]')
                         controls.first.focus();walk=[]
