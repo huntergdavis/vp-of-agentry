@@ -219,8 +219,8 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
       <EditorContent editor={editor} />
       {empty && <span className="composer-placeholder" data-hint={disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'} />}
     </div>
-    <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send ↗'}</button>
-    <button className="attach" title="Attach images or files" aria-label="Attach images or files" onClick={() => fileRef.current?.click()}>＋ Attach</button>
+    <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : <>Send<span className="send-decoration" aria-hidden="true"> ↗</span></>}</button>
+    <button className="attach" title="Attach images or files" aria-label="Attach images or files" onClick={() => fileRef.current?.click()}><span className="attach-decoration" aria-hidden="true">＋ </span>Attach</button>
     <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
     <div className="toolbar" role="group" aria-label="Message formatting">
       <button title="Bold" aria-label="Bold" onClick={() => command('toggleBold')}><b>B</b></button><button title="Italic" aria-label="Italic" onClick={() => command('toggleItalic')}><i>I</i></button>

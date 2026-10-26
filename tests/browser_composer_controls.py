@@ -56,9 +56,9 @@ def main():
         browser = pw.chromium.launch(executable_path=str(chrome), args=['--no-sandbox'])
         try:
             for width in [1067, 390, 1422, 1440]:
-                for theme in ['default', 'crt']:
-                    name = f'{theme}-{width}'
-                    row = dict(id=name, width=width, theme=theme, states={}, checks=[], captures=[])
+                for theme, scale in [(t,s) for t in ['default','crt'] for s in [1,2]]:
+                    name = f'{theme}-{width}-text{scale}'
+                    row = dict(id=name, width=width, theme=theme, textScale=scale, states={}, checks=[], captures=[])
                     report['cases'].append(row)
                     context = browser.new_context(viewport=dict(width=width, height=844 if width==390 else 900),
                         device_scale_factor=1.8, has_touch=width==390, is_mobile=width==390)
@@ -97,6 +97,10 @@ def main():
                         check(abs(metrics['send']['height']-metrics['editor']['height'])<.5 and
                               abs(metrics['send']['y']-metrics['editor']['y'])<.5 and
                               metrics['send']['x']>=metrics['editor']['right'], label+': Send full-height beside input')
+                        if args.mode=='candidate' and metrics['hint']:
+                            h=metrics['hint'];e=metrics['editor']
+                            check(h['x']>=e['x']-.5 and h['right']<=e['right']+.5 and h['y']>=e['y']-.5 and h['bottom']<=e['bottom']+.5,
+                                  label+': entire hint contained within editor')
                         return metrics
                     def idle():
                         page.mouse.move(0,0); page.evaluate('document.activeElement?.blur()')
@@ -109,7 +113,14 @@ def main():
                     try:
                         page.goto(args.base_url+'/dash/cos')
                         editor=page.get_by_label('Message text', exact=True); editor.wait_for()
-                        page.evaluate('document.fonts.ready');idle()
+                        page.evaluate('document.fonts.ready')
+                        if scale==2:
+                            page.evaluate("""() => {
+                                const sizes=[...document.querySelectorAll('body *')].map(e=>[e,parseFloat(getComputedStyle(e).fontSize)]);
+                                sizes.forEach(([e,size])=>e.style.fontSize=(size*2)+'px');
+                            }""")
+                            page.add_style_tag(content='.composer-placeholder {font-size:20px !important}')
+                        idle()
                         first=state('idle')
                         if args.mode=='baseline':
                             row['completed']=True
@@ -119,7 +130,8 @@ def main():
                         check(abs(first['padding']['bottom']-2)<.1, 'Bottom padding exactly 2px')
                         row['mainIdleHeight']=baseline[name]['states']['idle']['composer']['height']
                         row['idleHeightDelta']=first['composer']['height']-row['mainIdleHeight']
-                        check(row['idleHeightDelta']<=2.1, 'Idle height no taller than main plus 2px')
+                        if scale==1:
+                            check(row['idleHeightDelta']<=2.1, 'Normal-text idle height no taller than main plus 2px')
                         paint('idle')
                         t=first['toolbar']; page.mouse.move(t['right']-2,t['y']+t['height']/2)
                         hovered=state('hovered')
@@ -193,7 +205,14 @@ def main():
                         available[0]=False;page.reload()
                         editor=page.get_by_label('Message text',exact=True);editor.wait_for()
                         expect(page.get_by_role('button',name='Send message',exact=True)).to_be_disabled()
-                        page.evaluate('document.fonts.ready');idle();state('unavailable');paint('unavailable')
+                        page.evaluate('document.fonts.ready')
+                        if scale==2:
+                            page.evaluate("""() => {
+                                const sizes=[...document.querySelectorAll('body *')].map(e=>[e,parseFloat(getComputedStyle(e).fontSize)]);
+                                sizes.forEach(([e,size])=>e.style.fontSize=(size*2)+'px');
+                            }""")
+                            page.add_style_tag(content='.composer-placeholder {font-size:20px !important}')
+                        idle();state('unavailable');paint('unavailable')
                         check(page.locator('.composer-placeholder').get_attribute('data-hint')=='Agent unavailable', 'Unavailable idle hint text retained')
                         editor.fill('Unavailable draft');editor.press('Enter')
                         check(len(sent)==2 and editor.inner_text()=='Unavailable draft', 'Unavailable Enter cannot send')

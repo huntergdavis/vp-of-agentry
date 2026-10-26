@@ -526,6 +526,7 @@ h1,h2,p { margin-top: 0; }
 .composer-input > div, .composer-placeholder { grid-area: 1 / 1; min-width: 0; }
 .composer-input > div { z-index: 0; }
 .composer-input .editor { height: 100%; min-width: 0; }
+.composer .composer-input:has(.composer-placeholder) .editor { max-height: none; }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
 /* Reserve the formatting row while idle; DOM order stays input, Send, Attach, formatting. */
 .composer { padding-bottom: 2px; }
@@ -537,6 +538,7 @@ h1,h2,p { margin-top: 0; }
 .dash-root .composer > .attach { color: var(--dash-muted); }
 .dash-root .composer > .attach:hover { background: var(--dash-panel-2); }
 @media (max-width: 480px) {
+  .composer .send-decoration, .composer .attach-decoration { display: none; }
   .composer > .send { padding: 0 4px; }
   .composer > .attach { padding: 4px 0; }
   .composer .composer-placeholder { padding: 6px 8px; }
