@@ -534,6 +534,13 @@ h1,h2,p { margin-top: 0; }
 .composer:hover > .toolbar, .composer:focus-within > .toolbar, .composer[data-nonempty="true"] > .toolbar { opacity: 1; pointer-events: auto; }
 .composer > .attach { flex: none; align-self: center; border: 0; background: var(--clear); color: var(--toolbar-ink); border-radius: var(--radius-5px); padding: 4px 7px; font-size: 13px; white-space: nowrap; }
 .composer > .attach:hover { background: var(--toolbar-surface); }
+.dash-root .composer > .attach { color: var(--dash-muted); }
+.dash-root .composer > .attach:hover { background: var(--dash-panel-2); }
+@media (max-width: 480px) {
+  .composer > .send { padding: 0 4px; }
+  .composer > .attach { padding: 4px 0; }
+  .composer .composer-placeholder { padding: 6px 8px; }
+}
 .composer button { min-width: 24px; min-height: 24px; }
 .composer > .toolbar button { flex: none; padding: 2px 4px; white-space: nowrap; }
 .composer-placeholder { z-index: 1; overflow-wrap: anywhere; align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }

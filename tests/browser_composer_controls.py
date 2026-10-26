@@ -22,7 +22,11 @@ METRICS = """() => {
  const box=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
  const c=document.querySelector('.composer'),t=c.querySelector('.toolbar'),e=c.querySelector('.editor'),s=c.querySelector('.send'),a=c.querySelector('.attach')||[...t.querySelectorAll('button')].find(b=>b.title.startsWith('Attach'));
  const css=getComputedStyle(c),hint=c.querySelector('.composer-placeholder');
+ const luminance=color=>color.match(/[0-9.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
+ const ink=luminance(getComputedStyle(a).color),surface=luminance(css.backgroundColor);
+
  return {composer:box(c),toolbar:box(t),editor:box(e),send:box(s),attach:box(a),hint:hint?box(hint):null,
+  attachTextContrast:(Math.max(ink,surface)+.05)/(Math.min(ink,surface)+.05),
   toolbarOpacity:Number(getComputedStyle(t).opacity),focusWithin:c.matches(':focus-within'),
   padding:{top:parseFloat(css.paddingTop),bottom:parseFloat(css.paddingBottom),left:parseFloat(css.paddingLeft),right:parseFloat(css.paddingRight)},
   controls:[...c.querySelectorAll('button')].map(b=>({name:b.getAttribute('aria-label')||b.title||b.textContent,union:box(b),fragments:[...b.getClientRects()].map(r=>({width:r.width,height:r.height}))})),
@@ -111,6 +115,7 @@ def main():
                             row['completed']=True
                             continue
                         check(first['toolbarOpacity']==0, 'Idle formatting row hidden but reserved')
+                        check(first['attachTextContrast']>=4.5, 'Attach retains readable desk text contrast')
                         check(abs(first['padding']['bottom']-2)<.1, 'Bottom padding exactly 2px')
                         row['mainIdleHeight']=baseline[name]['states']['idle']['composer']['height']
                         row['idleHeightDelta']=first['composer']['height']-row['mainIdleHeight']
