@@ -10,7 +10,7 @@
   --muted: #a7b6c0;
   --accent: #6fd0ff;
   --accent-contrast: #08131a;
-  --border: #677782;
+  --border: #74838e;
   --border-strong: #8fa0ab;
   --icon-button-border: #3f4a52;
   --icon-button-panel-border: #9fb2bf;
@@ -94,4 +94,40 @@
   --form-error-ink: var(--danger);
   --update-banner-surface: var(--surface-raised);
   --update-banner-border: var(--border-strong);
+}
+
+/* Component role fixes for the dark console: separators on the light shell
+ * panels read as dark lines, and dashboard separators read as light lines. */
+:root[data-theme="imperial"] {
+  --topbar-border: #4a5560;
+  --composer-border: #4a5560;
+  --older-marker-border: #4a5560;
+  --activity-border: #4a5560;
+  --activity-toggle-border: #4a5560;
+  --jump-banner-border: #4a5560;
+  --jump-latest-border: #4a5560;
+  --queue-help-border: #4a5560;
+  --queue-help-border-2: #4a5560;
+  --search-head-border-2: #4a5560;
+  --search-more-border: #4a5560;
+  --search-head-ink: #3a464f;
+  --status-badge-ink: #556771;
+  --status-badge-ink-3: #7a5c1f;
+  --sidebar-border: #8fa0ab;
+  --brand-mark-surface: var(--bg);
+  --brand-mark-ink: var(--accent);
+  --game-type-border: #8fa0ab;
+  --game-type-border-2: #8fa0ab;
+  --game-type-border-3: #c8d8e0;
+  --ops-credit-chart-border: #8fa0ab;
+  --ops-executive-border: #8fa0ab;
+  --ops-executive-head-border: #8fa0ab;
+  --ops-kpis-border: #8fa0ab;
+  --ops-lab-panel-border: #8fa0ab;
+  --ops-metrics-border: #8fa0ab;
+  --ops-mission-head-border: #8fa0ab;
+  --ops-panel-border: #8fa0ab;
+  --ops-source-border: #8fa0ab;
+  --ops-source-border-2: #8fa0ab;
+  --poolrad-stat-border: #8fa0ab;
 }
