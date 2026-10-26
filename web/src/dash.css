@@ -304,7 +304,7 @@
   color: var(--dash-fg);
 }
 .dash-root .editor:focus { border-color: var(--dash-accent); box-shadow: var(--dash-root-shadow); }
-.dash-root .composer-footer { color: var(--dash-muted); }
+.dash-root .composer-placeholder { color: var(--dash-muted); }
 .dash-root .toolbar button { color: var(--dash-muted); }
 .dash-root .toolbar button:hover { background: var(--dash-panel-2); }
 .dash-root .empty-state, .dash-root .empty-state h2, .dash-root .empty-state p { color: var(--dash-muted); }
