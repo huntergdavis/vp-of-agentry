@@ -13,8 +13,8 @@ evidence=[]
 with sync_playwright() as pw:
     browser=pw.chromium.launch(executable_path=str(chrome),args=['--no-sandbox'])
     try:
-        for width,height in ((1440,900),(390,844)):
-            context=browser.new_context(viewport=dict(width=width,height=height),device_scale_factor=1)
+        for width,height in ((1440,900),(1422,900),(1067,900),(960,900),(800,900),(720,900),(480,844),(390,844),(320,844)):
+            context=browser.new_context(viewport=dict(width=width,height=height),device_scale_factor=1.8,screen=dict(width=1920,height=1080))
             page=context.new_page();errors=[];forbidden=[];samples=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
             page.clock.install(time=datetime.fromisoformat(stamp))
@@ -33,7 +33,7 @@ with sync_playwright() as pw:
                 page.get_by_role('button',name='Open desk').click()
             response=sent.value
             assert response.status==200,response.status
-            expected=dict(innerWidth=width,innerHeight=height,devicePixelRatio=1)
+            expected=dict(innerWidth=width,innerHeight=height,devicePixelRatio=1.8,screenWidth=1920,screenHeight=1080)
             assert samples==[expected],samples
             status=page.request.get(BASE+'/api/channels')
             assert status.status==200
@@ -45,10 +45,10 @@ with sync_playwright() as pw:
             record=dict(timestamp=stamp,viewport=expected,httpStatus=response.status,
                         recordedInStatus=True,dialog_closed=True,dialogCounts=counts)
             with page.expect_response(lambda r:urlsplit(r.url).path=='/api/viewport') as resized:
-                page.set_viewport_size(dict(width=320,height=height))
+                page.set_viewport_size(dict(width=321,height=height))
                 page.clock.run_for(11000)
             assert resized.value.status==200
-            latest=dict(expected,innerWidth=320)
+            latest=dict(expected,innerWidth=321)
             assert samples==[expected,latest],samples
             viewports=page.request.get(BASE+'/api/channels').json()['viewports']
             assert latest in viewports and expected not in viewports

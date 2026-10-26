@@ -4,8 +4,9 @@ export function startViewportReport(browser) {
   let timer, lastSent = -Infinity, lastSample = '';
   function report() {
     const { innerWidth, innerHeight, devicePixelRatio } = browser;
+    const { width: screenWidth, height: screenHeight } = browser.screen;
     if (innerWidth < 1 || innerHeight < 1) return;
-    const body = JSON.stringify({ innerWidth, innerHeight, devicePixelRatio });
+    const body = JSON.stringify({ innerWidth, innerHeight, devicePixelRatio, screenWidth, screenHeight });
     if (body === lastSample) return;
     lastSample = body;
     lastSent = browser.performance.now();

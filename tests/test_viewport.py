@@ -5,7 +5,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 server=importlib.import_module('server.app')
-SAMPLE=dict(innerWidth=1440,innerHeight=900,devicePixelRatio=1)
+SAMPLE=dict(innerWidth=1440,innerHeight=900,devicePixelRatio=1,screenWidth=1920,screenHeight=1080)
 
 class ViewportTests(unittest.TestCase):
     def setUp(self):
@@ -33,7 +33,7 @@ class ViewportTests(unittest.TestCase):
         self.login()
         self.assertEqual(200,self.client.post('/api/viewport',json=SAMPLE).status_code)
         other=TestClient(server.app);self.addCleanup(other.close);self.login(other)
-        mobile=dict(innerWidth=390,innerHeight=844,devicePixelRatio=3)
+        mobile=dict(innerWidth=390,innerHeight=844,devicePixelRatio=3,screenWidth=390,screenHeight=844)
         self.assertEqual(200,other.post('/api/viewport',json=mobile).status_code)
         changed=dict(SAMPLE,innerWidth=1280)
         self.client.post('/api/viewport',json=changed)

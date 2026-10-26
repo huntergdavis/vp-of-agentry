@@ -6,7 +6,7 @@ function fixture(path = '/dash/cos') {
   let now = 0, id = 0;
   const timers = new Map(), handlers = new Map(), calls = [];
   const browser = {
-    location: { pathname: path }, innerWidth: 1440, innerHeight: 900, devicePixelRatio: 1,
+    location: { pathname: path }, innerWidth: 1440, innerHeight: 900, devicePixelRatio: 1, screen: {width:1920, height:1080},
     performance: { now: () => now },
     fetch: (url, options) => { calls.push({ at: now, url, ...options }); return Promise.resolve({ ok: true }); },
     setTimeout: (fn, delay) => { timers.set(++id, { fn, at: now + delay }); return id; },
@@ -27,7 +27,7 @@ function fixture(path = '/dash/cos') {
 test('one load sample, debounced latest resize, at most once per ten seconds', () => {
   const f = fixture(), stop = startViewportReport(f.browser);
   assert.equal(f.calls.length, 1);
-  assert.deepEqual(JSON.parse(f.calls[0].body), { innerWidth:1440, innerHeight:900, devicePixelRatio:1 });
+  assert.deepEqual(JSON.parse(f.calls[0].body), { innerWidth:1440, innerHeight:900, devicePixelRatio:1, screenWidth:1920, screenHeight:1080 });
   f.browser.innerWidth = 390; f.resize(); f.advance(5000);
   f.browser.innerWidth = 320; f.resize(); f.advance(4999);
   assert.equal(f.calls.length, 1); f.advance(1);
