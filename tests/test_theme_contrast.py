@@ -39,7 +39,8 @@ class ThemeContrastTests(unittest.TestCase):
         self.assertEqual(rows[0]['ratio'], gate.contrast((255, 255, 255), bg))
 
     def test_failure_names_pair_and_suggests_a_color_that_really_passes(self):
-        css = gate.read_css() + ':root[data-theme="bad"] { --ink: var(--bg); }'
+        # This synthetic theme still supplies the shared control-boundary alias target.
+        css = gate.read_css() + ':root[data-theme="bad"] { --ink: var(--bg); --icon-button-panel-border: var(--muted); }'
         row = next(r for r in gate.measure(css) if r['theme'] == 'bad' and r['pair'] == 'ink/bg')
         self.assertEqual(row['status'], 'FAIL')
         self.assertGreaterEqual(gate.contrast(gate.color(row['suggestion']), gate.color(row['background_value'])), 7)
