@@ -66,6 +66,17 @@ ICON = """e => {
 }"""
 
 
+def target_meets_minimum(geometry):
+    return bool(geometry['fragments']) and all(r['width'] >= 24 and r['height'] >= 24
+        for r in [geometry['union'], *geometry['fragments']])
+
+
+def visible_focus(geometry):
+    return (geometry['focused'] and geometry['focusVisible'] and
+            geometry['outlineStyle'] not in ('none', 'hidden') and geometry['outlineWidth'] >= 2 and
+            geometry['ringContained'] and geometry['unobscured'])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base-url', default=os.environ.get('VP_BASE_URL'))
@@ -135,7 +146,7 @@ def main(argv=None):
                                     icon = page.get_by_role('button', name='Close appearance', exact=True)
                                     row['iconOpen'] = icon.evaluate(ICON); row['iconTarget'] = icon.evaluate(GEOMETRY)
                                     check(row['iconOpen']['opaque'] and row['iconOpen']['ratio'] >= 3, 'STATIC panel icon boundary >=3')
-                                    check(all(r['width'] >= 24 and r['height'] >= 24 for r in [row['iconTarget']['union'], *row['iconTarget']['fragments']]), 'Dialog icon target union and fragments >=24')
+                                    check(target_meets_minimum(row['iconTarget']), 'Dialog icon target union and fragments >=24')
                                     # An intentional open-dialog image is separately labelled; the page guard MUST reject it.
                                     negative = name + '-rejected.png'
                                     try: recorder.capture(page, negative, expected_rejection=True)
@@ -147,14 +158,14 @@ def main(argv=None):
                                     assert trigger.evaluate('e=>e===document.activeElement'), 'Picker focus restore'
                                     row['closedIconCount'] = page.locator('.icon-button').count()
                                     row['appearanceFocus'] = trigger.evaluate(GEOMETRY)
-                                    f = row['appearanceFocus']; check(f['focused'] and f['focusVisible'] and f['ringContained'] and f['unobscured'], 'Appearance keyboard focus visible/contained/unobscured')
+                                    f = row['appearanceFocus']; check(visible_focus(f), 'Appearance keyboard focus visible/contained/unobscured')
                                     check(page.evaluate('document.documentElement.scrollWidth<=innerWidth'), 'No document horizontal overflow')
                                     row['targets'] = []
                                     for target in page.locator('button,a[href],summary,select,[role="textbox"]').all():
                                         if not target.is_visible(): continue
                                         geometry = target.evaluate(GEOMETRY)
                                         row['targets'].append(dict(label=target.get_attribute('aria-label') or target.inner_text(), geometry=geometry))
-                                        check(all(r['width'] >= 24 and r['height'] >= 24 for r in [geometry['union'], *geometry['fragments']]), 'Target union and fragments >=24: ' + row['targets'][-1]['label'])
+                                        check(target_meets_minimum(geometry), 'Target union and fragments >=24: ' + row['targets'][-1]['label'])
                                     capture('closed')
                                     if view == 'cos':
                                         editor = page.get_by_label('Message text', exact=True); placeholder = page.locator('.composer-placeholder'); row['paint'] = []
@@ -175,10 +186,10 @@ def main(argv=None):
                                     else:
                                         link = page.get_by_role('link', name='Evidence and timestamps', exact=True)
                                         row['linkInitial'] = link.evaluate(GEOMETRY)
-                                        check(all(r['width'] >= 24 and r['height'] >= 24 for r in [row['linkInitial']['union'], *row['linkInitial']['fragments']]), 'Evidence link union AND each fragment >=24')
+                                        check(target_meets_minimum(row['linkInitial']), 'Evidence link union AND each fragment >=24')
                                         page.get_by_role('button', name='Refresh', exact=True).focus(); page.keyboard.press('Tab')
                                         row['linkFocus'] = link.evaluate(GEOMETRY); f = row['linkFocus']
-                                        check(f['focused'] and f['focusVisible'] and f['outlineWidth'] >= 2 and f['ringContained'] and f['unobscured'], 'Evidence keyboard focus visible/contained/unobscured')
+                                        check(visible_focus(f), 'Evidence keyboard focus visible/contained/unobscured')
                                         capture('keyboard-focus')
                                     assert not errors and not writes and not unexpected, (errors, writes, unexpected)
                                     row['completed'] = True

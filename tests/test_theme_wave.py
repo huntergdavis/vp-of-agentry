@@ -4,11 +4,27 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from tests.browser_theme_capture import target_meets_minimum, visible_focus
 from tools import check_theme_wave as wave
 from tools import theme_contrast as gate, theme_contrast_consumers as usage
 
 
 class WaveTests(unittest.TestCase):
+    def test_wrapped_union_does_not_hide_short_fragments(self):
+        geometry = dict(union=dict(width=100, height=37), fragments=[dict(width=100, height=16), dict(width=50, height=16)])
+        self.assertFalse(target_meets_minimum(geometry))
+        geometry = dict(union=dict(width=100, height=24), fragments=[dict(width=100, height=24)])
+        self.assertTrue(target_meets_minimum(geometry))
+        geometry['fragments'] = []
+        self.assertFalse(target_meets_minimum(geometry))
+
+    def test_focus_pseudo_state_without_visible_outline_fails(self):
+        geometry = dict(focused=True, focusVisible=True, outlineStyle='solid', outlineWidth=2, ringContained=True, unobscured=True)
+        self.assertTrue(visible_focus(geometry))
+        self.assertFalse(visible_focus(dict(geometry, outlineWidth=0)))
+        self.assertFalse(visible_focus(dict(geometry, outlineStyle='none')))
+        self.assertFalse(visible_focus(dict(geometry, ringContained=False)))
+
     def icon_report(self, own):
         css = gate.read_css() + own
         rows = usage.measure_icon_button(css, usage.read_consumers(), gate)
