@@ -12,6 +12,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import sys
 
 PAIRS = (("ink", "bg", 7.0), ("muted", "bg", 4.5),
          ("accent", "bg", 3.0), ("accent-contrast", "accent", 4.5))
@@ -131,6 +132,7 @@ def passing_foreground(foreground, background, floor):
 
 
 def measure(css):
+    """Original palette calibration; the CLI additionally gates CSS consumers."""
     rows = []
     for theme, tokens in theme_tokens(css).items():
         for foreground, background, floor in PAIRS:
@@ -150,20 +152,55 @@ def measure(css):
     return rows
 
 
+def measure_all(css, consumers=None, expired_known_fails=()):
+    try:
+        from . import theme_contrast_consumers as usage
+    except ImportError:
+        import theme_contrast_consumers as usage
+    if consumers is None: consumers = usage.read_consumers()
+    return usage.measure_consumers(css, consumers, measure(css), sys.modules[__name__], expired_known_fails)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('css', nargs='?', type=Path, default=DEFAULT_CSS, help='theme directory (default) or a single legacy CSS file')
     parser.add_argument('--json', action='store_true', help='emit structured evidence')
+    parser.add_argument('--consumer-css', action='append', type=Path,
+                        help='CSS consumer source (repeatable; defaults to style.css and dash.css)')
+    parser.add_argument('--baseline', type=Path, help='design-triaged exact-pair baseline with expiry tasks')
+    parser.add_argument('--expire-known-fail', '--completed-task', action='append', default=[],
+                        help='task completed: expire its named or baseline exceptions (repeatable)')
     args = parser.parse_args(argv)
-    try: rows = measure(read_css(args.css))
+    try:
+        try:
+            from . import theme_contrast_consumers as usage
+        except ImportError:
+            import theme_contrast_consumers as usage
+        consumers = usage.read_consumers(args.consumer_css or usage.DEFAULT_CONSUMERS)
+        if any(not re.fullmatch(r't[0-9]+', task) for task in args.expire_known_fail):
+            raise ValueError('Completed task identifiers must be t followed by digits')
+        rows = measure_all(read_css(args.css), consumers, args.expire_known_fail)
+        if args.baseline:
+            rows = usage.apply_baseline(rows, json.loads(args.baseline.read_text()), args.expire_known_fail)
     except (OSError, ValueError) as error:
         print(json.dumps({'error': str(error)}) if args.json else f'ERROR: {error}')
         return 2
-    if args.json: print(json.dumps({'source': str(args.css), 'pairs': rows}, indent=2))
+    if args.json: print(json.dumps({'source': str(args.css), 'consumer_parser': consumers['parser'],
+                                   'expired_known_fails': args.expire_known_fail,
+                                   'baseline': str(args.baseline) if args.baseline else None,
+                                   'scope': 'Static named pairs; not rendered/cascade/DOM ancestry conformance',
+                                   'pairs': rows}, indent=2))
     else:
         for row in rows:
+            if row.get('error'):
+                print(f"{row['status']} {row['theme']} {row['pair']}: {row['error']}")
+                continue
             print(f"{row['status']} {row['theme']} {row['pair']}: {row['ratio']:.2f}:1 ({row['foreground_value']} on {row['background_value']}; floor {row['floor']:g}:1)")
-            if row['status'] == 'FAIL':
+            if row.get('known_fail'):
+                print(f"  NAMED {row['known_fail']['name']} expires with {row['known_fail']['expires_with']}; expired={row['known_fail']['expired']}")
+            if row.get('baseline'):
+                print(f"  BASELINE expires with {row['baseline']['expires_with']}; expired={row['baseline']['expired']}: {row['baseline']['reason']}")
+            if row['status'] in ('FAIL', 'KNOWN-FAIL', 'BASELINE-FAIL'):
                 if row['suggestion']:
                     print(f"  --{row['foreground']}: {row['suggestion']} WOULD PASS this pair at {row['suggestion_ratio']:.2f}:1; rerun all pairs after editing.")
                 else: print('  No foreground can pass on this background; change the background token.')
