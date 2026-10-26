@@ -523,12 +523,13 @@ h1,h2,p { margin-top: 0; }
 .message-meta > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 /* Send shares the growing input's height; the empty hint occupies the same grid cell. */
 .composer > .toolbar, .composer > .pending-files, .composer > .form-error { flex-basis: 100%; }
-.composer-input { flex: 1; min-width: 0; display: grid; }
+.composer-input { flex: 1; min-width: 0; display: grid; isolation: isolate; }
 .composer-input > div, .composer-placeholder { grid-area: 1 / 1; min-width: 0; }
+.composer-input > div { z-index: 0; }
 .composer-input .editor { height: 100%; min-width: 0; }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
 .composer > .toolbar { min-width: 0; flex-wrap: wrap; gap: 4px; }
 .composer button { min-width: 24px; min-height: 24px; }
 .composer > .toolbar button { flex: none; padding: 4px 7px; white-space: nowrap; }
-.composer-placeholder { overflow-wrap: anywhere; align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }
+.composer-placeholder { z-index: 1; overflow-wrap: anywhere; align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }
 .composer-placeholder:empty::before { content: attr(data-hint); }

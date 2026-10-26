@@ -2,6 +2,7 @@
 from pathlib import Path
 import os, json, subprocess, re
 from playwright.sync_api import sync_playwright, expect
+from browser_placeholder_paint import measure_placeholder_paint
 PARENT='041658608c2f62d5587646440b3067d174e1bc09'
 parent_source=subprocess.check_output(['git','show',PARENT+':web/src/main.jsx'],text=True)
 parent_composer=parent_source.split('function Composer(',1)[1].split('\nfunction MessageCard(',1)[0]
@@ -165,7 +166,12 @@ with sync_playwright() as pw:
                         }''')
                         for key,value in geometry.items():
                             if not value:failures.append(f'{theme}/{width}/text{text_scale}: {name} '+key)
-                        record.setdefault('placeholderStates',[]).append(dict(state=name,text=text,**geometry))
+                        state=dict(state=name,text=text,**geometry)
+                        if name in ('empty','focused-empty'):
+                            state['paint']=measure_placeholder_paint(page,editor,placeholder,OUT/f'{suffix}-{name}-paint')
+                            if not state['paint']['passed']:
+                                failures.append(f'{theme}/{width}/text{text_scale}: {name} hintPaint '+str(state['paint']))
+                        record.setdefault('placeholderStates',[]).append(state)
                     placeholder_state('empty',hint)
                     editor.focus();placeholder_state('focused-empty',hint)
                     editor.fill('Typed draft');placeholder_state('typed',None)
