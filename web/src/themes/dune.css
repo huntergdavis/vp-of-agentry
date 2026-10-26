@@ -22,7 +22,7 @@
   --font-body: 'Iowan Old Style', 'Georgia', 'Palatino Linotype', Palatino, serif;
   --font-dashboard: var(--font-body);
   --font-display: var(--font-body);
-  --font-mono: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-mono: var(--font-body);
   --scanline-strength: 0;
   --overlay: none;
 }
