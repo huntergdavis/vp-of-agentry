@@ -51,9 +51,9 @@ function firstDifference(actual, expected) {
   return null;
 }
 function main(args) {
-  const mode=args.shift();
+  const mode=args[0]?.startsWith('--') ? args.shift() : '--check';
   if(!['--check','--write'].includes(mode)||args.length>1)
-    throw Error('Usage: node web/tools/format-css.cjs --check|--write [file.css]');
+    throw Error('Usage: node web/tools/format-css.cjs [--check|--write] [file.css]');
   const file=path.resolve(args[0]||path.join(__dirname,'../src/style.css'));
   const before=fs.readFileSync(file,'utf8');
   const {after,evidence}=formatCss(before);

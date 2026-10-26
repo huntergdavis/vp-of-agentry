@@ -43,3 +43,19 @@ test('malformed CSS fails without replacing source',()=>{
     assert.equal(fs.readFileSync(file,'utf8'),source);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('no mode defaults to a read-only check, including no arguments',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vp-css-default-'));
+  try {
+    fs.mkdirSync(path.join(dir,'tools'));fs.mkdirSync(path.join(dir,'src'));
+    fs.copyFileSync(script,path.join(dir,'tools/format-css.cjs'));
+    fs.symlinkSync(path.resolve(__dirname,'../node_modules'),path.join(dir,'node_modules'),'dir');
+    const file=path.join(dir,'src/style.css'),source='a{color:red}'+String.fromCharCode(10);
+    fs.writeFileSync(file,source);
+    for(const args of [[],[file]]) {
+      const result=spawnSync(process.execPath,[path.join(dir,'tools/format-css.cjs'),...args],{cwd:dir,encoding:'utf8'});
+      assert.equal(result.status,1);
+      assert.match(result.stderr,/differs at line 1; no file written/);
+      assert.equal(fs.readFileSync(file,'utf8'),source);
+    }
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
