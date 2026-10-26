@@ -23,12 +23,19 @@ METRICS = """() => {
  const c=document.querySelector('.composer'),t=c.querySelector('.formatting-controls, .toolbar'),e=c.querySelector('.editor'),s=c.querySelector('.send'),a=c.querySelector('.attach')||[...t.querySelectorAll('button')].find(b=>b.title.startsWith('Attach'));
  const css=getComputedStyle(c),hint=c.querySelector('.composer-placeholder');
  const luminance=color=>color.match(/[0-9.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
- const acss=getComputedStyle(a),ink=luminance(acss.color),surface=luminance(css.backgroundColor);
+ const acss=getComputedStyle(a),ink=luminance(acss.color),surface=luminance(acss.backgroundColor);
  const boundary=luminance(acss.borderColor),ownSurface=luminance(acss.backgroundColor);
  const formatButtons=[...t.querySelectorAll('button')].map(box);
+ const children=[...c.children].filter(n=>n.matches('.formatting-controls,.composer-input,.send,.attach')).map(n=>({name:n.className,...box(n)}));
+ const top=Math.min(...children.map(n=>n.y)),bottom=Math.max(...children.map(n=>n.bottom)),cb=box(c);
+ const ownOpaque=[acss.color,acss.backgroundColor,acss.borderColor].every(v=>{const a=v.match(/[0-9.]+/g).map(Number);return (a[3]??1)===1;});
 
  return {composer:box(c),toolbar:box(t),editor:box(e),send:box(s),attach:box(a),hint:hint?box(hint):null,
   attachTextContrast:(Math.max(ink,surface)+.05)/(Math.min(ink,surface)+.05),
+  attachText:{ink:acss.color,surface:acss.backgroundColor,opaque:ownOpaque},
+  rowChildren:children,rowGaps:{top:top-cb.y-parseFloat(css.borderTopWidth),bottom:cb.bottom-parseFloat(css.borderBottomWidth)-bottom,
+   topIncludingBorder:top-cb.y,bottomIncludingBorder:cb.bottom-bottom},
+  domOrder:[...c.children].filter(n=>n.matches('.formatting-controls,.composer-input,.send,.attach')).map(n=>n.className),
   attachBoundary:{color:acss.borderColor,surface:acss.backgroundColor,width:parseFloat(acss.borderWidth),style:acss.borderStyle,
    ratio:(Math.max(boundary,ownSurface)+.05)/(Math.min(boundary,ownSurface)+.05)},
   formattingButtons:formatButtons,
@@ -106,6 +113,9 @@ def main():
                             h=metrics['hint'];e=metrics['editor']
                             check(h['x']>=e['x']-.5 and h['right']<=e['right']+.5 and h['y']>=e['y']-.5 and h['bottom']<=e['bottom']+.5,
                                   label+': entire hint contained within editor')
+                        if args.mode=='candidate':
+                            check(abs(metrics['rowGaps']['top']-5)<.1 and abs(metrics['rowGaps']['bottom']-5)<.1,
+                                  label+': container inner-border gaps exactly 5px top and 5px bottom')
                         return metrics
                     def idle():
                         page.mouse.move(0,0); page.evaluate('document.activeElement?.blur()')
@@ -137,16 +147,19 @@ def main():
                         buttons=first['formattingButtons']
                         check(len(buttons)==6 and len({b['y'] for b in buttons})==2 and len({b['x'] for b in buttons})==3,
                               'Formatting occupies two rows of three buttons')
-                        check(first['toolbar']['right']<=first['editor']['x'] and first['editor']['right']<=first['attach']['x']
-                              and first['attach']['right']<=first['send']['x'],
-                              'Visual order formatting then editor then Attach then Send')
+                        check(first['toolbar']['right']<=first['editor']['x'] and first['editor']['right']<=first['send']['x']
+                              and first['send']['right']<=first['attach']['x'],
+                              'Visual order formatting then editor then Send then Attach')
                         check(all(c['union']['width']>=24 and c['union']['height']>=24 for c in first['controls']),
                               'Idle controls each measure at least 24x24')
-                        check(first['attachTextContrast']>=4.5, 'Attach retains readable desk text contrast')
-                        check(abs(first['padding']['bottom']-2)<.1, 'Bottom padding exactly 2px')
+                        check(first['attachText']['opaque'] and first['attachTextContrast']>=4.5, 'Attach text >=4.5 on its own opaque surface')
+                        check(first['domOrder']==['formatting-controls','composer-input','primary send','attach'],
+                              'DOM order equals visual formatting/input/Send/Attach')
+                        check(abs(first['padding']['top']-5)<.1 and abs(first['padding']['bottom']-5)<.1, 'Container padding exactly 5px top and bottom')
                         row['mainIdleHeight']=baseline[name]['states']['idle']['composer']['height']
                         row['idleHeightDelta']=first['composer']['height']-row['mainIdleHeight']
-                        check(row['idleHeightDelta']<0, 'One-row composer reclaims height versus main307ec0ee')
+                        row['beforeGaps']=baseline[name]['states']['idle']['rowGaps'];row['afterGaps']=first['rowGaps']
+                        check(row['idleHeightDelta']<=0, 'Equal container padding does not increase baseline composer height')
                         paint('idle')
                         t=first['toolbar']; page.mouse.move(t['right']-2,t['y']+t['height']/2)
                         hovered=state('hovered')
@@ -161,15 +174,15 @@ def main():
                               outline:s.outlineStyle,outlineWidth:parseFloat(s.outlineWidth)});
                           });
                         }""")
-                        editor.focus(); walk=[]
+                        page.get_by_role('button',name='Bold',exact=True).focus(); walk=['Bold']
                         for _ in range(8):
                             page.keyboard.press('Tab')
                             walk.append(page.evaluate("document.activeElement.getAttribute('aria-label')||document.activeElement.title"))
                             if len(walk)==3:
                                 keyboard=state('keyboard-focused')
                                 paint('keyboard-focused')
-                        check(walk==['Send message','Attach images or files','Bold','Italic','Heading','Bullet list','Quote','Code block'],
-                              'Tab order Send then Attach then six formatting buttons')
+                        check(walk==['Bold','Italic','Heading','Bullet list','Quote','Code block','Message text','Send message','Attach images or files'],
+                              'Tab order matches visual formatting/input/Send/Attach')
                         row['tabOrder']=walk;row['formatFocus']=page.evaluate('window.formatFocus')
                         check(len(row['formatFocus'])==6 and all(float(f['opacity'])==1 and f['outline'] not in ['none','hidden'] and f['outlineWidth']>0 for f in row['formatFocus']),
                               'Formatting visible with focus outline at focus event')
@@ -185,7 +198,7 @@ def main():
                             check(all(c['union']['width']>=24 and c['union']['height']>=24 and c['fragments'] and
                                       all(f['width']>=24 and f['height']>=24 for f in c['fragments']) for c in m['controls']),
                                   label+': every control union and fragment >=24')
-                        check(keyboard['attach']['right']<=keyboard['send']['x'], 'Attach physically left of Send')
+                        check(keyboard['attach']['x']>=keyboard['send']['right'], 'Attach is rightmost after Send')
                         with page.expect_file_chooser() as chooser:
                             page.get_by_role('button',name='Attach images or files',exact=True).click()
                         chooser.value.set_files([]);row['attachChooserOpened']=True

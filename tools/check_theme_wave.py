@@ -17,7 +17,9 @@ from tools.theme_wave_checks import OPEN_ICON_CHECK
 
 WIDTHS = (1422, 1067, 960, 800, 700, 390, 320)
 NAMED = ('icon-button-border/own-surface', 'icon-button-panel-border/own-surface',
-         'ops-reference-ink/bg', 'ops-reference-border/bg')
+         'ops-reference-ink/bg', 'ops-reference-border/bg',
+         'attach-base-border/own-surface', 'attach-base-text/own-surface',
+         'attach-border/own-surface', 'attach-text/own-surface')
 NOT_COVERED = ['OVERLAY-INCLUSIVE named-control endpointMinimum >=3:1 AND independentContinuousPhaseLowerBound >=3:1 with the 0.12 overlay (stage 2)',
                'Physical zoom/devices, full-page accessibility and font conformance',
                'Unavailable-channel behavior; fixture uses an available synthetic channel']
