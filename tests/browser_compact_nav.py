@@ -78,7 +78,7 @@ with sync_playwright() as pw:
                 assert widths[status[0]] == max(widths.values())
                 metrics = page.evaluate("""() => {
                     const rect = s => { const e=document.querySelector(s),r=e.getBoundingClientRect();
-                        return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,clientWidth:e.clientWidth,scrollWidth:e.scrollWidth}; };
+                        return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,clientWidth:e.clientWidth,scrollWidth:e.scrollWidth,overflowX:getComputedStyle(e).overflowX,flexWrap:getComputedStyle(e).flexWrap}; };
                     const nav=rect('.dash-nav'), body=rect('.conversation'), links=rect('.dash-nav > .dash-nav-links');
                     const fixed=[...document.querySelectorAll('.dash-nav-brand, .dash-nav-right > .dash-meta, .dash-nav-right > button')].map(e=>{
                         const r=e.getBoundingClientRect();return {text:e.textContent,x:r.x,right:r.right,y:r.y,bottom:r.bottom,width:r.width};
