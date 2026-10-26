@@ -56,7 +56,8 @@ with sync_playwright() as pw:
                 page.set_viewport_size(dict(width=321,height=height))
                 page.clock.run_for(11000)
             assert resized.value.status==200
-            latest=dict(expected,innerWidth=321)
+            latest=page.evaluate("() => ({innerWidth,innerHeight,devicePixelRatio,screenWidth:screen.width,screenHeight:screen.height})")
+            assert latest['innerWidth']==321 and latest['innerHeight']==height
             assert samples==[expected,latest],samples
             viewports=page.request.get(BASE+'/api/channels').json()['viewports']
             assert len(viewports)==1
