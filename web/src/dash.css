@@ -503,7 +503,7 @@
   outline-offset: 2px;
 }
 .dash-root .settings-modal .icon-button {
-  border-color: var(--dash-border);
+  border-color: var(--icon-button-panel-border, var(--dash-border));
   background: var(--dash-panel-2);
   color: var(--dash-fg);
 }

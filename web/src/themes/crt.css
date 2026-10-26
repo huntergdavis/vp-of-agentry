@@ -11,6 +11,8 @@
   --accent-contrast: #07110b;
   --border: #315c3d;
   --border-strong: #5b8b68;
+  --icon-button-border: var(--border);
+  --icon-button-panel-border: var(--muted);
   --success: #8fffab;
   --warning: #eed28a;
   --danger: #ffb3a3;

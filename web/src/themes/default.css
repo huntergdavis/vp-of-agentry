@@ -331,3 +331,10 @@
   --message-dock-surface: rgba(0, 0, 0, 0.6);
   --shadow-color: #00000059;
 }
+
+/* Keep unconfigured variants on the component fallbacks. */
+:root:not([data-theme]),
+:root[data-theme="default"] {
+  --icon-button-border: var(--border);
+  --icon-button-panel-border: var(--muted);
+}
