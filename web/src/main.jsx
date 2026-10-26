@@ -200,7 +200,7 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
     </div>
     <div className="composer-input" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}>
       <EditorContent editor={editor} />
-      {empty && <span className="composer-placeholder" data-hint={disabled ? 'Agent unavailable' : 'Enter to send - Shift+Enter for a new line - files stay on this host'} />}
+      {empty && <span className="composer-placeholder" data-hint={disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'} />}
     </div>
     <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send ↗'}</button>
     {error && <span className="form-error" role="alert">{error}</span>}

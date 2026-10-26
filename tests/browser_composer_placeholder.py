@@ -1,7 +1,11 @@
 """Unit4 placeholder states and retained Send-row geometry.320px failures are advisory."""
 from pathlib import Path
-import os, json, subprocess
+import os, json, subprocess, re
 from playwright.sync_api import sync_playwright, expect
+PARENT='041658608c2f62d5587646440b3067d174e1bc09'
+parent_source=subprocess.check_output(['git','show',PARENT+':web/src/main.jsx'],text=True)
+parent_composer=parent_source.split('function Composer(',1)[1].split('\nfunction MessageCard(',1)[0]
+HINT=re.search(r"disabled \? 'Agent unavailable' : '([^']+)'",parent_composer).group(1)
 BASE=os.environ['VP_BASE_URL']
 OUT=Path(os.environ['VP_TEST_ARTIFACTS']);OUT.mkdir(parents=True,exist_ok=True)
 MODE=os.environ.get('VP_TEST_MODE','candidate')
@@ -140,10 +144,15 @@ with sync_playwright() as pw:
                                 failures.append(f'{theme}/{width}/text{text_scale}: keyboard focus '+str(item))
                             page.keyboard.press('Tab')
                         record['tabWalk']=walk
-                    hint='Enter to send - Shift+Enter for a new line - files stay on this host'
+                    hint=HINT
                     placeholder=page.locator('.composer-placeholder')
                     def placeholder_state(name, expected):
-                        expect(placeholder).to_have_count(1 if expected else 0)
+                        try:
+                            expect(placeholder).to_have_count(1 if expected else 0)
+                        except AssertionError:
+                            record['failedState']=dict(state=name,editorHtml=editor.inner_html(),editorText=editor.inner_text())
+                            capture(page,OUT/f'{suffix}-{name}-failed.png')
+                            raise
                         text=json.loads(placeholder.evaluate("e=>getComputedStyle(e,'::before').content")) if expected else None
                         assert text==expected,(name,text,expected)
                         geometry=page.evaluate('''() => {
@@ -160,7 +169,9 @@ with sync_playwright() as pw:
                     placeholder_state('empty',hint)
                     editor.focus();placeholder_state('focused-empty',hint)
                     editor.fill('Typed draft');placeholder_state('typed',None)
-                    editor.fill('');placeholder_state('cleared',hint)
+                    editor.press('Control+A');editor.press('Backspace')
+                    expect(editor).to_have_text('');placeholder_state('cleared',hint)
+                    record['clearingAction']='Control+A then Backspace'
                     editor.fill('Unit 4 synthetic send')
                     page.get_by_role('button',name='Send message',exact=True).click()
                     expect(editor).to_have_text('')
@@ -184,6 +195,6 @@ with sync_playwright() as pw:
         advisory=[failure for failure in failures if '/320/' in failure]
         blocking=[failure for failure in failures if '/320/' not in failure]
         (OUT/'results.json').write_text(json.dumps(dict(mode=MODE,results=results,failures=blocking,advisories=advisory,
-            blockingWidths=[1422,1067,960,800,700,390],advisoryWidths=[320]),indent=2)+'\n')
+            blockingWidths=[1422,1067,960,800,700,390],advisoryWidths=[320],hintParent=PARENT,expectedHint=HINT),indent=2)+'\n')
         for warning in advisory:print('ADVISORY: '+warning,flush=True)
 assert not blocking,blocking
