@@ -513,9 +513,7 @@ h1,h2,p { margin-top: 0; }
 /* Keep the reading measure independent of the desktop bubble's outer width. */
 .message-wrap .markdown { max-width: 72ch; }
 @media (min-width: 701px) {
-  .message-wrap { width: min(80vw, calc(100% - 24px)); }
-  .message-wrap .cs-message__content-wrapper,
-  .message-wrap .cs-message__content { width: 100%; }
+  .message-wrap { max-width: min(80vw, calc(100% - 24px)); }
 }
 /* Keep message labels and timestamps readable when text is enlarged. */
 .message-meta { flex-wrap: wrap; }
