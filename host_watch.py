@@ -172,7 +172,7 @@ def run_once(dry_run: bool) -> int:
             try:
                 subprocess.run([
                     "/home/hunter/workspace/dunkingsheep/dunkingsheep", "inbox", "send",
-                    "VP of Agentry", body, "--subject", "Host health threshold changed",
+                    "π - vp-of-agentry", body, "--subject", "Host health threshold changed",
                 ], capture_output=True, check=True, timeout=10)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
                 # Keep the old levels so the next tick retries the same change, but do
