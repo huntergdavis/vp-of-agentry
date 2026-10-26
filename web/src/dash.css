@@ -38,6 +38,7 @@
 
 /* Slim strip on the standalone routes: where you are and how to get back. */
 .dash-nav {
+  container: desk-nav / inline-size;
   position: relative;
   min-height: 39px;
   flex: none;
@@ -66,6 +67,8 @@
 .dash-nav-mark {
   width: 22px;
   height: 22px;
+  min-width: max-content;
+  min-height: 1.5em;
   border-radius: var(--radius);
   display: grid;
   place-items: center;
@@ -102,10 +105,16 @@
   border-color: var(--dash-border-2);
 }
 .dash-nav-right { margin-left: auto; display: flex; flex: none; flex-wrap: nowrap; align-items: center; gap: 6px; }
-.dash-nav-status { margin-left: auto; display: flex; flex: none; align-items: center; gap: 6px; }
+.dash-nav-status { margin-left: auto; display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 6px; }
+.dash-nav-status > .dash-meta { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-nav-status + .dash-nav-right { margin-left: 0; }
 .dash-nav-boards { display: none; }
-.nav-action-icon { display: none; }
+.nav-action-icon { display: none; font-size: 1.45em; line-height: 1; }
+/* Relative to nav text size, so enlarged labels yield to named icon buttons. */
+@container desk-nav (max-width: 90em) {
+  .dash-nav .nav-action-label, .dash-nav .dock-trigger kbd { display: none; }
+  .dash-nav .nav-action-icon { display: inline; }
+}
 .dash-nav-boards summary { cursor: pointer; list-style: none; padding: 4px 7px; font-size: 12px; border: 1px solid var(--dash-border); border-radius: var(--radius-6px); }
 .dash-nav-boards summary::-webkit-details-marker { display: none; }
 .dash-nav-boards > .dash-nav-links { position: absolute; top: 100%; left: 8px; z-index: 20; flex-direction: column; max-width: calc(100% - 16px); padding: 6px; border: 1px solid var(--dash-border); border-radius: var(--radius); background: var(--dash-panel); }
@@ -128,8 +137,6 @@
 @media (max-width: 699px) {
   .dash-nav { flex-wrap: wrap; padding-inline: 4px; }
   .dash-nav-status { order: 1; flex-basis: 100%; justify-content: space-between; gap: 2px; }
-  .dash-nav-status > .dash-meta { min-width: 0; white-space: normal; }
-  .dash-nav-mark { min-width: max-content; min-height: 1.5em; }
   .dash-nav-status + .dash-nav-right { margin-left: auto; }
   .dash-nav .nav-action-label { display: none; }
   .dash-nav .nav-action-icon { display: inline; font-size: 1.45em; line-height: 1; }
