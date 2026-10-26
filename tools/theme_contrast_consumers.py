@@ -63,48 +63,60 @@ def read_consumers(paths=DEFAULT_CONSUMERS):
 
 
 def measure_icon_button(css, consumers, math):
-    """Gate the actual base .icon-button border and its own painted surface.
+    """Measure two explicit icon-button contexts, not a general DOM cascade.
 
-    Names such as --white escape the surface naming convention. Resolve the
-    declaration's actual alias rather than assuming a proposed border remap.
-    Context-specific overrides still need rendered-surface validation.
+    Base and settings-panel declarations are resolved through their actual
+    nested var() branches. The panel inherits base properties, then applies
+    its known higher-specificity override while respecting !important.
+    Conditional/other selectors and rendered overlays remain outside scope.
     """
-    declarations, evidence = {}, []
-    for rule in consumers['rules']:
-        if rule['selector'] != '.icon-button' or rule['context']: continue
-        evidence.append({k: rule[k] for k in ('source', 'line', 'selector', 'context')})
-        for decl in rule['declarations']:
-            category = ('border' if decl['property'] in ('border', 'border-color') else
-                        'surface' if decl['property'] in ('background', 'background-color') else None)
-            if category:
-                old = declarations.get(category)
-                if not old or decl['important'] or not old['important']: declarations[category] = decl
-    if not evidence: return []  # Explicit isolated consumer fixtures may omit this control.
+    base_selector = '.icon-button'
+    panel_selector = '.dash-root .settings-modal .icon-button'
+    rules = {selector: [rule for rule in consumers['rules']
+                       if rule['selector'] == selector and not rule['context']]
+             for selector in (base_selector, panel_selector)}
     rows = []
-    for theme, base in math.theme_tokens(css).items():
-        tokens = {**base, **consumer_aliases(consumers['rules'], theme)}
-        row = dict(theme=theme, pair='icon-button-border/own-surface', foreground='icon-button-border',
-                   control='.icon-button', remediation_task='t193', floor=3.0, named_case=True, referenced=True,
-                   evidence=evidence, suggestion=None, suggestion_ratio=None,
-                   border_expression=declarations.get('border', {}).get('value'),
-                   surface_expression=declarations.get('surface', {}).get('value'))
-        try:
-            def resolved(category):
-                if category not in declarations: raise ValueError('Missing .icon-button ' + category)
-                value = declarations[category]['value']
-                match = re.search(r'var\(.+\)|#[0-9a-fA-F]{3,8}\b|\b(?:white|black|transparent)\b', value)
-                if not match: raise ValueError('Unsupported .icon-button ' + category + ': ' + value)
-                expression = match.group()
-                # A synthetic local token reuses the strict alias/fallback resolver.
-                return math.resolve('named-control-value', {**tokens, 'named-control-value': expression})
-            fv, bv = resolved('border'), resolved('surface')
-            bg = math.color(bv); fg = math.foreground_color(fv, bg)
-            ratio = math.contrast(fg, bg)
-            row.update(foreground_value=fv, background_value=bv, ratio=ratio,
-                       status='FAIL' if ratio < 3 else 'MARGINAL' if ratio <= 3.3 else 'PASS')
-        except ValueError as error:
-            row.update(status='FAIL', ratio=None, error=str(error))
-        rows.append(row)
+    for selector, name in ((base_selector, 'icon-button-border'),
+                           (panel_selector, 'icon-button-panel-border')):
+        if not rules[selector]: continue  # Isolated fixtures may omit a context.
+        selected = rules[base_selector] + rules[panel_selector] if selector == panel_selector else rules[base_selector]
+        declarations, evidence = {}, []
+        for rule in selected:
+            source = {k: rule[k] for k in ('source', 'line', 'selector', 'context')}
+            evidence.append(source)
+            for decl in rule['declarations']:
+                category = ('border' if decl['property'] in ('border', 'border-color') else
+                            'surface' if decl['property'] in ('background', 'background-color') else None)
+                if category:
+                    old = declarations.get(category)
+                    if not old or decl['important'] or not old['important']:
+                        declarations[category] = {**decl, 'evidence': source}
+        for theme, base in math.theme_tokens(css).items():
+            tokens = {**base, **consumer_aliases(consumers['rules'], theme)}
+            row = dict(theme=theme, pair=name + '/own-surface', foreground=name,
+                       control=selector, remediation_task='t193', floor=3.0,
+                       named_case=True, referenced=True, evidence=evidence,
+                       suggestion=None, suggestion_ratio=None,
+                       border_expression=declarations.get('border', {}).get('value'),
+                       surface_expression=declarations.get('surface', {}).get('value'),
+                       border_evidence=declarations.get('border', {}).get('evidence'),
+                       surface_evidence=declarations.get('surface', {}).get('evidence'))
+            try:
+                def resolved(category):
+                    if category not in declarations: raise ValueError('Missing ' + selector + ' ' + category)
+                    value = declarations[category]['value']
+                    match = re.search(r'var\(.+\)|#[0-9a-fA-F]{3,8}\b|\b(?:white|black|transparent)\b', value)
+                    if not match: raise ValueError('Unsupported ' + selector + ' ' + category + ': ' + value)
+                    expression = match.group()
+                    return math.resolve('named-control-value', {**tokens, 'named-control-value': expression})
+                fv, bv = resolved('border'), resolved('surface')
+                bg = math.color(bv); fg = math.foreground_color(fv, bg)
+                ratio = math.contrast(fg, bg)
+                row.update(foreground_value=fv, background_value=bv, ratio=ratio,
+                           status='FAIL' if ratio < 3 else 'MARGINAL' if ratio <= 3.3 else 'PASS')
+            except ValueError as error:
+                row.update(status='FAIL', ratio=None, error=str(error))
+            rows.append(row)
     return rows
 
 

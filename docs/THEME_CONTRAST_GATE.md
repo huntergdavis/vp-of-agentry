@@ -31,21 +31,31 @@ are not exempt; repaired passing colors need no exception. Supply
 --completed-task t189 to enforce expiry; remove the obsolete exception when
 the design repair lands.
 
-## Named icon-button boundary
+## Named icon-button boundaries
 
-The named icon-button-border/own-surface check resolves the ACTUAL unconditional
-.icon-button border and background declarations per theme, including aliases
-such as --white that escape the broad surface naming convention. Floor: 3:1.
-It does not assume that a proposed border remap has already shipped. The
-proposal fixture separately proves border-strong/white ratios9.12/3.19/2.18/2.37.
+Two mandatory 3:1 checks resolve actual unconditional declarations:
 
-Current source uses topbar-border/white: Default1.2225 and CRT1.0085 FAIL.
-On the theme drafts Nostromo1.0386 FAILs;2001 13.1430 passes. These control
-failures remain RAW FAIL until a verified design remap fixes them. Dedicated
-task t193 tracks the repair; it is NOT a deferral, and the baseline mechanism
-cannot suppress named-control failures. Do not merge the widened default gate
-while these current-main failures remain. Context-specific overrides, actual
-rendered compositing and occlusion still require the rendered-surface gate.
+- icon-button-border/own-surface: .icon-button border against its background.
+- icon-button-panel-border/own-surface: .dash-root .settings-modal .icon-button
+  against its own background, inheriting base properties before applying that
+  known higher-specificity override. !important precedence is retained.
+
+Both use the existing nested var() resolver. Defined primary tokens win;
+missing primaries select their fallbacks. Aliases such as --white and
+--dash-panel-2 resolve to the actual surfaces. Reports include the winning
+border/background expressions and source selector, file and line. Tests cover
+both primary/fallback branches, inactive missing fallbacks and the explicit
+base/panel precedence model. Other selectors and conditional overrides require
+rendered analysis; this is not a general DOM cascade implementation.
+
+Measured main ee43ece uses topbar-border/white for the base: Default1.2225 and
+CRT1.0085 FAIL. Its panel uses dash-border/dash-panel-2: Default1.3046 and
+CRT2.0534 FAIL. Dedicated task t193 repairs these two contexts through separate
+base and panel border tokens. Neither named control can receive a baseline
+exception. Do not merge the widened default gate while current-main named
+control failures remain. Actual rendered compositing and occlusion still
+require the rendered-surface gate. The proposal fixture separately proves
+border-strong/white ratios9.12/3.19/2.18/2.37; it does not imply a shipped remap.
 
 ## Design-triaged baseline
 
@@ -97,7 +107,8 @@ input/parser failure. JSON enumerates all unused combinations as well.
 
 This is static pair coverage, not whole-page accessibility certification.
 It does not infer DOM ancestor surfaces, selector equivalence/specificity across
-different selectors, image/gradient pixels, paint occlusion or actual fonts.
+different selectors beyond the two explicit icon contexts above, image/gradient
+pixels, paint occlusion or actual fonts.
 Matched references are conservative, not proof of which rule wins in a DOM.
 Rendered-surface checks and screenshot review remain required under t160.
 A warning does not certify a token as safe for future use.

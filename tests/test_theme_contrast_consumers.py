@@ -169,4 +169,73 @@ class ConsumerContrastTests(unittest.TestCase):
             self.assertEqual(row['status'], status)
 
 
+    def test_base_icon_token_and_fallback_branches(self):
+        rules = consumers('.icon-button {border:1px solid var(--icon-button-border,var(--topbar-border));background:var(--white);}')
+        for defined, expected, status in ((False, '#eee', 'FAIL'), (True, '#000', 'PASS')):
+            with self.subTest(defined=defined):
+                css = TOKENS + ':root {--topbar-border:#eee;--white:#fff;}'
+                if defined: css += ':root {--icon-button-border:#000;}'
+                row = pair(gate.measure_all(css, rules), 'icon-button-border/own-surface')
+                self.assertEqual(row['foreground_value'], expected)
+                self.assertEqual(row['background_value'], '#fff')
+                self.assertEqual(row['status'], status)
+                self.assertEqual(row['border_evidence']['selector'], '.icon-button')
+
+    def test_panel_icon_token_and_fallback_use_actual_panel_surface(self):
+        rules = consumers("""
+          .dash-root {--dash-panel-2:var(--surface-raised);--dash-border:var(--border);}
+          .icon-button {border:1px solid var(--topbar-border);background:var(--white);}
+          .dash-root .settings-modal .icon-button {
+            border-color:var(--icon-button-panel-border,var(--dash-border));
+            background:var(--dash-panel-2);
+          }
+        """)
+        for defined, expected, status in ((False, '#111', 'FAIL'), (True, '#fff', 'PASS')):
+            with self.subTest(defined=defined):
+                css = TOKENS + ':root {--topbar-border:#000;--white:#fff;--surface-raised:#000;--border:#111;}'
+                if defined: css += ':root {--icon-button-panel-border:#fff;}'
+                rows = gate.measure_all(css, rules)
+                row = pair(rows, 'icon-button-panel-border/own-surface')
+                self.assertEqual(row['foreground_value'], expected)
+                self.assertEqual(row['background_value'], '#000')
+                self.assertEqual(row['status'], status)
+                self.assertEqual(row['border_evidence']['selector'], '.dash-root .settings-modal .icon-button')
+                self.assertEqual(row['surface_expression'], 'var(--dash-panel-2)')
+                self.assertEqual(pair(rows, 'icon-button-border/own-surface')['background_value'], '#fff')
+
+    def test_defined_icon_tokens_do_not_require_inactive_fallbacks(self):
+        css = TOKENS + ':root {--white:#fff;--surface-raised:#000;--icon-button-border:#000;--icon-button-panel-border:#fff;}'
+        rules = consumers("""
+          .dash-root {--dash-panel-2:var(--surface-raised);}
+          .icon-button {border:1px solid var(--icon-button-border,var(--topbar-border));background:var(--white);}
+          .dash-root .settings-modal .icon-button {border-color:var(--icon-button-panel-border,var(--dash-border));background:var(--dash-panel-2);}
+        """)
+        rows = gate.measure_all(css, rules)
+        for name in ('icon-button-border/own-surface', 'icon-button-panel-border/own-surface'):
+            self.assertEqual(pair(rows, name)['status'], 'PASS')
+
+    def test_panel_specificity_and_important_choose_actual_winning_border(self):
+        css = TOKENS + ':root {--white:#fff;--surface-raised:#000;}'
+        for panel_important, expected in (('', '#000'), ('!important', '#fff')):
+            rules = consumers("""
+              .dash-root .settings-modal .icon-button {border-color:#fff %s;background:var(--surface-raised);}
+              .icon-button {border:1px solid #000 !important;background:var(--white);}
+            """ % panel_important)
+            row = pair(gate.measure_all(css, rules), 'icon-button-panel-border/own-surface')
+            self.assertEqual(row['foreground_value'], expected)
+            self.assertEqual(row['background_value'], '#000')
+
+    def test_named_panel_failure_cannot_be_baselined(self):
+        css = TOKENS + ':root {--white:#fff;--surface-raised:#000;}'
+        rules = consumers("""
+          .icon-button {border:1px solid #000;background:var(--white);}
+          .dash-root .settings-modal .icon-button {border-color:#111;background:var(--surface-raised);}
+        """)
+        row = pair(gate.measure_all(css, rules), 'icon-button-panel-border/own-surface')
+        entry = {field: row[field] for field in usage.BASELINE_FIELDS}
+        entry.update(evidence=row['evidence'], expires_with='t193', reason='Invalid named-panel deferral')
+        baseline = dict(version=1, source_head='0'*40, entries=[entry])
+        self.assertEqual(usage.apply_baseline([row], baseline)[0]['status'], 'FAIL')
+
+
 if __name__ == '__main__': unittest.main()
