@@ -87,6 +87,7 @@ def resolve(name, tokens, seen=()):
 
 
 def rgba(value):
+    value = {'white': '#ffffff', 'black': '#000000', 'transparent': '#00000000'}.get(value.lower(), value)
     if not re.fullmatch(r'#[0-9a-fA-F]+', value) or len(value) not in (4, 5, 7, 9):
         raise ValueError(f'Expected a CSS hex color, got {value!r}')
     digits = value[1:]
@@ -158,7 +159,8 @@ def measure_all(css, consumers=None, expired_known_fails=()):
     except ImportError:
         import theme_contrast_consumers as usage
     if consumers is None: consumers = usage.read_consumers()
-    return usage.measure_consumers(css, consumers, measure(css), sys.modules[__name__], expired_known_fails)
+    rows = usage.measure_consumers(css, consumers, measure(css), sys.modules[__name__], expired_known_fails)
+    return rows + usage.measure_icon_button(css, consumers, sys.modules[__name__])
 
 
 def main(argv=None):
@@ -206,6 +208,8 @@ def main(argv=None):
             if row['status'] in ('FAIL', 'KNOWN-FAIL', 'BASELINE-FAIL'):
                 if row['suggestion']:
                     print(f"  --{row['foreground']}: {row['suggestion']} WOULD PASS this pair at {row['suggestion_ratio']:.2f}:1; rerun all pairs after editing.")
+                elif row.get('control'):
+                    print('  Fix the named control border/surface; rerun all checks.')
                 else: print('  No foreground can pass on this background; change the background token.')
     return int(any(row['status'] == 'FAIL' for row in rows))
 

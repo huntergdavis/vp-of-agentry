@@ -1442,8 +1442,8 @@
       "foreground_value": "#e4e9ed",
       "background_value": "#fff",
       "floor": 3.0,
-      "decision": "scoped-waiver",
-      "reason": "Static topbar/content separator; no text, controls or status cues are waived. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t192 completion. Static design classification, not rendered conformance.",
+      "decision": "fix-in-theme",
+      "reason": "Fix shared topbar-border theme token: style.css also consumes it on .icon-button, so a separator-only waiver would exempt a control boundary. Preserve this exact-value FAIL as a temporary baseline until t192; independently reviewed correction i26980.",
       "expires_with": "t192",
       "measured_ratio": 1.2225475216564594,
       "evidence": [
@@ -2810,8 +2810,8 @@
       "foreground_value": "#e4e9ed",
       "background_value": "#fff",
       "floor": 3.0,
-      "decision": "scoped-waiver",
-      "reason": "Static topbar/content separator; no text, controls or status cues are waived. Scope: exact recorded theme/pair/values and listed CSS consumers only; re-review on semantic/selector change or t192 completion. Static design classification, not rendered conformance.",
+      "decision": "fix-in-theme",
+      "reason": "Fix shared topbar-border theme token: style.css also consumes it on .icon-button, so a separator-only waiver would exempt a control boundary. Preserve this exact-value FAIL as a temporary baseline until t192; independently reviewed correction i26980.",
       "expires_with": "t192",
       "measured_ratio": 1.2225475216564594,
       "evidence": [
@@ -2824,5 +2824,11 @@
       ],
       "suggestion_for_this_pair_only": "#929597"
     }
-  ]
+  ],
+  "review": {
+    "source": "VP i26980 relaying pi-review-1",
+    "confirmedScopedWaivers": 42,
+    "correctedToFix": 2,
+    "limits": "static CSS classification, not rendered reachability"
+  }
 }

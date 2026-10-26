@@ -41,7 +41,7 @@ def apply_baseline(rows, baseline, completed_tasks=()):
     for original in rows:
         row = dict(original)
         entry = entries.get(tuple(row.get(field) for field in BASELINE_FIELDS))
-        if entry and row['status'] == 'FAIL' and not row.get('error'):
+        if entry and row['status'] == 'FAIL' and not row.get('error') and not row.get('control'):
             expired = entry['expires_with'] in completed_tasks or bool((row.get('known_fail') or {}).get('expired'))
             scope_changed = consumer_scope(entry['evidence']) != consumer_scope(row.get('evidence', []))
             row['baseline'] = dict(entry, expired=expired, scope_changed=scope_changed, source_head=baseline['source_head'])
@@ -60,6 +60,52 @@ def parse_consumers(sources):
 
 def read_consumers(paths=DEFAULT_CONSUMERS):
     return parse_consumers([dict(source=str(path), css=Path(path).read_text()) for path in paths])
+
+
+def measure_icon_button(css, consumers, math):
+    """Gate the actual base .icon-button border and its own painted surface.
+
+    Names such as --white escape the surface naming convention. Resolve the
+    declaration's actual alias rather than assuming a proposed border remap.
+    Context-specific overrides still need rendered-surface validation.
+    """
+    declarations, evidence = {}, []
+    for rule in consumers['rules']:
+        if rule['selector'] != '.icon-button' or rule['context']: continue
+        evidence.append({k: rule[k] for k in ('source', 'line', 'selector', 'context')})
+        for decl in rule['declarations']:
+            category = ('border' if decl['property'] in ('border', 'border-color') else
+                        'surface' if decl['property'] in ('background', 'background-color') else None)
+            if category:
+                old = declarations.get(category)
+                if not old or decl['important'] or not old['important']: declarations[category] = decl
+    if not evidence: return []  # Explicit isolated consumer fixtures may omit this control.
+    rows = []
+    for theme, base in math.theme_tokens(css).items():
+        tokens = {**base, **consumer_aliases(consumers['rules'], theme)}
+        row = dict(theme=theme, pair='icon-button-border/own-surface', foreground='icon-button-border',
+                   control='.icon-button', remediation_task='t193', floor=3.0, named_case=True, referenced=True,
+                   evidence=evidence, suggestion=None, suggestion_ratio=None,
+                   border_expression=declarations.get('border', {}).get('value'),
+                   surface_expression=declarations.get('surface', {}).get('value'))
+        try:
+            def resolved(category):
+                if category not in declarations: raise ValueError('Missing .icon-button ' + category)
+                value = declarations[category]['value']
+                match = re.search(r'var\(.+\)|#[0-9a-fA-F]{3,8}\b|\b(?:white|black|transparent)\b', value)
+                if not match: raise ValueError('Unsupported .icon-button ' + category + ': ' + value)
+                expression = match.group()
+                # A synthetic local token reuses the strict alias/fallback resolver.
+                return math.resolve('named-control-value', {**tokens, 'named-control-value': expression})
+            fv, bv = resolved('border'), resolved('surface')
+            bg = math.color(bv); fg = math.foreground_color(fv, bg)
+            ratio = math.contrast(fg, bg)
+            row.update(foreground_value=fv, background_value=bv, ratio=ratio,
+                       status='FAIL' if ratio < 3 else 'MARGINAL' if ratio <= 3.3 else 'PASS')
+        except ValueError as error:
+            row.update(status='FAIL', ratio=None, error=str(error))
+        rows.append(row)
+    return rows
 
 
 def roles(name):

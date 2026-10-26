@@ -140,5 +140,33 @@ class ConsumerContrastTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 usage.apply_baseline(rows, dict(baseline, entries=[bad]))
 
+    def test_named_icon_border_resolves_actual_declaration_not_proposal(self):
+        css = TOKENS + ':root {--topbar-border:#e4e9ed;--border-strong:#45475a;--white:white;}'
+        actual = consumers('.icon-button {border:1px solid var(--topbar-border);background:var(--white);}')
+        row = pair(gate.measure_all(css, actual), 'icon-button-border/own-surface')
+        self.assertEqual(row['status'], 'FAIL')
+        self.assertAlmostEqual(row['ratio'], 1.2225475, places=6)
+        self.assertEqual(row['border_expression'], '1px solid var(--topbar-border)')
+        entry = {field: row[field] for field in usage.BASELINE_FIELDS}
+        entry.update(evidence=row['evidence'], expires_with='t193', reason='Invalid attempted control deferral')
+        baseline = dict(version=1, source_head='0'*40, entries=[entry])
+        self.assertEqual(usage.apply_baseline([row], baseline)[0]['status'], 'FAIL')
+        self.assertEqual(row['remediation_task'], 't193')
+        proposal = consumers('.icon-button {border:1px solid var(--border-strong);background:var(--white);}')
+        row = pair(gate.measure_all(css, proposal), 'icon-button-border/own-surface')
+        self.assertEqual(row['status'], 'PASS')
+        self.assertAlmostEqual(row['ratio'], 9.1226047, places=6)
+
+    def test_named_icon_proposed_alias_four_theme_calibration(self):
+        css = TOKENS + ':root {--border-strong:#45475a;--white:white;}'
+        for name, border, surface in [('crt','#5b8b68','#c1f4c7'),('nostromo','#b0a16f','#f5edc9'),('2001','#595b63','#202126')]:
+            css += f':root[data-theme="{name}"] {{ --border-strong:{border};--white:{surface};}}'
+        rules = consumers('.icon-button {border:1px solid var(--border-strong);background:var(--white);}')
+        rows = gate.measure_all(css, rules)
+        for theme, expected, status in [('default',9.12,'PASS'),('crt',3.19,'MARGINAL'),('nostromo',2.18,'FAIL'),('2001',2.37,'FAIL')]:
+            row = pair(rows, 'icon-button-border/own-surface', theme)
+            self.assertAlmostEqual(row['ratio'], expected, places=2)
+            self.assertEqual(row['status'], status)
+
 
 if __name__ == '__main__': unittest.main()

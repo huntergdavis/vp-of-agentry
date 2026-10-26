@@ -31,12 +31,28 @@ are not exempt; repaired passing colors need no exception. Supply
 --completed-task t189 to enforce expiry; remove the obsolete exception when
 the design repair lands.
 
+## Named icon-button boundary
+
+The named icon-button-border/own-surface check resolves the ACTUAL unconditional
+.icon-button border and background declarations per theme, including aliases
+such as --white that escape the broad surface naming convention. Floor: 3:1.
+It does not assume that a proposed border remap has already shipped. The
+proposal fixture separately proves border-strong/white ratios9.12/3.19/2.18/2.37.
+
+Current source uses topbar-border/white: Default1.2225 and CRT1.0085 FAIL.
+On the theme drafts Nostromo1.0386 FAILs;2001 13.1430 passes. These control
+failures remain RAW FAIL until a verified design remap fixes them. Dedicated
+task t193 tracks the repair; it is NOT a deferral, and the baseline mechanism
+cannot suppress named-control failures. Do not merge the widened default gate
+while these current-main failures remain. Context-specific overrides, actual
+rendered compositing and occlusion still require the rendered-surface gate.
+
 ## Design-triaged baseline
 
 The first widened measurement of main ed8b29c found 49 Default and 50 CRT
 referenced FAIL rows, plus one reference-border KNOWN-FAIL per theme.
 Design supplied all99 entries in tools/theme_contrast_baseline.json:
-55 fix-in-theme deferrals and44 scoped decorative-separator deferrals, all
+57 fix-in-theme deferrals and42 scoped decorative-separator deferrals, all
 expiring with t192. These are temporary BASELINE-FAIL records, not passing
 contrast or final rendered waiver acceptance. Reasons, decisions, colors and
 floors are preserved from design triage; source paths are repository-relative.
