@@ -1,5 +1,8 @@
 """Pure geometry predicates shared by browser evidence and dependency-free tests."""
 
+OPEN_ICON_CHECK = 'Open Appearance close icon unobscured'
+
+
 def target_meets_minimum(geometry):
     return bool(geometry['fragments']) and all(r['width'] >= 24 and r['height'] >= 24
         for r in [geometry['union'], *geometry['fragments']])
