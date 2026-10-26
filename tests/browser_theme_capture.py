@@ -51,18 +51,22 @@ MESSAGES = [dict(id=1, role='agent', body='Synthetic theme review. Compare reada
 def main():
     chrome = Path(os.environ['CHROMIUM_PATH']) if os.environ.get('CHROMIUM_PATH') else sorted((Path.home() / '.cache/ms-playwright').glob('chromium-*/chrome-linux64/chrome'))[-1]
     recorder = ThemeCapture(OUTPUT, {'source_head': os.environ.get('VP_TEST_SOURCE_SHA'), 'token_source': str(CSS),
-                                     'observed_at': STAMP, 'contrast_pairs': RATIOS, 'fixture_source': 'codex-design i25587'})
+                                     'observed_at': STAMP, 'contrast_pairs': RATIOS, 'fixture_source': 'codex-design i25587', 'emulated': True, 'requested_device_scale_factor': 1.8, 'not_verified': ['Actual browser zoom or OS scaling', 'Physical devices', 'Rendered-pixel or whole-page contrast', 'Font conformance']})
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=str(chrome), args=['--no-sandbox'])
         recorder.evidence['metadata']['browser'] = browser.version
         try:
-            for width, height in ((1440, 900), (390, 844)):
+            for width in (1440, 1422, 1067, 960, 800, 720, 480, 390, 320):
+                height = 900 if width > 480 else 844
                 for view in ('cos', 'operations'):
-                    context = browser.new_context(viewport={'width': width, 'height': height}, reduced_motion='reduce')
+                    context = browser.new_context(viewport={'width': width, 'height': height}, reduced_motion='reduce', device_scale_factor=1.8)
                     page = context.new_page(); errors, writes, unexpected = [], [], []
                     page.on('pageerror', lambda error: errors.append(str(error)))
                     def api(route):
                         path = urlparse(route.request.url).path
+                        if path == '/api/viewport' and route.request.method == 'POST':
+                            assert set(route.request.post_data_json) == {'innerWidth', 'innerHeight', 'devicePixelRatio', 'screenWidth', 'screenHeight'}
+                            route.fulfill(status=204); return
                         if route.request.method != 'GET':
                             writes.append(path); route.abort(); return
                         data = {'/api/channels': {'channels': CHANNELS}, '/api/messages': {'items': MESSAGES},
@@ -83,7 +87,7 @@ def main():
                     assert options == THEMES, (options, THEMES)
                     blocked_name = f'negative-appearance-{view}-{width}.png'
                     try:
-                        recorder.capture(page, blocked_name, expected_rejection=True, width=width, view=view)
+                        recorder.capture(page, blocked_name, expected_rejection=True, width=width, view=view, device_scale_factor=page.evaluate('devicePixelRatio'))
                     except CaptureBlocked:
                         assert not (OUTPUT / blocked_name).exists()
                     else: raise AssertionError('Capture allowed while Appearance was left open')
@@ -94,12 +98,12 @@ def main():
                         expect(page.locator('html')).to_have_attribute('data-theme', theme)
                         page.evaluate('document.fonts.ready')
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-                        recorder.capture(page, f'{theme}-{view}-{width}.png', theme=theme, view=view, width=width, height=height)
+                        recorder.capture(page, f'{theme}-{view}-{width}.png', theme=theme, view=view, width=width, height=height, device_scale_factor=page.evaluate('devicePixelRatio'))
                         trigger.click()
                     page.keyboard.press('Escape')
                     assert not errors and not writes and not unexpected, (errors, writes, unexpected)
                     context.close()
-                    print(f'{view} {width}x{height}: open Appearance refused; {len(THEMES)} dialog-closed captures; no API writes/JS errors', flush=True)
+                    print(f'{view} {width}x{height}: open Appearance refused; {len(THEMES)} dialog-closed captures; no unexpected API writes/JS errors', flush=True)
         finally:
             browser.close()
             recorder.write()
