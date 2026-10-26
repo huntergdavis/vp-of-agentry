@@ -17,15 +17,15 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.theme_capture import CaptureBlocked, ThemeCapture
-from tools.theme_contrast import DEFAULT_CSS, measure, theme_tokens
+from tools.theme_contrast import DEFAULT_CSS, measure, theme_tokens, read_css
 from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ['VP_BASE_URL'].rstrip('/')
 OUTPUT = Path(os.environ.get('VP_TEST_ARTIFACTS', ROOT / 'data/theme-gate'))
 STAMP = subprocess.check_output(['date', '-u', '+%Y-%m-%dT%H:%M:%SZ'], text=True).strip()
 CSS = Path(os.environ.get('VP_THEME_CSS', DEFAULT_CSS))
-THEMES = set(theme_tokens(CSS.read_text()))
-RATIOS = measure(CSS.read_text())
+THEMES = set(theme_tokens(read_css(CSS)))
+RATIOS = measure(read_css(CSS))
 assert all(row['status'] != 'FAIL' for row in RATIOS), RATIOS
 
 

@@ -15,8 +15,19 @@ import re
 
 PAIRS = (("ink", "bg", 7.0), ("muted", "bg", 4.5),
          ("accent", "bg", 3.0), ("accent-contrast", "accent", 4.5))
-DEFAULT_CSS = Path(__file__).resolve().parents[1] / "web/src/themes.css"
+DEFAULT_CSS = Path(__file__).resolve().parents[1] / "web/src/themes"
 THEME_SELECTOR = re.compile(r':root\[data-theme\s*=\s*(?:"([\w-]+)"|\'([\w-]+)\'|([\w-]+))\]')
+
+
+def read_css(source=DEFAULT_CSS):
+    """Read one legacy CSS file or all theme files, with base tokens first."""
+    source = Path(source)
+    if source.is_file():
+        return source.read_text()
+    files = sorted(source.glob('*.css'), key=lambda file: (file.name != 'default.css', file.name))
+    if not files:
+        raise ValueError(f'No theme CSS files found: {source}')
+    return '\n'.join(file.read_text() for file in files)
 
 
 def blocks(css):
@@ -141,10 +152,10 @@ def measure(css):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('css', nargs='?', type=Path, default=DEFAULT_CSS)
+    parser.add_argument('css', nargs='?', type=Path, default=DEFAULT_CSS, help='theme directory (default) or a single legacy CSS file')
     parser.add_argument('--json', action='store_true', help='emit structured evidence')
     args = parser.parse_args(argv)
-    try: rows = measure(args.css.read_text())
+    try: rows = measure(read_css(args.css))
     except (OSError, ValueError) as error:
         print(json.dumps({'error': str(error)}) if args.json else f'ERROR: {error}')
         return 2

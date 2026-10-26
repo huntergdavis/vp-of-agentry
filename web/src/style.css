@@ -1,4 +1,3 @@
-@import './themes.css';
 :root { font-family: var(--font-body); color: var(--root-ink); background: var(--root-surface); font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; }
