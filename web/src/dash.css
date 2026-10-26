@@ -466,6 +466,8 @@
 .dash-terminal .dash-error, .dash-terminal .dash-muted { overflow-wrap: anywhere; }
 .ops-poolrad { margin: 10px 0 !important; padding: 8px 0; border-top: 1px solid var(--dash-border); overflow-wrap: anywhere; }
 .ops-poolrad a, #poolrad-details a { color: var(--dash-accent); }
+.ops-poolrad > a { display: inline-flex; align-items: center; min-width: 24px; min-height: 24px; max-width: 100%; scroll-margin: 8px; }
+.ops-poolrad > a:focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
 #poolrad-details small { display: block; overflow-wrap: anywhere; }
 #poolrad-details li { margin: 8px 0; }
 
