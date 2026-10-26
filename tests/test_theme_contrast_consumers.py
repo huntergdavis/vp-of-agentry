@@ -123,12 +123,17 @@ class ConsumerContrastTests(unittest.TestCase):
         rows = gate.measure_all(css, rules)
         failing = pair(rows, 'alias-ink/surface')
         entry = {field: failing[field] for field in usage.BASELINE_FIELDS}
+        entry['evidence'] = failing['evidence']
         entry.update(expires_with='t190', reason='Design triage fixture; repair tracked separately')
         baseline = dict(version=1, source_head='0'*40, entries=[entry])
         self.assertEqual(pair(usage.apply_baseline(rows, baseline), 'alias-ink/surface')['status'], 'BASELINE-FAIL')
         self.assertEqual(pair(usage.apply_baseline(rows, baseline, ['t190']), 'alias-ink/surface')['status'], 'FAIL')
         changed = gate.measure_all(css + ':root {--alias-ink:#ddd;}', rules)
         self.assertEqual(pair(usage.apply_baseline(changed, baseline), 'alias-ink/surface')['status'], 'FAIL')
+        different_consumer = gate.measure_all(css, consumers('.new-control {color:var(--alias-ink);background:var(--surface);}'))
+        changed_scope = pair(usage.apply_baseline(different_consumer, baseline), 'alias-ink/surface')
+        self.assertEqual(changed_scope['status'], 'FAIL')
+        self.assertTrue(changed_scope['baseline']['scope_changed'])
         new_pair = gate.measure_all(css + ':root {--new-ink:#eee;}', consumers('.panel {color:var(--new-ink);background:var(--surface);}'))
         self.assertEqual(pair(usage.apply_baseline(new_pair, baseline), 'new-ink/surface')['status'], 'FAIL')
         for bad in (dict(entry, expires_with=''), {k:v for k,v in entry.items() if k!='reason'}):

@@ -31,16 +31,18 @@ are not exempt; repaired passing colors need no exception. Supply
 --completed-task t189 to enforce expiry; remove the obsolete exception when
 the design repair lands.
 
-## Pending design baseline
+## Design-triaged baseline
 
 The first widened measurement of main ed8b29c found 49 Default and 50 CRT
 referenced FAIL rows, plus one reference-border KNOWN-FAIL per theme.
-Do not merge this as the default gate until design triages those failures.
-WEB has not generated or approved baseline entries. The private full
-measurement data/t188-current.json includes source paths and stays outside
-source control; the draft PR retains its measured failure counts.
+Design supplied all99 entries in tools/theme_contrast_baseline.json:
+55 fix-in-theme deferrals and44 scoped decorative-separator deferrals, all
+expiring with t192. These are temporary BASELINE-FAIL records, not passing
+contrast or final rendered waiver acceptance. Reasons, decisions, colors and
+floors are preserved from design triage; source paths are repository-relative.
 
-After design triage, use --baseline FILE. Schema:
+The CLI loads that baseline by default. Use --baseline FILE for a reviewed
+replacement or --no-baseline for the raw report. Entries have this schema:
 
 ~~~json
 {
@@ -52,19 +54,25 @@ After design triage, use --baseline FILE. Schema:
     "foreground_value": "<exact resolved color>",
     "background_value": "<exact resolved color>",
     "floor": 4.5,
-    "expires_with": "t190",
-    "reason": "<design triage and planned repair>"
+    "expires_with": "t192",
+    "reason": "<design triage and planned repair>",
+    "evidence": [{
+      "source": "web/src/style.css",
+      "selector": ".panel",
+      "context": []
+    }]
   }]
 }
 ~~~
 
 Exact existing failures report BASELINE-FAIL with reason/expiry, not PASS.
-New pairs, changed colors/floors, unresolved colors and expired entries FAIL.
+New pairs, changed colors/floors, changed consumer selectors/files/conditions,
+unresolved colors and expired entries FAIL. Line-number movement alone is allowed.
 Supply completed expiry tasks with repeatable --completed-task tNNN.
 Task state is explicit input so the tool stays deterministic and never queries
-the daemon. A baseline cannot revive an expired named exception. Final gate
-integration must supply the design-reviewed baseline and completed-task inputs;
-that integration is pending.
+the daemon. A baseline cannot revive an expired named exception. Gate callers
+must supply completed-task inputs and remove obsolete entries as repairs land.
+Final independent review remains required.
 
 Exit 0 means no unexcepted FAIL; 1 means contrast failure; 2 means invalid
 input/parser failure. JSON enumerates all unused combinations as well.

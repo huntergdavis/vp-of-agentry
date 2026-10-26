@@ -7,10 +7,17 @@ from itertools import product
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONSUMERS = (ROOT / 'web/src/style.css', ROOT / 'web/src/dash.css')
+DEFAULT_BASELINE = ROOT / 'tools/theme_contrast_baseline.json'
 REFERENCE_PAIRS = (('ops-reference-ink', 'bg', 4.5), ('ops-reference-border', 'bg', 3.0))
 KNOWN_FAIL = dict(name='legacy-ops-reference-border', pair='ops-reference-border/bg',
                   themes=('default', 'crt', 'nostromo'), value='#405c64', expires_with='t189')
 BASELINE_FIELDS = ('theme', 'pair', 'foreground_value', 'background_value', 'floor')
+
+
+def consumer_scope(evidence):
+    """Line movement is harmless; changed selectors, files or conditions are not."""
+    return sorted({(Path(item['source']).name, item['selector'], tuple(item['context']))
+                   for item in evidence})
 
 
 def apply_baseline(rows, baseline, completed_tasks=()):
@@ -22,8 +29,11 @@ def apply_baseline(rows, baseline, completed_tasks=()):
     for entry in baseline['entries']:
         if (any(field not in entry for field in BASELINE_FIELDS) or
                 not re.fullmatch(r't[0-9]+', entry.get('expires_with', '')) or
-                not isinstance(entry.get('reason'), str) or not entry['reason'].strip()):
-            raise ValueError('Each baseline entry requires exact pair/values/floor, reason and expiry task')
+                not isinstance(entry.get('reason'), str) or not entry['reason'].strip() or
+                not isinstance(entry.get('evidence'), list) or not entry['evidence']):
+            raise ValueError('Each baseline entry requires exact pair/values/floor, consumer scope, reason and expiry task')
+        try: consumer_scope(entry['evidence'])
+        except (KeyError, TypeError): raise ValueError('Invalid baseline consumer scope') from None
         key = tuple(entry[field] for field in BASELINE_FIELDS)
         if key in entries: raise ValueError('Duplicate baseline entry: ' + str(key))
         entries[key] = entry
@@ -33,8 +43,9 @@ def apply_baseline(rows, baseline, completed_tasks=()):
         entry = entries.get(tuple(row.get(field) for field in BASELINE_FIELDS))
         if entry and row['status'] == 'FAIL' and not row.get('error'):
             expired = entry['expires_with'] in completed_tasks or bool((row.get('known_fail') or {}).get('expired'))
-            row['baseline'] = dict(entry, expired=expired, source_head=baseline['source_head'])
-            if not expired: row['status'] = 'BASELINE-FAIL'
+            scope_changed = consumer_scope(entry['evidence']) != consumer_scope(row.get('evidence', []))
+            row['baseline'] = dict(entry, expired=expired, scope_changed=scope_changed, source_head=baseline['source_head'])
+            if not expired and not scope_changed: row['status'] = 'BASELINE-FAIL'
         result.append(row)
     return result
 

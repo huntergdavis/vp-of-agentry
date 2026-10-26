@@ -168,6 +168,7 @@ def main(argv=None):
     parser.add_argument('--consumer-css', action='append', type=Path,
                         help='CSS consumer source (repeatable; defaults to style.css and dash.css)')
     parser.add_argument('--baseline', type=Path, help='design-triaged exact-pair baseline with expiry tasks')
+    parser.add_argument('--no-baseline', action='store_true', help='report all raw failures without baseline deferrals')
     parser.add_argument('--expire-known-fail', '--completed-task', action='append', default=[],
                         help='task completed: expire its named or baseline exceptions (repeatable)')
     args = parser.parse_args(argv)
@@ -179,15 +180,17 @@ def main(argv=None):
         consumers = usage.read_consumers(args.consumer_css or usage.DEFAULT_CONSUMERS)
         if any(not re.fullmatch(r't[0-9]+', task) for task in args.expire_known_fail):
             raise ValueError('Completed task identifiers must be t followed by digits')
+        if args.baseline and args.no_baseline: raise ValueError('Choose --baseline or --no-baseline, not both')
+        baseline_path = None if args.no_baseline else (args.baseline or usage.DEFAULT_BASELINE)
         rows = measure_all(read_css(args.css), consumers, args.expire_known_fail)
-        if args.baseline:
-            rows = usage.apply_baseline(rows, json.loads(args.baseline.read_text()), args.expire_known_fail)
+        if baseline_path:
+            rows = usage.apply_baseline(rows, json.loads(baseline_path.read_text()), args.expire_known_fail)
     except (OSError, ValueError) as error:
         print(json.dumps({'error': str(error)}) if args.json else f'ERROR: {error}')
         return 2
     if args.json: print(json.dumps({'source': str(args.css), 'consumer_parser': consumers['parser'],
                                    'expired_known_fails': args.expire_known_fail,
-                                   'baseline': str(args.baseline) if args.baseline else None,
+                                   'baseline': str(baseline_path) if baseline_path else None,
                                    'scope': 'Static named pairs; not rendered/cascade/DOM ancestry conformance',
                                    'pairs': rows}, indent=2))
     else:
@@ -199,7 +202,7 @@ def main(argv=None):
             if row.get('known_fail'):
                 print(f"  NAMED {row['known_fail']['name']} expires with {row['known_fail']['expires_with']}; expired={row['known_fail']['expired']}")
             if row.get('baseline'):
-                print(f"  BASELINE expires with {row['baseline']['expires_with']}; expired={row['baseline']['expired']}: {row['baseline']['reason']}")
+                print(f"  BASELINE expires with {row['baseline']['expires_with']}; expired={row['baseline']['expired']}; scope_changed={row['baseline']['scope_changed']}: {row['baseline']['reason']}")
             if row['status'] in ('FAIL', 'KNOWN-FAIL', 'BASELINE-FAIL'):
                 if row['suggestion']:
                     print(f"  --{row['foreground']}: {row['suggestion']} WOULD PASS this pair at {row['suggestion_ratio']:.2f}:1; rerun all pairs after editing.")
