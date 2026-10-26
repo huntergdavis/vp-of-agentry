@@ -143,7 +143,7 @@ def _initialize():
         """)
         session_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
         for name, kind in (("viewport_width", "INTEGER"), ("viewport_height", "INTEGER"), ("viewport_dpr", "REAL"),
-                           ("viewport_screen_width", "INTEGER"), ("viewport_screen_height", "INTEGER")):
+                           ("viewport_screen_width", "INTEGER"), ("viewport_screen_height", "INTEGER"), ("viewport_at", "REAL")):
             if name not in session_columns:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} {kind}")
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
@@ -412,11 +412,12 @@ async def report_viewport(request: Request, _: Annotated[str, Depends(require_au
         # Do not echo arbitrary input (including non-JSON NaN) in an error response.
         raise HTTPException(422, "Invalid viewport sample")
     cookie = request.cookies.get("vp_session", "")
+    now = time.time()
     with _db() as conn:
         changed = conn.execute(
-            "UPDATE sessions SET viewport_width=?,viewport_height=?,viewport_dpr=?,viewport_screen_width=?,viewport_screen_height=? "
+            "UPDATE sessions SET viewport_width=?,viewport_height=?,viewport_dpr=?,viewport_screen_width=?,viewport_screen_height=?,viewport_at=? "
             "WHERE token_hash=? AND expires_at>?",
-            (body.innerWidth, body.innerHeight, body.devicePixelRatio, body.screenWidth, body.screenHeight, _session_key(cookie), time.time()),
+            (body.innerWidth, body.innerHeight, body.devicePixelRatio, body.screenWidth, body.screenHeight, now, _session_key(cookie), now),
         ).rowcount
     if not changed:
         raise HTTPException(401, "Browser session required")
@@ -428,8 +429,8 @@ def _viewports():
     with _db() as conn:
         return [dict(row) for row in conn.execute(
             "SELECT viewport_width AS innerWidth,viewport_height AS innerHeight,viewport_dpr AS devicePixelRatio, "
-            "viewport_screen_width AS screenWidth,viewport_screen_height AS screenHeight "
-            "FROM sessions WHERE expires_at>? AND viewport_screen_width IS NOT NULL ORDER BY rowid",
+            "viewport_screen_width AS screenWidth,viewport_screen_height AS screenHeight,viewport_at "
+            "FROM sessions WHERE expires_at>? AND viewport_at IS NOT NULL ORDER BY rowid",
             (time.time(),),
         )]
 

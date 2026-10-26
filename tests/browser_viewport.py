@@ -2,7 +2,7 @@
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlsplit
-import json,os,subprocess
+import json,os,subprocess,time
 from playwright.sync_api import sync_playwright
 BASE=os.environ['VP_BASE_URL'].rstrip('/')
 OUT=Path(os.environ['VP_TEST_ARTIFACTS']);OUT.mkdir(parents=True,exist_ok=True)
@@ -29,6 +29,7 @@ with sync_playwright() as pw:
             page.route('**/api/**',route)
             page.goto(BASE+'/dash/cos')
             page.locator('#password').fill(password)
+            received_after=time.time()
             with page.expect_response(lambda r:urlsplit(r.url).path=='/api/viewport') as sent:
                 page.get_by_role('button',name='Open desk').click()
             response=sent.value
@@ -40,13 +41,17 @@ with sync_playwright() as pw:
             assert samples==[expected],samples
             status=page.request.get(BASE+'/api/channels')
             assert status.status==200
-            assert expected in status.json()['viewports']
+            stored=status.json()['viewports']
+            assert len(stored)==1
+            assert {k:v for k,v in stored[0].items() if k!='viewport_at'}==expected
+            assert received_after<=stored[0]['viewport_at']<=time.time()
+            sample_time=stored[0]['viewport_at']
             counts={s:page.locator(s).count() for s in ('[role="dialog"]',':modal','.modal-backdrop','dialog[open]')}
             assert not any(counts.values()),counts
             page.get_by_label('Message text',exact=True).wait_for()
             page.screenshot(path=str(OUT/f'viewport-{width}.png'))
             record=dict(timestamp=stamp,viewport=expected,requestedDeviceScaleFactor=1.8,httpStatus=response.status,
-                        recordedInStatus=True,dialog_closed=True,dialogCounts=counts)
+                        recordedInStatus=True,viewport_at=sample_time,dialog_closed=True,dialogCounts=counts)
             with page.expect_response(lambda r:urlsplit(r.url).path=='/api/viewport') as resized:
                 page.set_viewport_size(dict(width=321,height=height))
                 page.clock.run_for(11000)
@@ -54,7 +59,10 @@ with sync_playwright() as pw:
             latest=dict(expected,innerWidth=321)
             assert samples==[expected,latest],samples
             viewports=page.request.get(BASE+'/api/channels').json()['viewports']
-            assert latest in viewports and expected not in viewports
+            assert len(viewports)==1
+            assert {k:v for k,v in viewports[0].items() if k!='viewport_at'}==latest
+            assert viewports[0]['viewport_at']>sample_time
+            record['resizeViewportAt']=viewports[0]['viewport_at']
             record['resizeReplacedLatest']=latest
             assert not errors,errors
             assert not forbidden,forbidden
