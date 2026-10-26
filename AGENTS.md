@@ -38,3 +38,12 @@ Never commit or paste secrets, private bot tokens, API tokens, credentials, owne
 Use wall-clock `America/Los_Angeles` timestamps on every user-visible commentary and final reply, and immediately before each tool operation. Before shell commands, make the first source line a literal `# [YYYY-MM-DD HH:MM:SS TZ] COMMAND: description` using a fresh timestamp. This applies across harnesses.
 
 See [docs/VP_HANDOFF.md](docs/VP_HANDOFF.md) for startup, services, and a ready-to-paste takeover prompt.
+
+## Task system is the todo list (owner rule, all agents)
+
+Every todo, assignment or follow-up lives in the Dunking Sheep task queue, so metrics and ownership survive across agent types. Do not keep a private todo list as the source of truth.
+
+- Take work assigned to you with `dunkingsheep task next <your-pane-id>` (MCP `task_next`); the global default can hand you unrelated unowned work, which the leader owns, so do not claim it. Extend with `task heartbeat <id>`; record the evidence first with `task note <id> --reason "commit/PR, command run, what you did NOT verify"`, then finish with `task complete <id>`.
+- Create work with `dunkingsheep task add "<title>" -p <prio>` and ALWAYS give it a body: the owner's ask, acceptance evidence, current state. A task with an empty body is not assignable work; fill it with `task update`.
+- Every open task has an owner. Unowned means the leader owns it; never leave a task open and unclaimed without saying why.
+- Read your tasks with `dunk-poll --tasks`; see queue health and per-actor claim/complete counts with `dunkingsheep task metrics`.

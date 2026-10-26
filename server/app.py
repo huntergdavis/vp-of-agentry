@@ -141,6 +141,11 @@ def _initialize():
             );
             CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
         """)
+        session_columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
+        for name, kind in (("viewport_width", "INTEGER"), ("viewport_height", "INTEGER"), ("viewport_dpr", "REAL"),
+                           ("viewport_screen_width", "INTEGER"), ("viewport_screen_height", "INTEGER"), ("viewport_at", "REAL")):
+            if name not in session_columns:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} {kind}")
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
         if "transport_id" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN transport_id TEXT")
@@ -390,6 +395,46 @@ def _known_channel(channel: str) -> bool:
     return channel in CHANNEL_INDEX or bool(re.fullmatch(r"pane-[a-z0-9-]+", channel))
 
 
+class ViewportSample(BaseModel):
+    model_config = {"extra": "forbid"}
+    innerWidth: int = Field(strict=True, ge=1, le=32768)
+    innerHeight: int = Field(strict=True, ge=1, le=32768)
+    screenWidth: int = Field(strict=True, ge=1, le=32768)
+    screenHeight: int = Field(strict=True, ge=1, le=32768)
+    devicePixelRatio: float = Field(strict=True, gt=0, le=16, allow_inf_nan=False)
+
+
+@app.post("/api/viewport")
+async def report_viewport(request: Request, _: Annotated[str, Depends(require_auth)]):
+    try:
+        body = ViewportSample.model_validate(await request.json())
+    except ValueError:
+        # Do not echo arbitrary input (including non-JSON NaN) in an error response.
+        raise HTTPException(422, "Invalid viewport sample")
+    cookie = request.cookies.get("vp_session", "")
+    now = time.time()
+    with _db() as conn:
+        changed = conn.execute(
+            "UPDATE sessions SET viewport_width=?,viewport_height=?,viewport_dpr=?,viewport_screen_width=?,viewport_screen_height=?,viewport_at=? "
+            "WHERE token_hash=? AND expires_at>?",
+            (body.innerWidth, body.innerHeight, body.devicePixelRatio, body.screenWidth, body.screenHeight, now, _session_key(cookie), now),
+        ).rowcount
+    if not changed:
+        raise HTTPException(401, "Browser session required")
+    return {"ok": True}
+
+
+def _viewports():
+    # Authenticated status exposes dimensions only, never session identifiers.
+    with _db() as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT viewport_width AS innerWidth,viewport_height AS innerHeight,viewport_dpr AS devicePixelRatio, "
+            "viewport_screen_width AS screenWidth,viewport_screen_height AS screenHeight,viewport_at "
+            "FROM sessions WHERE expires_at>? AND viewport_at IS NOT NULL ORDER BY rowid",
+            (time.time(),),
+        )]
+
+
 @app.get("/api/channels")
 def channels(_: Annotated[str, Depends(require_auth)]):
     try:
@@ -398,7 +443,7 @@ def channels(_: Annotated[str, Depends(require_auth)]):
     except HTTPException:
         panes, daemon = [], False
     rows = build_roster(CHANNELS, panes)
-    return {"channels": rows, "daemon": daemon,
+    return {"channels": rows, "daemon": daemon, "viewports": _viewports(),
             "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
