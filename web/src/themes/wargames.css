@@ -156,3 +156,34 @@
   --channel-ink-2: var(--muted);
   --eyebrow-ink: var(--muted);
 }
+
+/* WarGames remaps for the remaining light-panel and dark-panel control borders. */
+:root[data-theme="wargames"] {
+  --activity-toggle-surface: var(--surface-raised);
+  --activity-toggle-border: var(--border-strong);
+  --activity-toggle-ink: var(--ink);
+  --jump-banner-surface: var(--surface-raised);
+  --jump-banner-border: var(--border-strong);
+  --jump-banner-ink: var(--ink);
+  --jump-banner-ink-2: var(--accent);
+  --jump-latest-surface: var(--surface-raised);
+  --jump-latest-border: var(--border-strong);
+  --jump-latest-ink: var(--ink);
+  --queue-help-surface-3: var(--surface-raised);
+  --queue-help-border-2: var(--border-strong);
+  --queue-help-ink-3: var(--warning);
+  --search-more-surface: var(--surface-raised);
+  --search-more-border: var(--border-strong);
+  --search-more-ink: var(--ink);
+  --ops-credit-chart-border: var(--border-strong);
+  --ops-executive-border: var(--border-strong);
+  --ops-kpis-border: var(--border-strong);
+  --ops-lab-panel-border: var(--border-strong);
+  --ops-panel-border: var(--border-strong);
+  --ops-source-border: var(--border-strong);
+  --poolrad-stat-border: var(--border-strong);
+}
+
+:root[data-theme="wargames"] {
+  --settings-success-ink: var(--success);
+}
