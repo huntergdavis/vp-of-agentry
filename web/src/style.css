@@ -63,7 +63,7 @@ h1,h2,p { margin-top: 0; }
 .markdown ul,.markdown ol { padding-left: 22px; }
 .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .attachments a { background: var(--attachments-surface); color: var(--attachments-ink); border-radius: var(--radius-6px); padding: 5px 8px; text-decoration: none; font-size: 11px; }
-.composer { background: var(--topbar-surface); border-top: 1px solid var(--composer-border); padding: 14px 34px 20px; box-shadow: var(--composer-shadow); display: flex; flex-wrap: wrap; gap: 6px; }
+.composer { background: var(--topbar-surface); border-top: 1px solid var(--composer-border); padding: 14px 34px 0; box-shadow: var(--composer-shadow); display: flex; flex-wrap: wrap; gap: 6px; }
 .toolbar { display: flex; align-items: center; gap: 4px; }
 .toolbar button { border: 0; background: var(--clear); color: var(--toolbar-ink); border-radius: var(--radius-5px); min-width: 30px; padding: 5px; font-size: 13px; }
 .toolbar button:hover { background: var(--toolbar-surface); }
@@ -71,7 +71,6 @@ h1,h2,p { margin-top: 0; }
 .editor { border: 1px solid var(--editor-border); outline: none; border-radius: var(--radius-9px); padding: 11px 14px; min-height: 70px; max-height: 210px; overflow-y: auto; color: var(--editor-ink); font-size: 13px; line-height: 1.55; }
 .editor:focus { border-color: var(--editor-border-2); box-shadow: var(--editor-shadow); }
 .editor p { margin: 0; }
-.composer-footer { display: flex; align-items: center; gap: 10px; margin-top: 9px; color: var(--composer-footer-ink); font-size: 10px; }
 .primary { background: var(--primary-surface); border: 0; border-radius: var(--radius); color: var(--primary-ink); padding: 10px 18px; font-weight: 800; }
 .primary:hover { background: var(--primary-surface-2); }
 .pending-files { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -122,8 +121,7 @@ h1,h2,p { margin-top: 0; }
   .topbar { height: 76px; padding: 14px 16px; }
   .topbar h1 { font-size: 19px; }
   .conversation { padding: 8px 13px; }
-  .composer { padding: 10px 13px 13px; }
-  .composer-footer { flex-wrap: wrap; }
+  .composer { padding: 10px 13px 0; }
   .editor { min-height: 58px; }
 }
 .message-wrap.highlight .cs-message__content { outline: 3px solid var(--primary-surface); box-shadow: var(--message-wrap-shadow-2)!important; }
@@ -522,12 +520,15 @@ h1,h2,p { margin-top: 0; }
 /* Keep message labels and timestamps readable when text is enlarged. */
 .message-meta { flex-wrap: wrap; }
 .message-meta > * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-/* Send shares the growing input's height; the existing hint footer remains. */
-.composer > .toolbar, .composer > .pending-files, .composer > .composer-footer { flex-basis: 100%; }
-.composer-input { flex: 1; min-width: 0; display: flex; }
-.composer-input > div { flex: 1; min-width: 0; }
+/* Send shares the growing input's height; the empty hint occupies the same grid cell. */
+.composer > .toolbar, .composer > .pending-files, .composer > .form-error { flex-basis: 100%; }
+.composer-input { flex: 1; min-width: 0; display: grid; isolation: isolate; }
+.composer-input > div, .composer-placeholder { grid-area: 1 / 1; min-width: 0; }
+.composer-input > div { z-index: 0; }
 .composer-input .editor { height: 100%; min-width: 0; }
 .composer > .send { flex: none; align-self: stretch; padding: 0 8px; white-space: nowrap; }
 .composer > .toolbar { min-width: 0; flex-wrap: wrap; gap: 4px; }
 .composer button { min-width: 24px; min-height: 24px; }
 .composer > .toolbar button { flex: none; padding: 4px 7px; white-space: nowrap; }
+.composer-placeholder { z-index: 1; overflow-wrap: anywhere; align-self: start; padding: 12px 15px; pointer-events: none; color: var(--composer-footer-ink); font-size: 10px; line-height: 1.55; }
+.composer-placeholder:empty::before { content: attr(data-hint); }

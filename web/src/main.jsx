@@ -57,9 +57,9 @@ function useDashRoute() {
   return { standalone: path === '/dash' || path.startsWith('/dash/'), view, known: view in DASH_ROUTES };
 }
 
-function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
+function DashHeader({ side, view, standalone }) {
+  if (!side && (!view || standalone)) return null;
   return <header className="dash-header">
-    <div><span className="dash-eyebrow">{eyebrow}</span><h1>{title}</h1>{subtitle && <p className="dash-subtitle">{subtitle}</p>}</div>
     <div className="dash-side">
       {side}
       {view && !standalone && <a className="dash-link" href={`/dash/${view}`} title="Open this dashboard on its own route">Standalone ↗</a>}
@@ -67,23 +67,45 @@ function DashHeader({ eyebrow, title, subtitle, side, view, standalone }) {
   </header>;
 }
 
-function DashNav({ view }) {
+function DashNav({ view, side }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef(null);
+  const boards = useRef(null);
+  useEffect(() => {
+    function dismiss(event) {
+      if (!boards.current?.open) return;
+      if (event.type === 'keydown' && event.key === 'Escape') {
+        boards.current.open = false;
+        boards.current.querySelector('summary').focus();
+      } else if (event.type === 'pointerdown' && !boards.current.contains(event.target)) {
+        boards.current.open = false;
+      }
+    }
+    document.addEventListener('keydown', dismiss);
+    document.addEventListener('pointerdown', dismiss);
+    return () => {
+      document.removeEventListener('keydown', dismiss);
+      document.removeEventListener('pointerdown', dismiss);
+    };
+  }, []);
+  const links = Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>);
   function closeSettings() { setSettingsOpen(false); settingsButton.current?.focus(); }
   return <nav className="dash-nav" aria-label="Dashboards">
-    <span className="dash-nav-brand"><span className="dash-nav-mark">VA</span>VP OF AGENTRY</span>
-    <span className="dash-nav-links">
-      {Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`} aria-current={view === key ? 'page' : undefined}>{route.title}</a>)}
-    </span>
-    <span className="dash-nav-right"><button className="dock-trigger" ref={settingsButton} onClick={() => setSettingsOpen(true)}>Appearance</button><EmergencyDock request={api} /><a className="dash-link" href="/">Open the desk ↗</a></span>
+    <a className="dash-nav-brand" href="/" aria-label="VP of Agentry home"><span className="dash-nav-mark">VA</span></a>
+    <span className="dash-nav-links">{links}</span>
+    <details className="dash-nav-boards" ref={boards}>
+      <summary>Boards <span aria-hidden="true">▾</span></summary>
+      <div className="dash-nav-links">{links}</div>
+    </details>
+    {side && <span className="dash-nav-status">{side}</span>}
+    <span className="dash-nav-right"><button className="dock-trigger" aria-label="Appearance" title="Appearance" ref={settingsButton} onClick={() => setSettingsOpen(true)}><span className="nav-action-label">Appearance</span><span className="nav-action-icon" aria-hidden="true">◐</span></button><EmergencyDock request={api} /></span>
     {settingsOpen && <AppearanceSettings onClose={closeSettings} />}
   </nav>;
 }
 
-function DashShell({ standalone, view, children }) {
+function DashShell({ standalone, view, side, children }) {
   return <div className={`dash-root ${standalone ? 'dash-standalone' : 'dash-embedded'}`}>
-    {standalone && <DashNav view={view} />}
+    {standalone && <DashNav view={view} side={side} />}
     {children}
   </div>;
 }
@@ -156,10 +178,11 @@ function AppearanceSettings({ onClose }) {
 function Composer({ channel, onSend, pending, setPending, disabled }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [empty, setEmpty] = useState(true);
   const fileRef = useRef(null);
   const sendingRef = useRef(false);
   const sendRef = useRef(null);
-  const editor = useEditor({ extensions: [StarterKit], content: '', editorProps: {
+  const editor = useEditor({ extensions: [StarterKit], content: '', onUpdate: ({ editor }) => setEmpty(editor.isEmpty), editorProps: {
     attributes: { class: 'editor', 'aria-label': 'Message text' },
     handleKeyDown: (_view, event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
@@ -200,10 +223,12 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
       <span className="toolbar-spacer" /><button title="Attach images or files" onClick={() => fileRef.current?.click()}>＋ Attach</button>
       <input ref={fileRef} type="file" multiple hidden onChange={e => { attach(e.target.files); e.target.value = ''; }} />
     </div>
-    <div className="composer-input" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}><EditorContent editor={editor} /></div>
+    <div className="composer-input" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); attach(e.dataTransfer.files); }}>
+      <EditorContent editor={editor} />
+      {empty && <span className="composer-placeholder" data-hint={disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'} />}
+    </div>
     <button className="primary send" aria-label={busy ? 'Sending message' : 'Send message'} disabled={busy || disabled} onClick={send}>{busy ? 'Sending…' : 'Send ↗'}</button>
-    <div className="composer-footer"><span>{disabled ? 'Agent unavailable' : 'Enter to send · Shift+Enter for a new line · files stay on this host'}</span>
-      {error && <span className="form-error" role="alert">{error}</span>}</div>
+    {error && <span className="form-error" role="alert">{error}</span>}
   </section>;
 }
 
@@ -960,12 +985,10 @@ function ChannelStandalone({ channel }) {
     messageScroll.jump();
     setItems(old => mergeMessages(old, [item]));
   }
-  const route = DASH_ROUTES[channel];
-  return <DashShell standalone view={channel}>
-    <DashHeader eyebrow={route.eyebrow} title={route.title} subtitle={route.subtitle} view={channel} standalone side={<>
+  return <DashShell standalone view={channel} side={<>
       {selected && <span className="dash-meta">{selected.name} · {selected.status}</span>}
       <span className="dash-meta">updated {updated ? updated.toLocaleTimeString() : '—'}</span>
-    </>} />
+    </>}>
     <div className="dash-body dash-conversation">
       {error && <div className="dash-error" role="alert">{error}</div>}
       <div className="conversation" ref={messageScroll.ref} onScroll={messageScroll.onScroll}>
@@ -983,8 +1006,7 @@ function ChannelStandalone({ channel }) {
 function StandaloneDesk({ view, known }) {
   if (!known) {
     return <DashShell standalone view={view}>
-      <DashHeader eyebrow="DASHBOARDS" title="Unknown dashboard" subtitle={`No dashboard is registered at /dash/${view}`} />
-      <div className="dash-body"><div className="dash-empty">Pick one of the four dashboards
+      <div className="dash-body"><h1>Unknown dashboard</h1><p>No dashboard is registered at /dash/{view}</p><div className="dash-empty">Pick a dashboard
         <div className="dash-nav-links" style={{ marginTop: 10 }}>{Object.entries(DASH_ROUTES).map(([key, route]) => <a key={key} href={`/dash/${key}`}>{route.title}</a>)}</div>
       </div></div>
     </DashShell>;
