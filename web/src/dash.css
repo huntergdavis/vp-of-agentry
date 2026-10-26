@@ -38,26 +38,37 @@
 
 /* Slim strip on the standalone routes: where you are and how to get back. */
 .dash-nav {
+  container: desk-nav / inline-size;
+  position: relative;
+  min-height: 39px;
   flex: none;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 16px;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 5px 8px;
+  white-space: nowrap;
   background: var(--dash-panel);
   border-bottom: 1px solid var(--dash-border);
 }
 .dash-nav-brand {
+  min-width: 24px;
+  min-height: 24px;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 5px;
+  flex: none;
+  text-decoration: none;
   font-weight: 800;
   letter-spacing: 0.01em;
   color: var(--dash-fg);
   font-size: 12px;
 }
 .dash-nav-mark {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
+  min-width: max-content;
+  min-height: 1.5em;
   border-radius: var(--radius);
   display: grid;
   place-items: center;
@@ -67,12 +78,23 @@
   font-size: 10px;
   font-weight: 800;
 }
-.dash-nav-links { display: flex; gap: 4px; flex-wrap: wrap; }
+.dash-nav-links { display: flex; gap: 4px; }
+.dash-nav > .dash-nav-links {
+  flex: none;
+  align-items: center;
+  flex-wrap: nowrap;
+}
 .dash-nav-links a {
+  min-width: 24px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
   color: var(--dash-muted);
   text-decoration: none;
   font-size: 11.5px;
-  padding: 4px 9px;
+  flex: none;
+  white-space: nowrap;
+  padding: 2px 7px;
   border-radius: var(--radius-7px);
   border: 1px solid var(--clear);
 }
@@ -82,37 +104,54 @@
   background: var(--dash-panel-2);
   border-color: var(--dash-border-2);
 }
-.dash-nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.dash-nav-right { margin-left: auto; display: flex; flex: none; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.dash-nav-status { margin-left: auto; display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 6px; }
+.dash-nav-status > .dash-meta { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dash-nav-status + .dash-nav-right { margin-left: 0; }
+.dash-nav-boards { display: none; }
+.nav-action-icon { display: none; font-size: 1.45em; line-height: 1; }
+/* Relative to nav text size, so enlarged labels yield to named icon buttons. */
+@container desk-nav (max-width: 90em) {
+  .dash-nav .nav-action-label, .dash-nav .dock-trigger kbd { display: none; }
+  .dash-nav .nav-action-icon { display: inline; }
+}
+.dash-nav-boards summary { cursor: pointer; list-style: none; padding: 4px 7px; font-size: 12px; border: 1px solid var(--dash-border); border-radius: var(--radius-6px); }
+.dash-nav-boards summary::-webkit-details-marker { display: none; }
+.dash-nav-boards > .dash-nav-links { position: absolute; top: 100%; left: 8px; z-index: 20; flex-direction: column; max-width: calc(100% - 16px); padding: 6px; border: 1px solid var(--dash-border); border-radius: var(--radius); background: var(--dash-panel); }
+.dash-nav-boards a { white-space: normal; }
+.dash-nav-boards:not([open]) > .dash-nav-links { display: none; }
+.dash-nav :is(a, button, summary):focus-visible { outline: 2px solid var(--dash-accent); outline-offset: 2px; }
+@media (max-width: 1360px) {
+  .dash-nav > .dash-nav-links a { padding: 2px 0; font-size: 10.5px; }
+  .dash-nav .dash-meta { font-size: 10px; }
+  .dash-root .dash-nav .dock-trigger { font-size: 11px; }
+}
+@media (max-width: 1280px) {
+  .dash-nav, .dash-nav-status, .dash-nav-right { gap: 4px; }
+}
+@media (max-width: 1100px) {
+  .dash-nav > .dash-nav-links { display: none; }
+  .dash-nav-boards { display: block; flex: none; }
+}
+/* Owner #1827: controls on row one, full status and update time on row two. */
+@media (max-width: 699px) {
+  .dash-nav { flex-wrap: wrap; padding-inline: 4px; }
+  .dash-nav-status { order: 1; flex-basis: 100%; justify-content: space-between; gap: 2px; }
+  .dash-nav-status + .dash-nav-right { margin-left: auto; }
+  .dash-nav .nav-action-label { display: none; }
+  .dash-nav .nav-action-icon { display: inline; font-size: 1.45em; line-height: 1; }
+}
 
-/* The one header shape every dashboard uses. */
+/* Actions remain available when an embedded or game view has no title band. */
 .dash-header {
   flex: none;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 16px 20px 12px;
+  justify-content: flex-end;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--dash-border);
   background: var(--dash-panel);
 }
-.dash-eyebrow {
-  display: block;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--dash-accent);
-}
-.dash-header h1 {
-  margin: 4px 0 0;
-  font-size: 19px;
-  line-height: 1.2;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--dash-fg);
-}
-.dash-subtitle { margin: 4px 0 0; font-size: 12.5px; color: var(--dash-muted); }
-.dash-side { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.dash-side { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .dash-meta { font-size: 11px; color: var(--dash-muted); }
 .dash-link { color: var(--dash-accent); text-decoration: none; font-size: 11.5px; }
 .dash-link:hover { text-decoration: underline; }
@@ -361,13 +400,12 @@
   .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dash-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 700px) {
-  .dash-header { flex-direction: column; gap: 10px; padding: 13px 14px 11px; }
+@media (max-width: 699px) {
+  .dash-header { justify-content: flex-start; }
   .dash-side { justify-content: flex-start; }
   .dash-body { padding: 14px 13px 22px; }
   .dash-stats { grid-template-columns: 1fr 1fr; }
   .dash-figure .num { font-size: 40px; }
-  .dash-nav { flex-wrap: wrap; gap: 8px; }
 }
 
 /* The password UI follows the herdr login look, framed or standalone. */
@@ -435,9 +473,9 @@
 .ops-reference td small { display: block; color: var(--dash-muted); }
 .conversation, .game-chat-log { overflow-anchor: none; }
 .chat-new-messages { align-self: center; flex: none; margin: 6px; padding: 8px 14px; border: 1px solid var(--dash-border); border-radius: var(--radius-16px); background: var(--dash-panel); color: var(--dash-accent); }
-.dash-nav-right { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.dock-trigger { padding: 5px 8px; border: 1px solid var(--dash-border); border-radius: var(--radius-6px); background: var(--dash-panel); color: var(--dash-fg); font-size: 12px; }
-.dock-trigger kbd { margin-left: 6px; color: var(--dash-muted); }
+.dash-root .dock-trigger { padding: 4px 7px; border: 1px solid var(--dash-border); border-radius: var(--radius-6px); background: var(--dash-panel); color: var(--dash-fg); font-size: 12px; }
+.dock-trigger kbd { margin-left: 5px; color: var(--dash-muted); }
+@media (max-width: 1150px) { .dock-trigger kbd { display: none; } }
 .message-dock { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 20px; border: 1px solid var(--dash-border); border-radius: var(--radius-12px); background: var(--dash-panel); color: var(--dash-fg); }
 .message-dock::backdrop { background: var(--message-dock-surface); }
 .message-dock header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

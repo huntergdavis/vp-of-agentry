@@ -51,7 +51,7 @@ export default function EmergencyDock({ request }) {
     finally { sending.current = false; setBusy(false); }
   }
   return <>
-    <button className="dock-trigger" onClick={show}>Message CoS / VP <kbd>Ctrl+/</kbd></button>
+    <button className="dock-trigger" onClick={show} aria-label="Message CoS / VP" title="Message CoS / VP"><span className="nav-action-label">Message CoS / VP</span><span className="nav-action-icon" aria-hidden="true">✉</span> <kbd>Ctrl+/</kbd></button>
     <dialog className="message-dock" ref={dialog} aria-labelledby="dock-title"
       onCancel={event => { event.preventDefault(); setOpen(false); }} onClose={() => setOpen(false)}>
       <header><h2 id="dock-title">Message CoS or VP</h2><button onClick={() => setOpen(false)} aria-label="Close message dock">Close</button></header>
