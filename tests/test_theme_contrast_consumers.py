@@ -162,6 +162,86 @@ class ConsumerContrastTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 usage.apply_baseline(rows, dict(baseline, entries=[bad]))
 
+    @staticmethod
+    def mixed_baseline():
+        entries, rows = [], []
+        for index in range(179):
+            entry = dict(theme='fixture', pair=f'pair-{index}/bg',
+                         foreground_value='#eee', background_value='#fff', floor=3,
+                         expires_with='t192' if index < 99 else 't203',
+                         reason='Exact-value design deferral',
+                         evidence=[dict(source='fixture.css', selector='.panel', context=[])])
+            entries.append(entry)
+            rows.append(dict(entry, status='FAIL'))
+        inputs = [
+            dict(id='original', source_head='a'*40, input_sha256='1'*64,
+                 entry_start=0, entry_count=99, expires_with='t192'),
+            dict(id='new-themes', source_head='b'*40, input_sha256='2'*64,
+                 adjusted_input_sha256='3'*64,
+                 entry_start=99, entry_count=80, expires_with='t203'),
+        ]
+        return rows, dict(version=2, inputs=inputs, entries=entries)
+
+    def test_mixed_provenance_stamps_each_input_and_expires_independently(self):
+        rows, baseline = self.mixed_baseline()
+        result = usage.apply_baseline(rows, baseline, ['t191'])
+        self.assertEqual(len(result), 179)
+        self.assertTrue(all(r['status'] == 'BASELINE-FAIL' for r in result))
+        for row in result[:99]:
+            self.assertEqual(row['baseline']['source_head'], 'a'*40)
+            self.assertEqual(row['baseline']['input_sha256'], '1'*64)
+            self.assertNotIn('adjusted_input_sha256', row['baseline'])
+        for row in result[99:]:
+            self.assertEqual(row['baseline']['source_head'], 'b'*40)
+            self.assertEqual(row['baseline']['input_sha256'], '2'*64)
+            self.assertEqual(row['baseline']['adjusted_input_sha256'], '3'*64)
+        expired = usage.apply_baseline(rows, baseline, ['t203'])
+        self.assertTrue(all(r['status'] == 'BASELINE-FAIL' for r in expired[:99]))
+        self.assertTrue(all(r['status'] == 'FAIL' and r['baseline']['expired']
+                            for r in expired[99:]))
+        legacy_expired = usage.apply_baseline(rows, baseline, ['t192'])
+        self.assertTrue(all(r['status'] == 'FAIL' and r['baseline']['expired']
+                            for r in legacy_expired[:99]))
+        self.assertTrue(all(r['status'] == 'BASELINE-FAIL' for r in legacy_expired[99:]))
+        # Input data and measured rows stay immutable.
+        self.assertNotIn('baseline', rows[0])
+        self.assertNotIn('source_head', baseline['entries'][99])
+
+    def test_mixed_provenance_rejects_count_expiry_and_identity_drift(self):
+        rows, baseline = self.mixed_baseline()
+        mutations = [
+            ('entry_count', 79), ('entry_start', 98), ('entry_start', 100),
+            ('expires_with', 't191'), ('source_head', 'not-a-head'),
+            ('input_sha256', 'not-a-hash'), ('adjusted_input_sha256', ''),
+            ('id', 'original'),
+        ]
+        for key, value in mutations:
+            with self.subTest(key=key, value=value):
+                broken = json.loads(json.dumps(baseline))
+                broken['inputs'][1][key] = value
+                with self.assertRaises(ValueError):
+                    usage.apply_baseline(rows, broken)
+        broken = json.loads(json.dumps(baseline))
+        broken['entries'][99]['expires_with'] = 't191'
+        with self.assertRaises(ValueError):
+            usage.apply_baseline(rows, broken)
+        broken = dict(baseline, inputs=baseline['inputs'][:1])
+        with self.assertRaises(ValueError):
+            usage.apply_baseline(rows, broken)
+
+    def test_repository_baseline_input_counts_and_expiry_match_entries(self):
+        baseline = json.loads(usage.DEFAULT_BASELINE.read_text())
+        self.assertEqual(baseline['version'], 2)
+        self.assertEqual([(s['entry_count'], s['expires_with']) for s in baseline['inputs']],
+                         [(99, 't192'), (80, 't203')])
+        self.assertEqual(len(usage.baseline_provenance(baseline)), len(baseline['entries']))
+        for source in baseline['inputs']:
+            entries = baseline['entries'][source['entry_start']:
+                                          source['entry_start'] + source['entry_count']]
+            self.assertEqual(len(entries), source['entry_count'])
+            self.assertEqual({entry['expires_with'] for entry in entries},
+                             {source['expires_with']})
+
     def test_named_icon_border_resolves_actual_declaration_not_proposal(self):
         css = TOKENS + ':root {--topbar-border:#e4e9ed;--border-strong:#45475a;--white:white;}'
         actual = consumers('.icon-button {border:1px solid var(--topbar-border);background:var(--white);}')
