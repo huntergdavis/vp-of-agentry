@@ -23,6 +23,11 @@ with sync_playwright() as pw:
                 errors=[];writes=[];sent=[];available=[True]
                 page.on('pageerror',lambda e:errors.append(str(e)))
                 def route(r):
+                    if r.request.method=='POST' and r.request.url.endswith('/api/viewport'):
+                        sample=r.request.post_data_json
+                        assert set(sample)=={'width','height','dpr','screen_width','screen_height'},sample
+                        r.fulfill(status=204)
+                        return
                     if r.request.method=='POST' and r.request.url.endswith('/api/pane-send'):
                         sent.append(r.request.post_data_json)
                         r.fulfill(json=dict(id=1001,role='owner',body=sent[-1]['text'],created_at=stamp,delivery='ok',outcome='ok',attachments=[]))
