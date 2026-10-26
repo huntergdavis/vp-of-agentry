@@ -33,7 +33,10 @@ with sync_playwright() as pw:
                 page.get_by_role('button',name='Open desk').click()
             response=sent.value
             assert response.status==200,response.status
-            expected=dict(innerWidth=width,innerHeight=height,devicePixelRatio=1.8,screenWidth=1920,screenHeight=1080)
+            expected=page.evaluate("() => ({innerWidth,innerHeight,devicePixelRatio,screenWidth:screen.width,screenHeight:screen.height})")
+            assert expected['innerWidth']==width and expected['innerHeight']==height
+            assert expected['screenWidth']==1920 and expected['screenHeight']==1080
+            assert abs(expected['devicePixelRatio']-1.8)<1e-6  # Browser reports the actual floating-point value.
             assert samples==[expected],samples
             status=page.request.get(BASE+'/api/channels')
             assert status.status==200
@@ -42,7 +45,7 @@ with sync_playwright() as pw:
             assert not any(counts.values()),counts
             page.get_by_label('Message text',exact=True).wait_for()
             page.screenshot(path=str(OUT/f'viewport-{width}.png'))
-            record=dict(timestamp=stamp,viewport=expected,httpStatus=response.status,
+            record=dict(timestamp=stamp,viewport=expected,requestedDeviceScaleFactor=1.8,httpStatus=response.status,
                         recordedInStatus=True,dialog_closed=True,dialogCounts=counts)
             with page.expect_response(lambda r:urlsplit(r.url).path=='/api/viewport') as resized:
                 page.set_viewport_size(dict(width=321,height=height))
