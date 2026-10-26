@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-from tools.theme_wave_checks import target_meets_minimum, visible_focus
+from tools.theme_wave_checks import OPEN_ICON_CHECK, target_meets_minimum, visible_focus
 from tools import check_theme_wave as wave
 from tools import theme_contrast as gate, theme_contrast_consumers as usage
 
@@ -74,7 +74,7 @@ class WaveTests(unittest.TestCase):
         image = output / 'image.png'; image.write_bytes(b'captured-image')
         capture = dict(file=image.name, sha256=hashlib.sha256(image.read_bytes()).hexdigest(), captured=True, dialog_closed=True)
         return dict(id=f'crt-operations-{width}-text1', width=width, view='operations', completed=True,
-                    checks=[dict(name='Target >=24', passed=False)], openDialogRejected=True,
+                    checks=[dict(name='Target >=24', passed=False), dict(name=OPEN_ICON_CHECK, passed=True)], openDialogRejected=True,
                     openDialogCapture=dict(capture, dialog_closed=False),
                     captures=[dict(capture, state=s) for s in ('closed', 'keyboard-focus')])
 
@@ -99,6 +99,25 @@ class WaveTests(unittest.TestCase):
             self.assertTrue(wave.browser_failures(dict(cases=[row]), {row['id']}, output))
             row['openDialogRejected'] = False
             self.assertTrue(any('negative dialog' in x for x in wave.browser_failures(dict(cases=[row]), {row['id']}, output)))
+
+    def test_open_icon_failure_is_named_advisory_only_at_320(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory); row = self.case(output, 320)
+            row.update(theme='crt', textScale=2)
+            row['checks'] = [dict(name=OPEN_ICON_CHECK, passed=False)]
+            report = dict(cases=[row])
+            self.assertEqual(wave.advisory_rows(report), [dict(case=row['id'], width=320, theme='crt', view='operations', textScale=2, check=OPEN_ICON_CHECK)])
+            self.assertEqual(wave.browser_failures(report, {row['id']}, output), [])
+            row['width'] = 390
+            row['id'] = 'crt-operations-390-text2'
+            self.assertEqual(wave.advisory_rows(report), [])
+            self.assertTrue(any(OPEN_ICON_CHECK in f for f in wave.browser_failures(report, {row['id']}, output)))
+
+    def test_missing_open_icon_check_is_structural_failure_even_at_320(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory); row = self.case(output, 320)
+            row['checks'] = [dict(name='Some other check', passed=True)]
+            self.assertTrue(any('missing open-icon hit-test' in f for f in wave.browser_failures(dict(cases=[row]), {row['id']}, output)))
 
     def test_existing_baseline_expiry_is_not_hidden(self):
         baseline = json.loads(usage.DEFAULT_BASELINE.read_text()); entry = baseline['entries'][0]

@@ -13,6 +13,7 @@ import threading
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools import theme_contrast as contrast
+from tools.theme_wave_checks import OPEN_ICON_CHECK
 
 WIDTHS = (1422, 1067, 960, 800, 700, 390, 320)
 NAMED = ('icon-button-border/own-surface', 'icon-button-panel-border/own-surface',
@@ -56,6 +57,13 @@ def expected_cases(themes, widths):
     return {f'{t}-{v}-{w}-text{s}' for t in themes for v in ('cos', 'operations') for w in widths for s in (1, 2)}
 
 
+def advisory_rows(report):
+    return [dict(case=row['id'], width=row['width'], theme=row.get('theme'),
+                 view=row['view'], textScale=row.get('textScale'), check=check['name'])
+            for row in report.get('cases', []) if row['width'] == 320
+            for check in row.get('checks', []) if not check['passed']]
+
+
 def browser_failures(report, expected, output):
     failures = []
     rows = report.get('cases', [])
@@ -65,6 +73,8 @@ def browser_failures(report, expected, output):
     for row in rows:
         if row.get('error') or not row.get('completed'):
             failures.append(row['id'] + ': incomplete/error: ' + str(row.get('error')))
+        if not any(c['name'] == OPEN_ICON_CHECK for c in row.get('checks', [])):
+            failures.append(row['id'] + ': missing open-icon hit-test check')
         for check in row.get('checks', []):
             if not check['passed'] and row['width'] != 320:
                 failures.append(row['id'] + ': ' + check['name'])
@@ -114,7 +124,7 @@ def main(argv=None):
     output = args.artifacts.resolve()
     if not output.is_relative_to(ROOT / 'data') or output.exists(): parser.error('Use a new directory under data/')
     output.mkdir(parents=True)
-    summary = dict(contrast_kind='STATIC', not_covered=NOT_COVERED, commands=[], failures=[], candidate=args.theme)
+    summary = dict(contrast_kind='STATIC', not_covered=NOT_COVERED, commands=[], failures=[], advisories=[], candidate=args.theme)
     original = source_hashes()
     server = thread = None
     def command(name, cmd):
@@ -168,6 +178,7 @@ def main(argv=None):
         command('browser', cmd)
         captured = json.loads((browser_output / 'results.json').read_text())
         summary['browser'] = captured
+        summary['advisories'] = advisory_rows(captured)
         summary['failures'] += browser_failures(captured, expected_cases(themes, summary['widths']), browser_output)
         if hashes(dist.rglob('*'), dist) != summary['bundle']: summary['failures'].append('Built assets changed during run')
         result_code = int(bool(summary['failures']))
@@ -181,7 +192,7 @@ def main(argv=None):
             summary['failures'].append('Source inputs changed during run')
         summary['passed'] = not summary['failures']
         (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
-        print(json.dumps({'summary': str(output / 'summary.json'), 'passed': summary['passed'], 'failures': summary['failures']}))
+        print(json.dumps({'summary': str(output / 'summary.json'), 'passed': summary['passed'], 'failures': summary['failures'], 'advisories': len(summary['advisories'])}))
         if changed: result_code = 1
     return result_code
 

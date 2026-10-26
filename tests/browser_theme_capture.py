@@ -22,7 +22,7 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.theme_capture import CaptureBlocked, ThemeCapture
-from tools.theme_wave_checks import target_meets_minimum, visible_focus
+from tools.theme_wave_checks import OPEN_ICON_CHECK, target_meets_minimum, visible_focus
 from tools.theme_contrast import DEFAULT_CSS, theme_tokens, read_css
 from playwright.sync_api import expect, sync_playwright
 from tests.browser_placeholder_paint import measure_placeholder_paint
@@ -135,6 +135,7 @@ def main(argv=None):
                                     assert row['viewport']['width'] == width, 'Wrong viewport'
                                     icon = page.get_by_role('button', name='Close appearance', exact=True)
                                     row['iconOpen'] = icon.evaluate(ICON); row['iconTarget'] = icon.evaluate(GEOMETRY)
+                                    check(row['iconTarget']['unobscured'], OPEN_ICON_CHECK)
                                     check(row['iconOpen']['opaque'] and row['iconOpen']['ratio'] >= 3, 'STATIC panel icon boundary >=3')
                                     check(target_meets_minimum(row['iconTarget']), 'Dialog icon target union and fragments >=24')
                                     # An intentional open-dialog image is separately labelled; the page guard MUST reject it.
