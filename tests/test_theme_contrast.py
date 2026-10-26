@@ -8,7 +8,7 @@ from tools import theme_contrast as gate
 
 class ThemeContrastTests(unittest.TestCase):
     def test_current_palette_calibration(self):
-        rows = gate.measure(gate.DEFAULT_CSS.read_text())
+        rows = gate.measure(gate.read_css())
         actual = {(r['theme'], r['pair']): r for r in rows}
         expected = {'default': (12.97, 8.42, 8.91), 'crt': (15.57, 8.59, 15.59)}
         for theme, ratios in expected.items():
@@ -17,8 +17,19 @@ class ThemeContrastTests(unittest.TestCase):
         self.assertTrue(all(r['status'] != 'FAIL' for r in rows))
         self.assertEqual(gate.contrast((0, 0, 0), (255, 255, 255)), 21)
 
+    def test_directory_loads_new_css_without_shared_file_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            (directory / 'default.css').write_text(gate.read_css())
+            (directory / 'new.css').write_text(':root[data-theme="new"] { --ink:#ffffff; }')
+            (directory / 'new.json').write_text('{"id":"new","name":"New","order":20}')
+            rows = gate.measure(gate.read_css(directory))
+            self.assertEqual(len([row for row in rows if row['theme'] == 'new']), 4)
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
+            gate.read_css(directory)
+
     def test_new_theme_alias_inheritance_and_later_blocks(self):
-        css = gate.DEFAULT_CSS.read_text() + '''
+        css = gate.read_css() + '''
         :root[data-theme="future"] { --ink: #000; --local: #fff; }
         :root[data-theme="future"] { --ink: var(--local); }
         '''
@@ -28,7 +39,7 @@ class ThemeContrastTests(unittest.TestCase):
         self.assertEqual(rows[0]['ratio'], gate.contrast((255, 255, 255), bg))
 
     def test_failure_names_pair_and_suggests_a_color_that_really_passes(self):
-        css = gate.DEFAULT_CSS.read_text() + ':root[data-theme="bad"] { --ink: var(--bg); }'
+        css = gate.read_css() + ':root[data-theme="bad"] { --ink: var(--bg); }'
         row = next(r for r in gate.measure(css) if r['theme'] == 'bad' and r['pair'] == 'ink/bg')
         self.assertEqual(row['status'], 'FAIL')
         self.assertGreaterEqual(gate.contrast(gate.color(row['suggestion']), gate.color(row['background_value'])), 7)
@@ -53,7 +64,7 @@ class ThemeContrastTests(unittest.TestCase):
     def test_every_foreground_role_fails_and_guidance_passes(self):
         for foreground, background, floor in gate.PAIRS:
             with self.subTest(foreground=foreground):
-                css = gate.DEFAULT_CSS.read_text() + f':root[data-theme="broken"] {{ --{foreground}: var(--{background}); }}'
+                css = gate.read_css() + f':root[data-theme="broken"] {{ --{foreground}: var(--{background}); }}'
                 row = next(r for r in gate.measure(css) if r['theme'] == 'broken' and r['foreground'] == foreground)
                 self.assertEqual(row['status'], 'FAIL')
                 self.assertEqual(row['ratio'], 1)
@@ -68,7 +79,7 @@ class ThemeContrastTests(unittest.TestCase):
         self.assertEqual(gate.foreground_color('#ffffffff', (0, 0, 0)), (255, 255, 255))
 
     def test_unsupported_or_missing_tokens_never_pass(self):
-        baseline = gate.DEFAULT_CSS.read_text()
+        baseline = gate.read_css()
         for extra in (':root { --ink:var(--absent); }', ':root { --ink:var(--ink); }',
                       ':root { --bg:#ffffff80; }',
                       '@media print { :root { --bg:#fff; } }',

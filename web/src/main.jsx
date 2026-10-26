@@ -9,14 +9,17 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import ReactMarkdown from 'react-markdown';
 import TurndownService from 'turndown';
+import { themeStyles } from './theme-styles.js';
 import './style.css';
 import './dash.css';
 import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
+import { buildThemeRegistry } from './theme-registry.js';
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
-const THEMES = [{ id: 'default', name: 'Default' }, { id: 'crt', name: '1980s CRT' }];
+const themeManifests = import.meta.glob('./themes/*.json', { eager: true, import: 'default' });
+const THEMES = buildThemeRegistry(themeManifests, themeStyles);
 const ThemeContext = createContext(null);
 const validTheme = value => THEMES.some(theme => theme.id === value) ? value : 'default';
 function storedTheme() {
