@@ -25,7 +25,7 @@ with sync_playwright() as pw:
                 def route(r):
                     if r.request.method=='POST' and r.request.url.endswith('/api/viewport'):
                         sample=r.request.post_data_json
-                        assert set(sample)=={'width','height','dpr','screen_width','screen_height'},sample
+                        assert set(sample)=={'innerWidth','innerHeight','devicePixelRatio','screenWidth','screenHeight'},sample
                         r.fulfill(status=204)
                         return
                     if r.request.method=='POST' and r.request.url.endswith('/api/pane-send'):
