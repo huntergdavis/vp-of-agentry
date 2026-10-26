@@ -28,12 +28,12 @@ def hashes(paths, root):
 
 
 def source_hashes():
-    paths = set((ROOT / 'web/src').rglob('*')) | set((ROOT / 'web/tools').rglob('*'))
-    paths.update((ROOT / 'web').glob('package*.json'))
-    paths.update((ROOT / 'tools').glob('theme*'))
-    paths.update((ROOT / 'tests').glob('browser*'))
-    paths.add(Path(__file__))
-    return hashes(paths, ROOT)
+    # Include build configuration and new, untracked theme files, while honoring
+    # Git's ignore rules for private inputs, node_modules and generated output.
+    names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others',
+                                     '--exclude-standard', '--', 'web', 'tools', 'tests'],
+                                    cwd=ROOT, text=True).split('\0')
+    return hashes({ROOT / name for name in names if name}, ROOT)
 
 
 def named_rows(report, candidate, css):

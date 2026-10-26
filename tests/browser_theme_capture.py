@@ -22,6 +22,7 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.theme_capture import CaptureBlocked, ThemeCapture
+from tools.theme_wave_checks import target_meets_minimum, visible_focus
 from tools.theme_contrast import DEFAULT_CSS, theme_tokens, read_css
 from playwright.sync_api import expect, sync_playwright
 from tests.browser_placeholder_paint import measure_placeholder_paint
@@ -64,17 +65,6 @@ ICON = """e => {
  const s=getComputedStyle(e),fg=rgb(s.borderTopColor),bg=rgb(s.backgroundColor),a=lum(fg),b=lum(bg),opaque=(fg[3]??1)===1&&(bg[3]??1)===1;
  return {contrast_kind:'STATIC',border:s.borderTopColor,surface:s.backgroundColor,opaque,ratio:opaque?(Math.max(a,b)+.05)/(Math.min(a,b)+.05):null};
 }"""
-
-
-def target_meets_minimum(geometry):
-    return bool(geometry['fragments']) and all(r['width'] >= 24 and r['height'] >= 24
-        for r in [geometry['union'], *geometry['fragments']])
-
-
-def visible_focus(geometry):
-    return (geometry['focused'] and geometry['focusVisible'] and
-            geometry['outlineStyle'] not in ('none', 'hidden') and geometry['outlineWidth'] >= 2 and
-            geometry['ringContained'] and geometry['unobscured'])
 
 
 def main(argv=None):

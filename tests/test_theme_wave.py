@@ -4,7 +4,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tests.browser_theme_capture import target_meets_minimum, visible_focus
+from unittest.mock import patch
+from tools.theme_wave_checks import target_meets_minimum, visible_focus
 from tools import check_theme_wave as wave
 from tools import theme_contrast as gate, theme_contrast_consumers as usage
 
@@ -24,6 +25,23 @@ class WaveTests(unittest.TestCase):
         self.assertFalse(visible_focus(dict(geometry, outlineWidth=0)))
         self.assertFalse(visible_focus(dict(geometry, outlineStyle='none')))
         self.assertFalse(visible_focus(dict(geometry, ringContained=False)))
+
+    def test_manifest_detects_build_config_mutation_and_excludes_ignored_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True, capture_output=True)
+            (root / 'web').mkdir()
+            (root / '.gitignore').write_text('web/.env\n')
+            config = root / 'web/vite.config.js'
+            config.write_text('export default {}')
+            (root / 'web/.env').write_text('PRIVATE_TEST_SENTINEL=ignored')
+            with patch.object(wave, 'ROOT', root):
+                before = wave.source_hashes()
+                self.assertIn('web/vite.config.js', before)
+                self.assertNotIn('web/.env', before)
+                config.write_text('export default {base:"/changed/"}')
+                after = wave.source_hashes()
+            self.assertNotEqual(before['web/vite.config.js'], after['web/vite.config.js'])
 
     def icon_report(self, own):
         css = gate.read_css() + own
