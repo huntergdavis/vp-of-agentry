@@ -92,6 +92,15 @@ class WaveTests(unittest.TestCase):
             self.assertTrue(wave.browser_failures(dict(cases=[row]), {row['id']}, output))
             self.assertTrue(wave.browser_failures(dict(cases=[]), {row['id']}, output))
 
+    def test_advisory_extraction_and_gate_use_supplied_width_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory); row = self.case(output, 390)
+            report = dict(cases=[row])
+            self.assertTrue(wave.advisory_rows(report, (390,)))
+            self.assertFalse(wave.browser_failures(report, {row['id']}, output, (390,)))
+            self.assertFalse(wave.advisory_rows(report, ()))
+            self.assertTrue(wave.browser_failures(report, {row['id']}, output, ()))
+
     def test_image_mutation_and_dialog_guard_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory); row = self.case(output, 320)

@@ -13,16 +13,18 @@ import threading
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools import theme_contrast as contrast
-from tools.theme_wave_checks import OPEN_ICON_CHECK
+from tools.theme_wave_checks import OPEN_ICON_CHECK, ADVISORY_WIDTHS
+from tools.theme_overlay_bounds import overlay_proof
 
 WIDTHS = (1422, 1067, 960, 800, 700, 390, 320)
 NAMED = ('icon-button-border/own-surface', 'icon-button-panel-border/own-surface',
          'ops-reference-ink/bg', 'ops-reference-border/bg',
          'attach-base-border/own-surface', 'attach-base-text/own-surface',
          'attach-border/own-surface', 'attach-text/own-surface')
-NOT_COVERED = ['OVERLAY-INCLUSIVE named-control endpointMinimum >=3:1 AND independentContinuousPhaseLowerBound >=3:1 with the 0.12 overlay (stage 2)',
+NOT_COVERED = ['Rendered overlay pixels/phase, effects beyond the declared --overlay, and non-icon controls',
                'Physical zoom/devices, full-page accessibility and font conformance',
-               'Unavailable-channel behavior; fixture uses an available synthetic channel']
+               'Unavailable-channel behavior; fixture uses an available synthetic channel',
+               'Routes beyond CoS/Operations and live deployed behavior']
 
 
 def hashes(paths, root):
@@ -59,14 +61,14 @@ def expected_cases(themes, widths):
     return {f'{t}-{v}-{w}-text{s}' for t in themes for v in ('cos', 'operations') for w in widths for s in (1, 2)}
 
 
-def advisory_rows(report):
+def advisory_rows(report, advisory_widths=ADVISORY_WIDTHS):
     return [dict(case=row['id'], width=row['width'], theme=row.get('theme'),
                  view=row['view'], textScale=row.get('textScale'), check=check['name'])
-            for row in report.get('cases', []) if row['width'] == 320
+            for row in report.get('cases', []) if row['width'] in advisory_widths
             for check in row.get('checks', []) if not check['passed']]
 
 
-def browser_failures(report, expected, output):
+def browser_failures(report, expected, output, advisory_widths=ADVISORY_WIDTHS):
     failures = []
     rows = report.get('cases', [])
     ids = [r.get('id') for r in rows]
@@ -78,7 +80,7 @@ def browser_failures(report, expected, output):
         if not any(c['name'] == OPEN_ICON_CHECK for c in row.get('checks', [])):
             failures.append(row['id'] + ': missing open-icon hit-test check')
         for check in row.get('checks', []):
-            if not check['passed'] and row['width'] != 320:
+            if not check['passed'] and row['width'] not in advisory_widths:
                 failures.append(row['id'] + ': ' + check['name'])
         required = {'closed', 'keyboard-focus'} if row['view'] == 'operations' else {'closed', 'empty', 'focused-empty', 'typed', 'cleared'}
         captures = row.get('captures', [])
@@ -114,6 +116,19 @@ def browser_failures(report, expected, output):
     return failures
 
 
+def record_overlay_bounds(summary, output, tokens):
+    proof = overlay_proof(summary, tokens)
+    path = output / 'overlay-bounds.json'
+    path.write_text(json.dumps(proof, indent=2) + '\n')
+    rows = proof['rows']
+    summary['overlay_bounds'] = dict(file=path.name, sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        passed=proof['passed'], named_rows=proof['namedRows'], computed_rows=proof['computedPanelRows'],
+        min_endpoint_minimum=min((r['endpointMinimum'] for r in rows), default=None),
+        min_continuous=min((r['independentContinuousPhaseLowerBound'] for r in rows), default=None))
+    if not proof['passed']:
+        summary['failures'].append('Analytical icon overlay bounds failed: ' + '; '.join(proof['errors']))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--theme', required=True)
@@ -126,7 +141,7 @@ def main(argv=None):
     output = args.artifacts.resolve()
     if not output.is_relative_to(ROOT / 'data') or output.exists(): parser.error('Use a new directory under data/')
     output.mkdir(parents=True)
-    summary = dict(contrast_kind='STATIC', not_covered=NOT_COVERED, commands=[], failures=[], advisories=[], candidate=args.theme)
+    summary = dict(contrast_kind='STATIC', not_covered=list(NOT_COVERED), commands=[], failures=[], advisories=[], candidate=args.theme)
     original = source_hashes()
     server = thread = None
     def command(name, cmd):
@@ -144,7 +159,7 @@ def main(argv=None):
         summary['tracked_diff'] = subprocess.check_output(['git', 'diff', '--name-only', 'HEAD'], cwd=ROOT, text=True).splitlines()
         summary['source_hashes'] = original
         summary['widths'] = list(WIDTHS) + ([1440] if args.include_1440 else [])
-        summary['advisory_widths'] = [320]
+        summary['advisory_widths'] = list(ADVISORY_WIDTHS)
         themes = sorted({'default', 'crt', args.theme})
         summary['themes'] = themes
         scope = command('scope', ['node', 'web/tools/check-theme-scope.cjs'])
@@ -180,8 +195,9 @@ def main(argv=None):
         command('browser', cmd)
         captured = json.loads((browser_output / 'results.json').read_text())
         summary['browser'] = captured
-        summary['advisories'] = advisory_rows(captured)
-        summary['failures'] += browser_failures(captured, expected_cases(themes, summary['widths']), browser_output)
+        summary['advisories'] = advisory_rows(captured, summary['advisory_widths'])
+        summary['failures'] += browser_failures(captured, expected_cases(themes, summary['widths']), browser_output, summary['advisory_widths'])
+        record_overlay_bounds(summary, output, contrast.theme_tokens(contrast.read_css()))
         if hashes(dist.rglob('*'), dist) != summary['bundle']: summary['failures'].append('Built assets changed during run')
         result_code = int(bool(summary['failures']))
     except Exception as error:
@@ -192,6 +208,8 @@ def main(argv=None):
         changed = source_hashes() != original
         if changed:
             summary['failures'].append('Source inputs changed during run')
+        if 'overlay_bounds' not in summary:
+            summary['not_covered'].append('Analytical icon overlay bounds: stage not reached')
         summary['passed'] = not summary['failures']
         (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps({'summary': str(output / 'summary.json'), 'passed': summary['passed'], 'failures': summary['failures'], 'advisories': len(summary['advisories'])}))
