@@ -32,6 +32,8 @@ Variant @import, @font-face, @property and @keyframes (including vendor-prefixed
 
 ## One-command wave check
 
+Prerequisite: run `npm --prefix web ci` to install the lockfile-pinned dependencies (including PostCSS 8.5.29), then `npm --prefix web run build` so the full harness unit suite has `web/dist`; a bare worktree or system PostCSS is not equivalent.
+
 From your isolated theme branch, run the worker through the normal heavy queue:
 
     /home/hunter/workspace/poolrad-heavy.sh .venv/bin/python tools/check_theme_wave.py --theme <id> --base <reviewed-main-sha> --artifacts data/theme-wave/<unique-run>
