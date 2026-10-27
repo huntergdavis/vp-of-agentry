@@ -1,6 +1,7 @@
 """Pure geometry predicates shared by browser evidence and dependency-free tests."""
 
 OPEN_ICON_CHECK = 'Open Appearance close icon unobscured'
+ADVISORY_WIDTHS = (320,)
 
 
 def target_meets_minimum(geometry):

@@ -22,7 +22,7 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.theme_capture import CaptureBlocked, ThemeCapture
-from tools.theme_wave_checks import OPEN_ICON_CHECK, target_meets_minimum, visible_focus
+from tools.theme_wave_checks import OPEN_ICON_CHECK, ADVISORY_WIDTHS, target_meets_minimum, visible_focus
 from tools.theme_contrast import DEFAULT_CSS, theme_tokens, read_css
 from playwright.sync_api import expect, sync_playwright
 from tests.browser_placeholder_paint import measure_placeholder_paint
@@ -105,7 +105,7 @@ def main(argv=None):
                                 context = browser.new_context(viewport=dict(width=width, height=height), device_scale_factor=1.8)
                                 page = context.new_page(); errors, writes, unexpected = [], [], []
                                 page.on('pageerror', lambda error: errors.append(str(error)))
-                                def check(condition, label): row['checks'].append(dict(name=label, passed=bool(condition), advisory=width == 320))
+                                def check(condition, label): row['checks'].append(dict(name=label, passed=bool(condition), advisory=width in ADVISORY_WIDTHS))
                                 def capture(state):
                                     filename = name + '-' + state + '.png'
                                     recorder.capture(page, filename, theme=theme, width=width, view=view, textScale=scale, state=state)
@@ -193,7 +193,7 @@ def main(argv=None):
             finally: browser.close()
     finally:
         recorder.write(); (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
-    return int(any(not r['completed'] or (r['width'] != 320 and any(not c['passed'] for c in r['checks'])) for r in results['cases']))
+    return int(any(not r['completed'] or (r['width'] not in ADVISORY_WIDTHS and any(not c['passed'] for c in r['checks'])) for r in results['cases']))
 
 
 if __name__ == '__main__': raise SystemExit(main())
