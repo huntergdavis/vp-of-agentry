@@ -16,6 +16,12 @@ import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry } from './theme-registry.js';
+import { laneStatus } from './lane-status.js';
+
+function LaneStatus({ row }) {
+  const value = laneStatus(row);
+  return <span data-lane-status={row.pane_id}>{value.status}<small>{value.provenance}</small></span>;
+}
 
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const themeManifests = import.meta.glob('./themes/*.json', { eager: true, import: 'default' });
@@ -734,7 +740,7 @@ function OpsBoard({ standalone = false }) {
             ['Tasks', {...board.reference.tasks, items: taskRows}, ['ID', 'Task / status', 'Age', 'Assignee'],
               row => [row.id, <>{row.title}<small>{row.status}</small></>, taskAge(row.age_s), row.assignees.join(', ') || '—']],
             ['Lanes', board.reference.lanes, ['Pane', 'Lane', 'Status'],
-              row => [row.pane_id, row.tab_label, row.agent_status ?? '—']],
+              row => [row.pane_id, row.tab_label, <LaneStatus row={row} />]],
             ['Schedules', board.reference.schedules, ['ID', 'Schedule', 'Target', 'Status'],
               row => [row.id, row.name, row.target_label || row.target, row.running ? 'running' : 'stopped']],
           ].map(([name, source, columns, cells]) => <div key={name} className="ops-table">
