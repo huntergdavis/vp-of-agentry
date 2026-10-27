@@ -13,6 +13,8 @@ ICON_PAIRS = ('icon-button-border/own-surface', 'icon-button-panel-border/own-su
 
 
 def overlay_alpha(tokens):
+    if 'overlay' not in tokens:
+        raise ValueError('Missing --overlay declaration')
     value = contrast.resolve('overlay', tokens)
     value = re.sub(r'var\(\s*--([\w-]+)\s*\)',
                    lambda m: contrast.resolve(m[1], tokens), value)
@@ -79,7 +81,10 @@ def overlay_proof(summary, tokens):
         errors.append('Missing, duplicate or unexpected computed cases')
 
     def add(theme, pair, measurement, fg, bg, **metadata):
+        label = theme + ' ' + pair + ((' width ' + str(metadata['width'])) if 'width' in metadata else '')
         try:
+            if theme not in tokens:
+                raise ValueError('Missing --overlay token map for theme')
             row = dict(theme=theme, pair=pair, measurement=measurement, **metadata,
                        **bounds(fg, bg, overlay_alpha(tokens[theme])))
             # Preserve the reviewed Nostromo/2001 icon margin.
@@ -88,9 +93,9 @@ def overlay_proof(summary, tokens):
                              row['independentContinuousPhaseLowerBound'] >= row['requiredMinimum'])
             rows.append(row)
             if not row['passed']:
-                errors.append(theme + ' ' + pair + ': contrast below required minimum')
+                errors.append(label + ': contrast below required minimum')
         except (KeyError, TypeError, ValueError) as error:
-            errors.append(theme + ' ' + pair + ': ' + str(error))
+            errors.append(label + ': ' + str(error))
 
     for theme in themes:
         for pair in ICON_PAIRS:
@@ -99,18 +104,23 @@ def overlay_proof(summary, tokens):
                 errors.append(theme + ' ' + pair + ': missing or duplicate source row')
                 continue
             row = matches[0]
-            add(theme, pair, 'resolved source declaration', row.get('foreground_value'), row.get('background_value'))
+            add(theme, pair, 'source-resolved', row.get('foreground_value'), row.get('background_value'))
     for case in cases:
         icon = case.get('iconOpen')
         if case.get('theme') not in themes or not isinstance(icon, dict) or icon.get('opaque') is not True:
             errors.append(str(case.get('id')) + ': missing/nonopaque computed icon')
             continue
         add(case['theme'], 'panel computed color', 'browser computed color',
-            icon.get('border'), icon.get('surface'), case=case['id'])
-    return dict(scope='Analytical solid-color bounds for icon borders under the declared black --overlay only; '
-                      'source-resolved base/panel rows and browser-computed panel colors. '
-                      'Not rendered pixel/phase sampling, other effects, other controls or full accessibility.',
+            icon.get('border'), icon.get('surface'), case=case['id'], width=case.get('width'),
+            view=case.get('view'), textScale=case.get('textScale'))
+    method = ('Analytical solid-color bounds for icon borders under the declared black --overlay only; '
+              'source-resolved base/panel rows and browser-computed panel colors. '
+              'Analytical bounds are blocking at every width including 320 (VP i28625); '
+              'capture-level 320 failures remain named advisories. For fixed colors/opacity the bound '
+              'is width-independent; responsive styles may change computed colors, which remain blocking.')
+    return dict(method=method, scope=method,
+                not_verified=['Rendered pixel/phase sampling', 'Other effects and controls', 'Full accessibility'],
                 source_head=summary.get('head'), bundle=summary.get('bundle'),
-                namedRows=sum(r['measurement'] == 'resolved source declaration' for r in rows),
-                computedPanelRows=sum(r['measurement'] == 'browser computed color' for r in rows),
+                source_rows=sum(r['measurement'] == 'source-resolved' for r in rows),
+                computed_panel_rows=sum(r['measurement'] == 'browser computed color' for r in rows),
                 passed=bool(rows) and not errors, errors=errors, rows=rows)

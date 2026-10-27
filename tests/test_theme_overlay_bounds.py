@@ -16,7 +16,7 @@ def fixture():
         'overlay': 'repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 4px)'}}
     named = [dict(theme=t, pair=p, status='PASS', foreground_value='#000', background_value='#fff')
              for t in themes for p in overlay.ICON_PAIRS]
-    cases = [dict(id=f'{t}-{v}-390-text{s}', theme=t,
+    cases = [dict(id=f'{t}-{v}-390-text{s}', theme=t, width=390, view=v, textScale=s,
                   iconOpen=dict(opaque=True, border='rgb(0, 0, 0)', surface='rgb(255, 255, 255)'))
              for t in themes for v in ('cos', 'operations') for s in (1, 2)]
     return dict(themes=themes, widths=[390], named_rows=named, browser=dict(cases=cases), failures=[]), tokens
@@ -65,6 +65,38 @@ class OverlayTests(unittest.TestCase):
                 self.assertFalse(overlay.overlay_proof(summary, tokens)['passed'])
         summary = copy.deepcopy(original); summary['named_rows'].pop()
         self.assertFalse(overlay.overlay_proof(summary, tokens)['passed'])
+
+    def test_all_twelve_declared_overlays_resolve_and_missing_is_distinct(self):
+        tokens = wave.contrast.theme_tokens(wave.contrast.read_css())
+        self.assertEqual(len(tokens), 12)
+        for theme, values in tokens.items():
+            with self.subTest(theme=theme):
+                self.assertIn('overlay', values)
+                self.assertEqual(overlay.overlay_alpha(values), .12 if theme in ('crt', 'nostromo') else 0)
+        summary, profiles = fixture()
+        del profiles['crt']['overlay']
+        proof = overlay.overlay_proof(summary, profiles)
+        self.assertFalse(proof['passed'])
+        self.assertTrue(any('crt' in e and 'Missing --overlay declaration' in e for e in proof['errors']))
+        profiles['crt']['overlay'] = 'linear-gradient(red, blue)'
+        proof = overlay.overlay_proof(summary, profiles)
+        self.assertFalse(proof['passed'])
+        self.assertTrue(any('crt' in e and 'Unsupported --overlay' in e for e in proof['errors']))
+
+    def test_320_analytical_rows_are_retained_and_block_on_failure(self):
+        summary, tokens = fixture()
+        summary['widths'] = [320]
+        for case in summary['browser']['cases']:
+            case['width'] = 320
+            case['id'] = case['id'].replace('-390-', '-320-')
+        proof = overlay.overlay_proof(summary, tokens)
+        self.assertTrue(proof['passed'])
+        self.assertEqual(sum(r.get('width') == 320 for r in proof['rows']), 8)
+        summary['browser']['cases'][0]['iconOpen']['border'] = 'rgb(255, 255, 255)'
+        proof = overlay.overlay_proof(summary, tokens)
+        self.assertFalse(proof['passed'])
+        self.assertTrue(any('crt panel computed color width 320' in e for e in proof['errors']))
+        self.assertIn('blocking at every width including 320', proof['method'])
 
     def run_wave(self, low_color):
         """Real main orchestration; mock external stages, not overlay/gating logic."""

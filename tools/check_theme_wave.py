@@ -122,7 +122,7 @@ def record_overlay_bounds(summary, output, tokens):
     path.write_text(json.dumps(proof, indent=2) + '\n')
     rows = proof['rows']
     summary['overlay_bounds'] = dict(file=path.name, sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-        passed=proof['passed'], named_rows=proof['namedRows'], computed_rows=proof['computedPanelRows'],
+        passed=proof['passed'], named_rows=proof['source_rows'], computed_rows=proof['computed_panel_rows'],
         min_endpoint_minimum=min((r['endpointMinimum'] for r in rows), default=None),
         min_continuous=min((r['independentContinuousPhaseLowerBound'] for r in rows), default=None))
     if not proof['passed']:
