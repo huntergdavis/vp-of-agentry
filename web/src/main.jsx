@@ -709,7 +709,7 @@ function OpsBoard({ standalone = false }) {
         <section className="ops-brief" data-ops-section="brief">
           <strong>{alarms.length ? `${alarms.length} alarms` : 'Alarms: none'}</strong>
           <p title={evidence(tasks)}>{number(tasks, 'open')} open tasks · {number(tasks, 'owner')} assigned to you</p>
-          <p title={evidence(lanes)}>{number(lanes, 'working')} lanes working · {number(lanes, 'idle')} idle{lanes?.unknown ? ` · ${lanes.unknown} unknown` : ''}</p>
+          <p title={evidence(lanes)}>{number(lanes, 'working')} lanes working · {number(lanes, 'idle')} idle{lanes?.unknown ? ` · ${lanes.unknown} not reporting` : ''}</p>
         </section>
         <p id="poolrad" className="ops-poolrad">
           <b>Poolrad:</b> {poolrad.data
@@ -734,7 +734,7 @@ function OpsBoard({ standalone = false }) {
             ['Tasks', {...board.reference.tasks, items: taskRows}, ['ID', 'Task / status', 'Age', 'Assignee'],
               row => [row.id, <>{row.title}<small>{row.status}</small></>, taskAge(row.age_s), row.assignees.join(', ') || '—']],
             ['Lanes', board.reference.lanes, ['Pane', 'Lane', 'Status'],
-              row => [row.pane_id, row.tab_label, row.agent_status]],
+              row => [row.pane_id, row.tab_label, row.agent_status ?? '—']],
             ['Schedules', board.reference.schedules, ['ID', 'Schedule', 'Target', 'Status'],
               row => [row.id, row.name, row.target_label || row.target, row.running ? 'running' : 'stopped']],
           ].map(([name, source, columns, cells]) => <div key={name} className="ops-table">
