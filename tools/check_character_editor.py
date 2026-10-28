@@ -15,6 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import traceback
 from threading import Thread
 from urllib.parse import urlsplit
 import zipfile
@@ -22,7 +23,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
 from fastapi import FastAPI
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from server.character_editor import router
 from test_character_editor import ASGIFixtureClient, FixtureStore, synthetic_save
 
@@ -46,8 +47,11 @@ MEASURE = """() => {
   }
   const controls=[...root.querySelectorAll('button,input,select,a,summary')]
     .filter(e=>e.getClientRects().length && !e.disabled).map(e=>{const r=e.getBoundingClientRect();
+      const s=getComputedStyle(e), own=bg(e), outside=bg(e.parentElement);
+      const ratio=b=>{const l=[lum(blend(rgb(s.borderTopColor),b)),lum(b)].sort((a,b)=>a-b);return(l[1]+.05)/(l[0]+.05)};
+      const border=s.borderTopStyle!=='none' && parseFloat(s.borderTopWidth)>0 ? Math.min(ratio(own),ratio(outside)) : null;
       return {text:e.getAttribute('aria-label')||e.textContent.trim().slice(0,70)||e.id,
-        width:r.width,height:r.height,pass:r.width>=24 && r.height>=24};});
+        width:r.width,height:r.height,border_ratio:border,pass:r.width>=24 && r.height>=24 && (border===null||border>=3)};});
   return {text:rows,controls,page_overflow:document.documentElement.scrollWidth>innerWidth,
     editor_overflow:root.scrollWidth>root.clientWidth,
     dialog_closed:!document.querySelector('[role="dialog"]')};
@@ -130,10 +134,12 @@ def main():
                             page.get_by_role('button',name='Import and inspect',exact=True).click()
                             boxes=page.locator('.editor-profile input')
                             boxes.first.wait_for()
-                            assert boxes.nth(0).is_enabled() and boxes.nth(1).is_disabled()
-                            boxes.nth(0).check(); assert boxes.nth(1).is_enabled()
+                            expect(boxes.nth(0)).to_be_enabled()
+                            expect(boxes.nth(1)).to_be_disabled()
+                            boxes.nth(0).check(); expect(boxes.nth(1)).to_be_enabled()
                             boxes.nth(1).check(); boxes.nth(0).uncheck()
-                            assert not boxes.nth(1).is_checked() and boxes.nth(1).is_disabled()
+                            expect(boxes.nth(1)).not_to_be_checked()
+                            expect(boxes.nth(1)).to_be_disabled()
                             boxes.nth(0).check(); boxes.nth(1).check()
                             source_id=page.locator('#editor-source').input_value()
                             original=store.inspect(source_id)['expected_source_hashes']
@@ -163,7 +169,7 @@ def main():
                             page.locator('#editor-files').set_input_files(dict(name='CHRDATA2.SAV',mimeType='application/octet-stream',buffer=bytes(unknown)))
                             page.get_by_role('button',name='Import and inspect',exact=True).click()
                             page.get_by_role('heading',name='CHRDATA2.SAV',exact=True).wait_for()
-                            assert all(boxes.nth(i).is_disabled() for i in range(2))
+                            for i in range(2): expect(boxes.nth(i)).to_be_disabled()
                             page.get_by_role('button',name='Write unchanged copy',exact=True).click()
                             page.locator('.editor-result').wait_for()
                             with page.expect_download() as info:
@@ -172,7 +178,7 @@ def main():
                                 assert archive.read('CHRDATA2.SAV')==bytes(unknown)
                             case['workflow_pass']=True
                         except Exception as e:
-                            case['errors'].append(str(e)); case['workflow_pass']=False
+                            case['errors'].append(traceback.format_exc()); case['workflow_pass']=False
                         finally:
                             context.close()
                         measure=case.get('measurement',{})

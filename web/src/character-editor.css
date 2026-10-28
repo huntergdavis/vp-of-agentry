@@ -3,7 +3,7 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 20px;
-  border-bottom: 1px solid var(--dash-border);
+  border-bottom: 1px solid var(--control-boundary);
   background: var(--dash-panel);
 }
 .play-subviews button[aria-pressed="true"] {
@@ -29,7 +29,7 @@
 .editor-panel {
   min-width: 0;
   padding: 18px;
-  border: 1px solid var(--dash-border-2);
+  border: 1px solid var(--control-boundary);
   border-radius: var(--radius);
   background: var(--dash-panel);
   color: var(--dash-fg);
@@ -41,15 +41,15 @@
   min-height: 36px;
   margin-bottom: 12px;
   padding: 8px;
-  border: 1px solid var(--dash-border-2);
+  border: 1px solid var(--control-boundary);
   border-radius: var(--radius);
   background: var(--dash-panel-2);
   color: var(--dash-fg);
   font: inherit;
 }
 .editor-panel input[type="file"] { overflow: hidden; }
-.editor-panel input::file-selector-button { font: inherit; margin-right: 8px; padding: 6px; color: var(--dash-fg); background: var(--dash-panel-2); border: 1px solid var(--dash-border-2); border-radius: var(--radius); }
-.editor-notice { padding: 12px 16px; border: 1px solid var(--dash-border-2); background: var(--dash-panel); }
+.editor-panel input::file-selector-button { font: inherit; margin-right: 8px; padding: 6px; color: var(--dash-fg); background: var(--dash-panel-2); border: 1px solid var(--control-boundary); border-radius: var(--radius); }
+.editor-notice { padding: 12px 16px; border: 1px solid var(--control-boundary); background: var(--dash-panel); }
 .editor-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin: 22px 0 0; }
 .editor-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
 .editor-stats dt { font-size: 12px; }
@@ -62,12 +62,13 @@
 .editor-copy-form, .editor-result { margin-top: 18px; }
 .editor-copy-form input { max-width: 480px; }
 .editor-panel button, .editor-download, .play-subviews button { min-height: 36px; }
+.dash-root .character-editor button, .dash-root .play-subviews button { border-color: var(--control-boundary); }
 .editor-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .editor-download {
   display: inline-flex;
   align-items: center;
   padding: 6px 12px;
-  border: 1px solid var(--dash-border-2);
+  border: 1px solid var(--control-boundary);
   border-radius: var(--radius);
   background: var(--dash-panel-2);
   color: var(--dash-fg);
@@ -78,7 +79,7 @@
 .character-editor summary { min-height: 28px; cursor: pointer; }
 .character-editor code { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .editor-receipts { list-style: none; padding: 0; }
-.editor-receipts li { padding: 12px 0; border-top: 1px solid var(--dash-border); }
+.editor-receipts li { padding: 12px 0; border-top: 1px solid var(--control-boundary); }
 .editor-receipts strong, .editor-receipts span { display: block; }
 .editor-receipts dl { margin: 8px 0; }
 .editor-receipts dd { margin: 0 0 8px; }
