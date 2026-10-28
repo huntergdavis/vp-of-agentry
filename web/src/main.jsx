@@ -17,6 +17,7 @@ import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry } from './theme-registry.js';
 import { laneStatus } from './lane-status.js';
+import { channelDeliveryLabel, messageDeliveryLabel } from './delivery-label.js';
 
 function LaneStatus({ row }) {
   const value = laneStatus(row);
@@ -242,7 +243,7 @@ function Composer({ channel, onSend, pending, setPending, disabled }) {
 
 function MessageCard({ item, highlight, onSendNow, onInspect }) {
   const owner = item.role === 'owner';
-  const deliveryLabel = item.outcome || { inbox: 'delivered to inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
+  const deliveryLabel = messageDeliveryLabel(item);
   const waitingSeconds = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 1000));
   const waitingMinutes = Math.floor(waitingSeconds / 60);
   const heldForDraft = item.delivery_detail?.includes('someone is typing') || item.delivery_detail?.includes('input box contains a draft');
@@ -973,16 +974,19 @@ function ChannelStandalone({ channel }) {
   const [pending, setPending] = useState([]);
   const [error, setError] = useState('');
   const [updated, setUpdated] = useState(null);
+  const [lastDelivery, setLastDelivery] = useState(null);
   const messageScroll = useMessageScroll(items, channel);
   const selected = channels.find(c => c.id === channel);
   useEffect(() => {
     let live = true;
+    setLastDelivery(null);
     const load = async () => {
       try {
         const [roster, messages] = await Promise.all([api('/channels'), api(`/messages?channel=${encodeURIComponent(channel)}&limit=50`)]);
         if (!live) return;
         setChannels(roster.channels || []);
         setItems(old => mergeMessages(old, messages.items || []));
+        setLastDelivery(messages.last_delivery || null);
         setUpdated(new Date());
         setError('');
       } catch (e) { if (live) setError(e.message); }
@@ -1002,6 +1006,9 @@ function ChannelStandalone({ channel }) {
     </>}>
     <div className="dash-body dash-conversation">
       {error && <div className="dash-error" role="alert">{error}</div>}
+      <div className="channel-delivery-summary" role="status" title="Time from the desk accepting your message to the agent harness picking it up; this does not mean a reply is ready.">
+        {channelDeliveryLabel(lastDelivery)}
+      </div>
       <div className="conversation" ref={messageScroll.ref} onScroll={messageScroll.onScroll}>
         <div className="conversation-inner">
           {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2></div>}

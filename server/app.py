@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import math
 import os
 import re
 import secrets
@@ -161,6 +162,9 @@ def _initialize():
             conn.execute("ALTER TABLE messages ADD COLUMN answered_at TEXT")
         if "direct_transport" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN direct_transport TEXT")
+        for name in ("delivered_at", "delivery_latency_s"):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE messages ADD COLUMN {name} REAL")
         if "external_id" not in columns:
             conn.execute("ALTER TABLE messages ADD COLUMN external_id TEXT")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS messages_external_id ON messages(channel,external_id) WHERE external_id IS NOT NULL")
@@ -936,11 +940,71 @@ def _send_saved(row, client, pane, force=False):
     return result
 
 
+def _reconcile_owner_pushes(channel: str):
+    """Match durable harness pickup receipts; an absent receipt proves nothing."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE channel=? AND role='owner' AND delivery='stored' "
+            "AND direct_transport IS NOT NULL AND delivered_at IS NULL ORDER BY id", (channel,)).fetchall()
+    pending = []
+    for row in rows:
+        try:
+            transport = json.loads(row["direct_transport"])
+            push_id = transport.get("push_id")
+            if (transport.get("route") != "owner_push" or type(push_id) is not int or push_id < 1
+                    or str(push_id) != row["transport_id"] or not transport.get("pane")):
+                continue
+            pending.append((row, transport))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    if not pending:
+        return
+    try:
+        client = _flock()
+        for offset in range(0, len(pending), 100):
+            batch = pending[offset:offset + 100]
+            response = client.call("owner_receipts", push_ids=[t["push_id"] for _, t in batch])
+            receipts = response.get("receipts")
+            if not isinstance(receipts, list):
+                return
+            for row, transport in batch:
+                matches = [r for r in receipts if isinstance(r, dict) and
+                           type(r.get("id")) is int and r["id"] == transport["push_id"]]
+                if len(matches) != 1:
+                    continue
+                receipt = matches[0]
+                if receipt.get("pane_id") != transport["pane"]:
+                    continue
+                created, taken, started = receipt.get("created_at"), receipt.get("taken_at"), row["transport_attempt_at"]
+                if not all(type(t) in (int, float) and math.isfinite(t) and t > 0
+                           for t in (created, taken, started)):
+                    continue
+                if taken > time.time():
+                    continue
+                # A wall-clock step invalidates the duration, not the matched
+                # pickup itself. Keep the arrival evidence without inventing time.
+                latency = taken - started if started <= created <= taken else None
+                detail = "Picked up by agent harness"
+                if latency is None:
+                    detail += "; wall clock moved, elapsed time unavailable"
+                transport["pickup_receipt"] = {key: receipt[key] for key in ("id", "pane_id", "created_at", "taken_at")}
+                with _db() as conn:
+                    conn.execute(
+                        "UPDATE messages SET delivery='delivered',delivery_detail=?,delivered_at=?,"
+                        "delivery_latency_s=?,direct_transport=? WHERE id=? AND delivery='stored' AND delivered_at IS NULL",
+                        (detail, taken, latency, json.dumps(transport), row["id"]))
+    except Exception:
+        # An older daemon, outage, or malformed response leaves the last known
+        # stored state intact. Never infer pickup from pending-list absence.
+        return
+
+
 def _reconcile(channel: str):
     """Read transport state; never replay an ambiguous attempt automatically."""
     if not DELIVERY_LOCK.acquire(blocking=False):
         return
     try:
+        _reconcile_owner_pushes(channel)
         read_cutoff = time.time() - READ_STATUS_WINDOW_S
         with _db() as conn:
             queued = conn.execute("SELECT * FROM messages WHERE channel=? AND "
@@ -1189,7 +1253,12 @@ def messages(channel: str, _: Annotated[str, Depends(require_auth)], before: int
                             (channel, before or 2**63 - 1, limit + 1)).fetchall()
         more = len(rows) > limit
         rows = rows[:limit]
+        last_delivery = conn.execute(
+            "SELECT id,delivery,delivered_at,delivery_latency_s FROM messages "
+            "WHERE channel=? AND role='owner' AND delivery='delivered' AND delivered_at IS NOT NULL "
+            "ORDER BY delivered_at DESC,id DESC LIMIT 1", (channel,)).fetchone()
         return {"items": [_message(r, conn) for r in reversed(rows)], "has_more": more,
+                "last_delivery": dict(last_delivery) if last_delivery else None,
                 "next_before": rows[-1]["id"] if rows else None}
 
 
