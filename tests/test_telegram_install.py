@@ -29,9 +29,7 @@ class TelegramInstallTests(unittest.TestCase):
         self.bin.mkdir()
         self.calls = self.base / "systemctl-calls"
         fake = self.bin / "systemctl"
-        fake.write_text('#!/bin/sh
-printf "%s\n" "$*" >> "$TEST_SYSTEMCTL_LOG"
-')
+        fake.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$TEST_SYSTEMCTL_LOG"\n')
         fake.chmod(0o700)
         self.env = dict(os.environ, DUNKING_SHEEP_DIR=str(self.ds),
                         XDG_CONFIG_HOME=str(self.base / "config"),
@@ -45,8 +43,7 @@ printf "%s\n" "$*" >> "$TEST_SYSTEMCTL_LOG"
                               env=self.env, capture_output=True, text=True)
 
     def test_unit_explicitly_names_shared_resolver_checkout(self):
-        (self.ds / "dunk_telegram_routing.py").write_text("# resolver fixture
-")
+        (self.ds / "dunk_telegram_routing.py").write_text('# resolver fixture\n')
         result = self.install()
         self.assertEqual(0, result.returncode, result.stderr)
         unit = self.unit.read_text()
@@ -59,13 +56,11 @@ printf "%s\n" "$*" >> "$TEST_SYSTEMCTL_LOG"
 
     def test_missing_resolver_preserves_unit_and_never_calls_systemctl(self):
         self.unit.parent.mkdir(parents=True)
-        self.unit.write_text("existing unit
-")
+        self.unit.write_text('existing unit\n')
         result = self.install()
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Install Dunking Sheep PR47 first", result.stderr)
-        self.assertEqual("existing unit
-", self.unit.read_text())
+        self.assertEqual('existing unit\n', self.unit.read_text())
         self.assertFalse(self.calls.exists())
 
     def cold_environment(self):
