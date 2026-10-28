@@ -977,15 +977,21 @@ def _reconcile_owner_pushes(channel: str):
                     continue
                 created, taken, started = receipt.get("created_at"), receipt.get("taken_at"), row["transport_attempt_at"]
                 if not all(type(t) in (int, float) and math.isfinite(t) and t > 0
-                           for t in (created, taken, started)):
+                           for t in (created, taken)):
+                    continue
+                # Zero is the legacy schema default: the attempt time is unknown.
+                # Malformed or negative values remain invalid, not legacy rows.
+                if type(started) not in (int, float) or not math.isfinite(started) or started < 0:
                     continue
                 if taken > time.time():
                     continue
                 # A wall-clock step invalidates the duration, not the matched
                 # pickup itself. Keep the arrival evidence without inventing time.
-                latency = taken - started if started <= created <= taken else None
+                latency = taken - started if 0 < started <= created <= taken else None
                 detail = "Picked up by agent harness"
-                if latency is None:
+                if started == 0:
+                    detail += "; send timestamp unavailable, elapsed time unavailable"
+                elif latency is None:
                     detail += "; wall clock moved, elapsed time unavailable"
                 transport["pickup_receipt"] = {key: receipt[key] for key in ("id", "pane_id", "created_at", "taken_at")}
                 with _db() as conn:
