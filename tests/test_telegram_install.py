@@ -1,4 +1,9 @@
-"""Service setup in a temporary tree; cold start needs the companion DS checkout."""
+"""Service setup in a temporary tree.
+
+Cold-start tests need DUNKING_SHEEP_DIR set to the companion DS checkout.
+The real-launcher test also needs the desk .venv prepared by run.sh:
+telegram-bridge executes .venv/bin/python from this checkout.
+"""
 
 import json
 import os
