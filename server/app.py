@@ -32,6 +32,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, Up
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from server.character_editor import EditorStore, router as character_editor_router
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = Path(os.getenv("VP_DATA_DIR", ROOT / "data")).resolve()
@@ -250,6 +251,12 @@ def require_auth(request: Request):
             if row:
                 conn.execute("DELETE FROM sessions WHERE token_hash=?", (_session_key(cookie),))
     raise HTTPException(401, "Sign in required")
+
+
+app.include_router(character_editor_router(
+    EditorStore(DATA / 'character-editor', Path(os.getenv(
+        'POOLRAD_EDITOR_TOOL', ROOT.parent / 'poolrad-decomp/tools/character/edit_save.py'))),
+    require_auth))
 
 
 class Login(BaseModel):
