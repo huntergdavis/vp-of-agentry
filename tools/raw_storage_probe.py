@@ -63,6 +63,9 @@ def rendering_table(stored, visible, paragraphs, strong_texts, hard_breaks):
 
 class StorageProbe:
     """Actual application writers, isolated SQLite, and synthetic transport."""
+    def __init__(self, legacy_zero_attempt=False):
+        self.legacy_zero_attempt = legacy_zero_attempt
+
     def __enter__(self):
         self.stack = ExitStack()
         try:
@@ -141,6 +144,11 @@ class StorageProbe:
         with patch.object(self.server.time, 'time', return_value=100):
             item = self.server.post_message(self.server.MessageIn(channel='cos', body=body), 'owner')
         record['id'] = item['id']
+        if self.legacy_zero_attempt:
+            # Explicit fixture for a pre-timing-schema owner row, not a real send.
+            with self.server._db() as conn:
+                conn.execute('UPDATE messages SET transport_attempt_at=0 WHERE id=?', (item['id'],))
+            record['legacy_fixture_attempt_reset'] = True
         self._record_raw(record, 'raw_after_push', item['id'])
         same_bytes(item['body'], body, 'owner API after push')
         if item['delivery'] != 'stored':
@@ -169,12 +177,13 @@ class StorageProbe:
             record.update(api_body=item['body'], api_utf8_hex=item['body'].encode('utf-8').hex())
             if name.startswith('owner_'):
                 raw = self._record_raw(record, 'raw_after_pickup', item['id'])
-                if raw['delivery'] != 'delivered' or raw['delivery_latency_s'] != 2.25:
-                    raise FidelityError('pickup timestamp did not produce the expected 2.25 seconds')
+                expected_latency = None if self.legacy_zero_attempt else 2.25
+                if raw['delivery'] != 'delivered' or raw['delivered_at'] != 102.25 or raw['delivery_latency_s'] != expected_latency:
+                    raise FidelityError('pickup timestamp or elapsed time differs from the fixture expectation')
         return self.records
 
 
-def browser_probe(dist, output, chromium=None):
+def browser_probe(dist, output, chromium=None, legacy_zero_attempt=False):
     from playwright.sync_api import sync_playwright
     dist, output = Path(dist).resolve(), Path(output).resolve()
     if not (dist / 'index.html').is_file():
@@ -184,6 +193,7 @@ def browser_probe(dist, output, chromium=None):
         'status': 'RUNNING', 'fixture': FIXTURE, 'cases': [],
         'hex_encoding': 'lowercase UTF-8; raw SQLite hex normalized for comparison',
         'scope': 'actual Python writers in temporary SQLite; isolated static server; synthetic browser APIs and receipt transport',
+        'legacy_zero_attempt_fixture': legacy_zero_attempt,
         'not_verified': ['live owner storage/delivery/rendering', 'authentication or deployed RPC',
                          'other browsers/devices', 'full accessibility'],
         'source_head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
@@ -211,7 +221,7 @@ def browser_probe(dist, output, chromium=None):
             browser = p.chromium.launch(executable_path=str(chrome), args=['--no-sandbox'])
             evidence['browser'] = browser.version
             for width, height in [(1440, 900), (390, 844)]:
-                with StorageProbe() as storage:
+                with StorageProbe(legacy_zero_attempt) as storage:
                     storage.agent()
                     storage.owner(FIXTURE)
                     context = browser.new_context(viewport=dict(width=width, height=height),
@@ -249,7 +259,10 @@ def browser_probe(dist, output, chromium=None):
                     records = storage.finish()
                     case = dict(viewport=[width, height], records=records)
                     evidence['cases'].append(case)
-                    page.wait_for_function("document.querySelector('#message-3 .delivery')?.textContent==='delivered in 2.3s'")
+                    expected_label = 'delivered · timing unavailable' if legacy_zero_attempt else 'delivered in 2.3s'
+                    page.wait_for_function("label => document.querySelector('#message-3 .delivery')?.textContent===label", arg=expected_label)
+                    if legacy_zero_attempt:
+                        page.get_by_text('Last delivered · timing unavailable', exact=True).wait_for()
                     for name, record in records.items():
                         expected = FIXTURE if name == 'owner_composer_wire' else EMPHASIS_TEXT
                         node = page.locator(f"#message-{record['id']} .markdown")
@@ -302,8 +315,9 @@ def main():
     parser.add_argument('--dist', required=True, type=Path, help='isolated prebuilt Vite directory')
     parser.add_argument('--output', required=True, type=Path, help='ignored/scratch receipt and screenshot directory')
     parser.add_argument('--chromium', type=Path)
+    parser.add_argument('--legacy-zero-attempt', action='store_true', help='simulate legacy owner rows with unknown send time; require pickup with no duration')
     args = parser.parse_args()
-    result = browser_probe(args.dist, args.output, args.chromium)
+    result = browser_probe(args.dist, args.output, args.chromium, args.legacy_zero_attempt)
     print(json.dumps(dict(status=result['status'], viewports=len(result['cases']),
                          receipt=str(args.output / 'receipt.json'), not_verified=result['not_verified'])))
 

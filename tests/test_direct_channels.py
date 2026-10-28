@@ -127,6 +127,55 @@ class DirectChannelTests(unittest.TestCase):
         with patch.object(server, "_flock", side_effect=RuntimeError("older daemon")):
             self.assertEqual("stored", server.messages("vp", "owner")["items"][0]["delivery"])
 
+    def test_legacy_zero_attempt_preserves_confirmed_pickup_without_duration(self):
+        original = self.pushed()
+        with server._db() as conn:
+            conn.execute("UPDATE messages SET transport_attempt_at=0 WHERE id=?", (original["id"],))
+        receipt = dict(id=7, pane_id="%2", created_at=100.5, taken_at=102.25)
+        with patch.object(server, "_flock") as flock, patch.object(server.time, "time", return_value=109):
+            flock.return_value.call.return_value = {"receipts": [receipt]}
+            response = server.messages("vp", "owner")
+        item = response["items"][0]
+        self.assertEqual("delivered", item["delivery"])
+        self.assertEqual(102.25, item["delivered_at"])
+        self.assertIsNone(item["delivery_latency_s"])
+        self.assertIn("send timestamp unavailable", item["delivery_detail"])
+        self.assertEqual(receipt, item["transport"]["pickup_receipt"])
+        self.assertEqual(original["body"], item["body"])
+        self.assertEqual("stored", item["outcome"])
+        self.assertEqual(original["id"], response["last_delivery"]["id"])
+        self.assertIsNone(response["last_delivery"]["delivery_latency_s"])
+        with patch.object(server, "_flock") as flock:
+            self.assertIsNone(server.messages("vp", "owner")["last_delivery"]["delivery_latency_s"])
+            flock.assert_not_called()
+
+    def test_zero_attempt_still_requires_matched_receipt_and_saved_push_identity(self):
+        valid = dict(id=7, pane_id="%2", created_at=100.5, taken_at=102.25)
+        cases = [({}, []), ({}, [valid, valid]), ({}, [{**valid, "pane_id": "%9"}]),
+                 ({}, [{**valid, "id": 8}]), ({}, [{**valid, "taken_at": None}]),
+                 ({}, [{**valid, "taken_at": 200}]), ({}, [{**valid, "created_at": 0}]),
+                 ({}, [{**valid, "taken_at": True}]), ({"transport_id": "8"}, [valid]),
+                 ({"transport_attempt_at": -1}, [valid]),
+                 ({"transport_attempt_at": "invalid"}, [valid]),
+                 ({"transport_attempt_at": float("inf")}, [valid]),
+                 ({"role": "agent"}, [valid]),
+                 ({"direct_transport": json.dumps(dict(route="guarded", push_id=7, pane="%2"))}, [valid])]
+        for changes, receipts in cases:
+            with self.subTest(changes=changes, receipts=receipts):
+                with server._db() as conn:
+                    conn.execute("DELETE FROM messages")
+                self.pushed()
+                with server._db() as conn:
+                    conn.execute("UPDATE messages SET transport_attempt_at=0")
+                    for key, value in changes.items():
+                        conn.execute(f"UPDATE messages SET {key}=?", (value,))
+                with patch.object(server, "_flock") as flock, patch.object(server.time, "time", return_value=109):
+                    flock.return_value.call.return_value = {"receipts": receipts}
+                    response = server.messages("vp", "owner")
+                self.assertEqual("stored", response["items"][0]["delivery"])
+                self.assertIsNone(response["items"][0]["delivered_at"])
+                self.assertIsNone(response["last_delivery"])
+
     def test_clock_step_preserves_pickup_without_claiming_elapsed_time(self):
         self.pushed()
         with patch.object(server, "_flock") as flock, patch.object(server.time, "time", return_value=104):
