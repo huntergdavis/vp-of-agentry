@@ -275,7 +275,13 @@ When PM records an accepted body without a trial ID, Operations inherits the tri
 
 ## Telegram
 
-Create a private bot with [@BotFather](https://t.me/BotFather), then run `./telegram-bridge setup` locally and paste the token at the hidden prompt. Run `./install-telegram-service.sh`, then DM the bot the `/pair` command printed by setup. The token and one-chat pairing stay in ignored `data/telegram.json` (mode `0600`); `./telegram-bridge status` shows pairing without revealing secrets. The bridge uses outbound long polling, forwards text/photos/files to the VP inbox, and sends new VP briefs and attachments back to the paired chat. Telegram's hosted Bot API limits downloads to 20 MB; use the web desk for larger files. Do not run a second poller or configure a webhook for this bot.
+Create a private bot with [@BotFather](https://t.me/BotFather), then run `./telegram-bridge setup` locally and paste the token at the hidden prompt. Run `./install-telegram-service.sh`, then DM the bot the `/pair` command printed by setup. The token and one-chat pairing stay in ignored `data/telegram.json` (mode `0600`); `./telegram-bridge status` shows pairing without revealing secrets.
+
+The bridge uses outbound long polling, forwards text/photos/files to the Chief of Staff (cos) channel by default, and sends that channel’s new replies and attachments back to the paired chat.
+
+Set `VP_TELEGRAM_CHANNEL=vp` in a vp-telegram.service environment override to route both directions to VP instead; the environment value takes precedence over the optional channel setting in the private bridge config. The VP desk channel remains independently usable.
+
+Restart the bridge after changing the route. A channel switch starts forwarding at the destination’s current tail, so historical replies and any unfinished send from the previous channel are not replayed; subsequent replies are forwarded. Pairing and the inbound Telegram update offset are preserved, and a retried incoming update is deduplicated across channels. The status command reports the configured channel and the forwarding cursor’s channel without credentials. The nonsecret telegram-status.json includes channel; delivery-health consumers must match both channel and brief ID. Telegram's hosted Bot API limits downloads to 20 MB; use the web desk for larger files. Do not run a second poller or configure a webhook for this bot.
 
 Terminals also lists detected agent processes without a desk pane route, with workspace, PID, routing reason and session-write age where a single open session file identifies it. This inventory reads local process metadata and file mtimes, never session contents. Missing ages remain unknown; process presence is not evidence of active work. Codex app-server processes are excluded, and unknown harnesses are not inferred from prompt text. An unavailable inventory is shown as unavailable rather than an empty success.
 

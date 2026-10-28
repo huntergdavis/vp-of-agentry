@@ -101,9 +101,37 @@ class Telegram:
             raise RuntimeError(f"Telegram {method}: {answer.get('description', 'file send failed')}")
 
 
-def _latest_brief_id() -> int:
+def _channel(config: dict) -> str:
+    channel = os.getenv("VP_TELEGRAM_CHANNEL", config.get("channel", "cos"))
+    if not isinstance(channel, str) or channel not in desk.CHANNEL_INDEX:
+        raise RuntimeError("Telegram channel must name a configured desk channel")
+    return channel
+
+
+def _channel_name(channel: str) -> str:
+    return desk.CHANNEL_INDEX[channel]["name"]
+
+
+def _latest_brief_id(channel: str) -> int:
     with desk._db() as conn:
-        return conn.execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE channel='vp' AND role='agent'").fetchone()[0]
+        return conn.execute("SELECT COALESCE(MAX(id),0) FROM messages WHERE channel=? AND role='agent'",
+                            (channel,)).fetchone()[0]
+
+
+def _prepare_route(config: dict) -> str:
+    """Scope the forwarding cursor to its channel; legacy cursors belong to VP."""
+    channel = _channel(config)
+    previous = config.get("brief_channel", "vp")
+    if previous != channel:
+        # A switch starts at the destination's current tail, without replaying its
+        # history or reusing a partially sent message from the previous channel.
+        config["last_brief_id"] = _latest_brief_id(channel)
+        config.pop("outbound_message_id", None)
+        config.pop("outbound_part", None)
+    if previous != channel or "brief_channel" not in config:
+        config["brief_channel"] = channel
+        save_config(config)
+    return channel
 
 
 def _attachment(message: dict):
@@ -132,44 +160,48 @@ def _save_attachment(filename: str, mime: str, content: bytes) -> str:
     return ident
 
 
-def _message_status() -> str:
-    desk._reconcile("vp")
+def _message_status(channel: str) -> str:
+    desk._reconcile(channel)
     with desk._db() as conn:
-        row = conn.execute("SELECT id,delivery FROM messages WHERE channel='vp' AND role='owner' "
-                           "AND external_id LIKE 'telegram:%' ORDER BY id DESC LIMIT 1").fetchone()
+        row = conn.execute("SELECT id,delivery FROM messages WHERE channel=? AND role='owner' "
+                           "AND external_id LIKE 'telegram:%' ORDER BY id DESC LIMIT 1", (channel,)).fetchone()
     if not row:
-        return "No Telegram message has reached the VP inbox yet."
-    return f"VP message #{row['id']}: {row['delivery']}"
+        return f"No Telegram message has reached {_channel_name(channel)} yet."
+    return f"{_channel_name(channel)} message #{row['id']}: {row['delivery']}"
 
 
 def process_update(update: dict, config: dict, bot: Telegram):
     message = update.get("message")
     if not message or message.get("chat", {}).get("type") != "private":
         return
+    channel = _channel(config)
+    name = _channel_name(channel)
     chat_id = message["chat"]["id"]
     text = message.get("text") or message.get("caption") or ""
     if config.get("chat_id") is None:
         parts = text.strip().split()
         if len(parts) == 2 and parts[0] == "/pair" and secrets.compare_digest(parts[1], config["pair_code"]):
             config["chat_id"] = chat_id
-            config["last_brief_id"] = _latest_brief_id()
+            config["last_brief_id"] = _latest_brief_id(channel)
+            config["brief_channel"] = channel
             save_config(config)
-            bot.call("sendMessage", chat_id=chat_id, text="VP desk connected. Send text, a photo, or a file. My next VP briefs will appear here. /status checks your last send.")
+            bot.call("sendMessage", chat_id=chat_id, text=f"{name} connected. Send text, a photo, or a file. Replies will appear here. /status checks your last send.")
         return
     if chat_id != config["chat_id"]:
         return
+    _prepare_route(config)
     if text.strip() in {"/start", "/help"}:
-        bot.call("sendMessage", chat_id=chat_id, text="Send a message, photo, or file directly to the VP. /status checks your last send. Files over 20 MB use the web desk.")
+        bot.call("sendMessage", chat_id=chat_id, text=f"Send a message, photo, or file directly to {name}. /status checks your last send. Files over 20 MB use the web desk.")
         return
     if text.strip() == "/status":
-        bot.call("sendMessage", chat_id=chat_id, text=_message_status())
+        bot.call("sendMessage", chat_id=chat_id, text=_message_status(channel))
         return
     external_id = f"telegram:{update['update_id']}"
     with desk._db() as conn:
-        previous = conn.execute("SELECT id,delivery FROM messages WHERE channel='vp' AND external_id=?",
+        previous = conn.execute("SELECT id,delivery,channel FROM messages WHERE role='owner' AND external_id=?",
                                 (external_id,)).fetchone()
     if previous:
-        bot.call("sendMessage", chat_id=chat_id, text=f"VP message #{previous['id']}: {previous['delivery']}")
+        bot.call("sendMessage", chat_id=chat_id, text=f"{_channel_name(previous['channel'])} message #{previous['id']}: {previous['delivery']}")
         return
     attachments = []
     file_spec = _attachment(message)
@@ -187,10 +219,10 @@ def process_update(update: dict, config: dict, bot: Telegram):
     if not text.strip() and not attachments:
         bot.call("sendMessage", chat_id=chat_id, text="I can receive text, photos, and files. Other Telegram items need the web desk.")
         return
-    item = desk.post_message(desk.MessageIn(channel="vp", body=text, attachment_ids=attachments,
+    item = desk.post_message(desk.MessageIn(channel=channel, body=text, attachment_ids=attachments,
                                              external_id=external_id), "api")
     bot.call("sendMessage", chat_id=chat_id,
-             text=f"VP message #{item['id']}: {item['delivery']}. I’ll reply here when ready.")
+             text=f"{name} message #{item['id']}: {item['delivery']}. I’ll reply here when ready.")
 
 
 def _chunks(body: str, limit: int = 3900):
@@ -209,17 +241,18 @@ def send_briefs(config: dict, bot: Telegram):
     chat_id = config.get("chat_id")
     if chat_id is None:
         return
+    channel = _prepare_route(config)
     if config.get("last_brief_id") is None:
-        config["last_brief_id"] = _latest_brief_id()
+        config["last_brief_id"] = _latest_brief_id(channel)
         save_config(config)
         return
     with desk._db() as conn:
-        rows = conn.execute("SELECT id,body FROM messages WHERE channel='vp' AND role='agent' AND id>? ORDER BY id LIMIT 20",
-                            (config["last_brief_id"],)).fetchall()
+        rows = conn.execute("SELECT id,body FROM messages WHERE channel=? AND role='agent' AND id>? ORDER BY id LIMIT 20",
+                            (channel, config["last_brief_id"])).fetchall()
         briefs = [(row["id"], row["body"], [dict(item) for item in conn.execute(
             "SELECT path,mime FROM attachments WHERE message_id=? ORDER BY created_at", (row["id"],))]) for row in rows]
     for message_id, body, attachments in briefs:
-        parts = [("text", part) for part in _chunks(f"VP BRIEF #{message_id}\n\n{body}")]
+        parts = [("text", part) for part in _chunks(f"{_channel_name(channel)} BRIEF #{message_id}\n\n{body}")]
         parts += [("file", item) for item in attachments]
         start = config.get("outbound_part", 0) if config.get("outbound_message_id") == message_id else 0
         for index in range(start, len(parts)):
@@ -235,20 +268,20 @@ def send_briefs(config: dict, bot: Telegram):
         config.pop("outbound_message_id", None)
         config.pop("outbound_part", None)
         save_config(config)
-        _write_status_file(config["last_brief_id"])
+        _write_status_file(config["last_brief_id"], channel)
 
 
-def _write_status_file(last_brief_id: int) -> None:
+def _write_status_file(last_brief_id: int, channel: str) -> None:
     """Publish the forwarding watermark in a file that holds no secrets.
 
     The exception watchdog must confirm that an owner page was actually forwarded
     before it records it as delivered, and it is not allowed to read telegram.json
-    (which holds the bot token). This file carries exactly the two values the
-    watchdog consumes: the last forwarded brief id and when it was written.
+    (which holds the bot token). This file carries the last forwarded brief id, its
+    channel and when it was written. Consumers must match the channel as well as the message id.
     Written atomically so a reader can never see a partial file.
     """
     path = desk.DATA / "telegram-status.json"
-    payload = {"last_brief_id": int(last_brief_id), "updated_at": time.time()}
+    payload = {"last_brief_id": int(last_brief_id), "channel": channel, "updated_at": time.time()}
     # Atomic replace through the desk's own writer, then relax the mode: the file
     # holds no secret, and the watchdog (a different process) must be able to read it.
     desk._private_write(path, json.dumps(payload) + "\n")
@@ -264,7 +297,7 @@ def setup():
     bot = Telegram(token)
     info = bot.call("getMe")
     config = {"bot_token": token, "pair_code": secrets.token_urlsafe(18), "chat_id": None,
-              "update_offset": None, "last_brief_id": None}
+              "update_offset": None, "last_brief_id": None, "channel": "cos"}
     save_config(config)
     print(f"Bot @{info['username']} saved in private local data.\nStart ./install-telegram-service.sh, then DM the bot: /pair {config['pair_code']}")
 
@@ -277,11 +310,12 @@ def run():
         except BlockingIOError:
             raise RuntimeError("Telegram bridge is already running") from None
         config = load_config()
+        _prepare_route(config)
         bot = Telegram(config["bot_token"])
         webhook = bot.call("getWebhookInfo")
         if webhook.get("url"):
             raise RuntimeError("This bot has a webhook; remove it before using long polling")
-        print("Telegram bridge running; waiting for the paired private chat", flush=True)
+        print(f"Telegram bridge running on {_channel(config)}; waiting for the paired private chat", flush=True)
         while True:
             try:
                 updates = bot.call("getUpdates", offset=config.get("update_offset"), timeout=10,
@@ -308,7 +342,7 @@ def main():
             run()
         else:
             config = load_config()
-            print(f"paired={'yes' if config.get('chat_id') is not None else 'no'}; last_brief_id={config.get('last_brief_id')}; update_offset={config.get('update_offset')}")
+            print(f"channel={_channel(config)}; brief_channel={config.get('brief_channel', 'vp')}; paired={'yes' if config.get('chat_id') is not None else 'no'}; last_brief_id={config.get('last_brief_id')}; update_offset={config.get('update_offset')}")
     except (RuntimeError, KeyboardInterrupt) as exc:
         if isinstance(exc, RuntimeError):
             print(str(exc), file=sys.stderr)
