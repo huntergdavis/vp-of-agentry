@@ -158,6 +158,32 @@ class OpsBoardTests(unittest.TestCase):
         self.assertIn("dispatcher stale", text)
         self.assertIn("send failed", text)
 
+    def test_leader_held_counts_unowned_global_actives_and_ages_the_oldest(self):
+        # Owner #1708: unowned means leader-owned. The sample board has one
+        # unowned active global task (t6, 7200s old); t2 is assigned, t18 is
+        # assigned, so neither counts. A pane-scoped unowned task is not the
+        # leader's carried work.
+        client = sample_client()
+        tasks = client.responses["task_list"]["tasks"]
+        tasks.append({"id": "t9", "title": "Private lane note", "status": "open",
+                      "priority": "low", "scope": "w9:pane", "assignees": [],
+                      "created_at": NOW.timestamp() - 99999, "updated_at": NOW.timestamp(),
+                      "lease_expires_at": None, "blocked_by": [], "eligible": True,
+                      "claimable": True, "attempts": 0})
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual({"count": 1, "oldest_age_s": 7200},
+                         board["reference"]["tasks"]["leader_held"])
+        self.assertEqual(1, board["brief"]["tasks"]["leader_held"])
+        self.assertEqual(7200, board["brief"]["tasks"]["leader_held_oldest_age_s"])
+
+    def test_leader_held_is_zero_with_none_ages_when_nothing_is_unowned(self):
+        client = sample_client()
+        tasks = client.responses["task_list"]["tasks"]
+        tasks[1]["assignees"] = ["a-reviewer"]
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual({"count": 0, "oldest_age_s": None},
+                         board["reference"]["tasks"]["leader_held"])
+
     def test_task_reference_keeps_ages_and_dependencies(self):
         board = ops_board.build(sample_client(), self.conn, now=NOW)
         items = {item["id"]: item for item in board["reference"]["tasks"]["items"]}

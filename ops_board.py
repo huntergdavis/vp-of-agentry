@@ -124,6 +124,14 @@ def _task_board(client, now: datetime) -> dict:
     for task in items:
         for assignee in task["assignees"]:
             load[assignee] = load.get(assignee, 0) + 1
+    # Owner #1708: unowned means leader-owned. Active global tasks with no
+    # assignee are the leader's carried work, so count them and age the oldest.
+    held = [row for row in items
+            if not row["assignees"] and row["status"] in ACTIVE_STATUSES
+            and row["scope"] == "global"]
+    leader_held = {"count": len(held),
+                   "oldest_age_s": max((row["age_s"] or 0) for row in held)
+                                  if held else None}
     depth = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
     return {
         "state": "ok",
@@ -132,6 +140,7 @@ def _task_board(client, now: datetime) -> dict:
         "items": items,
         "by_assignee": [{"assignee": name, "count": count}
                          for name, count in sorted(load.items(), key=lambda row: (-row[1], row[0]))],
+        "leader_held": leader_held,
     }
 
 
@@ -268,7 +277,9 @@ def compact(readings: dict, generated_at: str) -> dict:
         "generated_at": generated_at, "interval_s": REFRESH_INTERVAL_S, "no_model": True,
         "brief": {
             "tasks": count(tasks, open=(tasks.get("counts") or {}).get("open", 0),
-                           owner=len(owner)),
+                           owner=len(owner),
+                           leader_held=(tasks.get("leader_held") or {}).get("count"),
+                           leader_held_oldest_age_s=(tasks.get("leader_held") or {}).get("oldest_age_s")),
             "lanes": count(panes, working=panes.get("working"), idle=panes.get("idle"),
                            unknown=panes.get("unknown")),
         },
