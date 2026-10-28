@@ -1,4 +1,10 @@
-"""Both real consumers must resolve one nonsecret fixture identically."""
+"""Both real consumers must resolve one nonsecret fixture identically.
+
+Requires the companion Dunking Sheep PR47 checkout (shared module + watchdog):
+DUNKING_SHEEP_DIR=/path/to/dunkingsheep .venv/bin/python -m unittest \
+    tests.test_telegram_bridge tests.test_telegram_routing_contract
+No caller-supplied PYTHONPATH is needed: server.app registers that DS checkout.
+"""
 
 import json
 import os
