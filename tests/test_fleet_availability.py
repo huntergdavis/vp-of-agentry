@@ -9,6 +9,18 @@ server = importlib.import_module("server.app")
 
 
 class FleetAvailabilityTests(unittest.TestCase):
+    def test_pending_counts_use_global_json_option_before_nested_command(self):
+        result = SimpleNamespace(returncode=0, stderr="", stdout='''{"pending": [
+            {"pane_id": "%2"}, {"pane_id": "%2"}, {"pane_id": "%35"}, {}
+        ]}''')
+        with patch.object(server.subprocess, "run", return_value=result) as run:
+            counts = server._pending_by_pane()
+        self.assertEqual({"%2": 2, "%35": 1}, counts)
+        run.assert_called_once_with(
+            ["dunkingsheep", "--json", "owner", "stats"],
+            capture_output=True, text=True, timeout=10,
+        )
+
     def setUp(self):
         p = patch.object(server, "_FLEET_CACHE", {"at": 0, "payload": None})
         p.start()

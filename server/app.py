@@ -504,7 +504,7 @@ def _desk_token() -> str:
 def _pending_by_pane() -> dict:
     """How many pushed messages a lane has not taken yet - the honest 'delivered?' number."""
     try:
-        result = subprocess.run(["dunkingsheep", "owner", "stats", "--json"],
+        result = subprocess.run(["dunkingsheep", "--json", "owner", "stats"],
                                 capture_output=True, text=True, timeout=10)
         payload = json.loads(result.stdout or "{}")
     except (OSError, subprocess.SubprocessError, ValueError):
