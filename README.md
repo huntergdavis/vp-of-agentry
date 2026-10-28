@@ -103,6 +103,8 @@ The VP server uses `POOLRAD_DASHBOARD_DIR` if the dashboard is outside the defau
 
 Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; authenticated browser check: `VP_TEST_SEND=1 .venv/bin/python tests/browser_smoke.py` (requires Playwright).
 
+For read-only served evidence, use `VP_TEST_CREDENTIALS_PATH=/path/to/local-credentials .venv/bin/python tools/capture_served.py --url http://127.0.0.1:PORT --path /dash/cos --output /path/to/new-evidence`. It requires Playwright/Chromium, authenticates once, and captures 1440x900 and 390x844 with dialogs closed. The receipt records HTTP status, response-byte SHA-256 hashes of served JavaScript and screenshots, and wall-clock timestamps; it omits credentials, cookies and request bodies. HTTP redirects are refused before follow-up requests, and captured bundle name/hash sets must match across viewports. Every subsequent non-GET attempt, including viewport telemetry, refuses the run and removes its screenshots. No live acceptance follows from a refused run. Validate against temporary loopback fixtures with `VP_CAPTURE_BROWSER_TEST=1 .venv/bin/python -m unittest tests.test_capture_served -v` through the shared heavy wrapper; `VP_CAPTURE_TEST_ARTIFACTS` optionally preserves the successful fixture captures. This is viewport emulation, not real browser zoom or full accessibility verification.
+
 ## Play: original or replacement build
 
 `VP_PLAY_BUILD=original` is the default. It launches the original `START.EXE`
