@@ -969,14 +969,20 @@ def _reconcile_owner_pushes(channel: str):
                 if not all(type(t) in (int, float) and math.isfinite(t) and t > 0
                            for t in (created, taken, started)):
                     continue
-                if not started <= created <= taken <= time.time():
+                if taken > time.time():
                     continue
+                # A wall-clock step invalidates the duration, not the matched
+                # pickup itself. Keep the arrival evidence without inventing time.
+                latency = taken - started if started <= created <= taken else None
+                detail = "Picked up by agent harness"
+                if latency is None:
+                    detail += "; wall clock moved, elapsed time unavailable"
                 transport["pickup_receipt"] = {key: receipt[key] for key in ("id", "pane_id", "created_at", "taken_at")}
                 with _db() as conn:
                     conn.execute(
                         "UPDATE messages SET delivery='delivered',delivery_detail=?,delivered_at=?,"
                         "delivery_latency_s=?,direct_transport=? WHERE id=? AND delivery='stored' AND delivered_at IS NULL",
-                        ("Picked up by agent harness", taken, taken - started, json.dumps(transport), row["id"]))
+                        (detail, taken, latency, json.dumps(transport), row["id"]))
     except Exception:
         # An older daemon, outage, or malformed response leaves the last known
         # stored state intact. Never infer pickup from pending-list absence.

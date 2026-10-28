@@ -17,7 +17,7 @@ import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry } from './theme-registry.js';
 import { laneStatus } from './lane-status.js';
-import { deliveryDuration, messageDeliveryLabel } from './delivery-label.js';
+import { channelDeliveryLabel, messageDeliveryLabel } from './delivery-label.js';
 
 function LaneStatus({ row }) {
   const value = laneStatus(row);
@@ -1004,7 +1004,7 @@ function ChannelStandalone({ channel }) {
     <div className="dash-body dash-conversation">
       {error && <div className="dash-error" role="alert">{error}</div>}
       <div className="channel-delivery-summary" role="status" title="Time from the desk accepting your message to the agent harness picking it up; this does not mean a reply is ready.">
-        {deliveryDuration(lastDelivery) !== null ? `Last delivered in ${deliveryDuration(lastDelivery)}` : 'No confirmed delivery time yet'}
+        {channelDeliveryLabel(lastDelivery)}
       </div>
       <div className="conversation" ref={messageScroll.ref} onScroll={messageScroll.onScroll}>
         <div className="conversation-inner">

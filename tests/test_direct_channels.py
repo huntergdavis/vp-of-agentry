@@ -111,7 +111,7 @@ class DirectChannelTests(unittest.TestCase):
         responses = [{"receipts": []}, {}, {"receipts": [valid, valid]}]
         for changes in ({"id": 8}, {"id": "7"}, {"pane_id": "%9"}, {"taken_at": None},
                         {"taken_at": "102.25"}, {"taken_at": True}, {"taken_at": float("nan")},
-                        {"created_at": 99}, {"taken_at": 100.1}, {"taken_at": 200}):
+                        {"created_at": 0}, {"taken_at": 200}):
             responses.append({"receipts": [{**valid, **changes}]})
         for response in responses:
             with self.subTest(response=response):
@@ -126,6 +126,17 @@ class DirectChannelTests(unittest.TestCase):
                 self.assertIsNone(result["last_delivery"])
         with patch.object(server, "_flock", side_effect=RuntimeError("older daemon")):
             self.assertEqual("stored", server.messages("vp", "owner")["items"][0]["delivery"])
+
+    def test_clock_step_preserves_pickup_without_claiming_elapsed_time(self):
+        self.pushed()
+        with patch.object(server, "_flock") as flock, patch.object(server.time, "time", return_value=104):
+            flock.return_value.call.return_value = {"receipts": [
+                dict(id=7, pane_id="%2", created_at=100.5, taken_at=99)]}
+            item = server.messages("vp", "owner")["items"][0]
+        self.assertEqual("delivered", item["delivery"])
+        self.assertEqual(99, item["delivered_at"])
+        self.assertIsNone(item["delivery_latency_s"])
+        self.assertIn("wall clock moved", item["delivery_detail"])
 
     def test_last_delivery_is_channel_scoped_and_independent_of_history_window(self):
         self.pushed()

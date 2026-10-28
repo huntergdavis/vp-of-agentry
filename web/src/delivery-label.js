@@ -10,5 +10,12 @@ export function deliveryDuration(item) {
 export function messageDeliveryLabel(item) {
   const duration = deliveryDuration(item);
   if (duration !== null) return `delivered in ${duration}`;
+  if (item.delivery === 'delivered') return 'delivered · timing unavailable';
   return item.outcome || { inbox: 'delivered to inbox', read: 'read', acked: 'handled' }[item.delivery] || item.delivery;
+}
+
+export function channelDeliveryLabel(item) {
+  const duration = deliveryDuration(item);
+  if (duration !== null) return `Last delivered in ${duration}`;
+  return item?.delivery === 'delivered' ? 'Last delivered · timing unavailable' : 'No confirmed delivery time yet';
 }
