@@ -113,6 +113,49 @@ Checks: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v`; auth
 
 For read-only served evidence, use `VP_TEST_CREDENTIALS_PATH=/path/to/local-credentials .venv/bin/python tools/capture_served.py --url http://127.0.0.1:PORT --path /dash/cos --output /path/to/new-evidence`. It requires Playwright/Chromium, authenticates once, and captures 1440x900 and 390x844 with dialogs closed. The receipt records HTTP status, response-byte SHA-256 hashes of served JavaScript and screenshots, and wall-clock timestamps; it omits credentials, cookies and request bodies. HTTP redirects are refused before follow-up requests, and captured bundle name/hash sets must match across viewports. Every subsequent non-GET attempt, including viewport telemetry, refuses the run and removes its screenshots. No live acceptance follows from a refused run. Validate against temporary loopback fixtures with `VP_CAPTURE_BROWSER_TEST=1 .venv/bin/python -m unittest tests.test_capture_served -v` through the shared heavy wrapper; `VP_CAPTURE_TEST_ARTIFACTS` optionally preserves the successful fixture captures. This is viewport emulation, not real browser zoom or full accessibility verification.
 
+## Play: character editor
+
+Open **Play Pool of Radiance → Character editor** (`/dash/play?panel=editor`).
+Import copied DOS save files, inspect the records, then give the output copy a
+name. **Write unchanged copy** preserves the save bytes; **Write edited copy**
+applies only the selected reference profiles. Download includes the save files
+and a receipt with filenames, hashes and every changed byte. Saved copies can
+be inspected and exported again. Originals are never overwritten.
+
+The backend invokes the Poolrad `tools/character/edit_save.py` schema-1 CLI;
+set `POOLRAD_EDITOR_TOOL` to its installed path if the default sibling checkout
+is unavailable. It also needs `disk_save.py` beside it for unchanged exports.
+Use the accepted PR1608 interface (merge `3203fd0af63b37006ff05d30749d978bb614c999`)
+or a compatible revision. No new package dependency is required. When the CLI
+is missing the editor reports it as unavailable; the game view remains usable.
+Private imports and outputs live under `data/character-editor/`; the UI reports
+the output path relative to `data/`, and downloads omit private absolute paths.
+The routes use the desk's existing owner authentication.
+
+Only the exact hash-bound STR 17→16 and reference fighter level 1→2 transitions
+are supported. The level change does not recalculate XP, HP or spells. Other
+records can be inspected and exported unchanged. Every new output is labelled
+**UNVERIFIED**, with `game_build_loaded: null`: creating a copy does not load it
+in a game or inherit historical game validation. This view sends no game input.
+
+Adapter/model checks and optional real CLI identity check:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p 'test_character_editor*.py' -v
+node --test web/src/character-editor-model.test.js
+POOLRAD_EDITOR_TEST_TOOL=/path/to/edit_save.py .venv/bin/python -m unittest discover -s tests -p test_character_editor_cli.py -v
+```
+
+For browser verification, build to a scratch directory with
+`npm run build --prefix web -- --outDir <scratch-dist>`, then run
+`tools/check_character_editor.py --dist <scratch-dist> --output <evidence-dir>`
+through the shared heavy-job wrapper. It exercises actual HTTP/ASGI upload,
+inspection, ordered edits, copy download, unchanged originals and unknown-record
+re-export at 1440×900 and 390×844 in every registered theme. Its CLI is a
+synthetic contract double; it cannot establish real reference editing or game
+loading. The optional CLI test uses the actual installed scripts with synthetic
+files for no-op identity and refusal of unsupported hashes.
+
 ## Play: original or replacement build
 
 `VP_PLAY_BUILD=original` is the default. It launches the original `START.EXE`

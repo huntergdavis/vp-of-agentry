@@ -18,6 +18,7 @@ import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry } from './theme-registry.js';
 import { laneStatus } from './lane-status.js';
 import { channelDeliveryLabel, messageDeliveryLabel } from './delivery-label.js';
+import CharacterEditor from './CharacterEditor';
 
 function LaneStatus({ row }) {
   const value = laneStatus(row);
@@ -789,7 +790,7 @@ function PoolradReference({ data, error }) {
   </section>;
 }
 
-function PoolradPlay({ vpChannel, standalone = false }) {
+function PoolradPlay({ vpChannel, standalone = false, embedded = false }) {
   const [status, setStatus] = useState(null);
   const [ownChannel, setOwnChannel] = useState(null);
   const channel = vpChannel || ownChannel;
@@ -915,7 +916,7 @@ function PoolradPlay({ vpChannel, standalone = false }) {
     try { localStorage.setItem('vp-codeword', word); } catch {}
     return action('type', { text: word, submit: true });
   }
-  return <DashShell standalone={standalone} view="play">
+  const content = <>
     <DashHeader eyebrow={DASH_ROUTES.play.eyebrow} title={DASH_ROUTES.play.title}
       subtitle={status?.running ? `Live private run · ${status.run_name}` : status?.run_name ? `Saved run · ${status.run_name}` : 'Ready for a new private run'}
       side={<div className="game-actions">{!status?.running ? <><button onClick={() => action('start', { fresh: false })} disabled={busy}>{busy ? 'Starting…' : status?.run_name ? 'Resume saved run' : 'Start game'}</button>{status?.run_name && <button onClick={() => action('start', { fresh: true })} disabled={busy}>New run</button>}</> : <button onClick={() => action('stop')} disabled={busy}>Stop game</button>}</div>} />
@@ -965,6 +966,24 @@ function PoolradPlay({ vpChannel, standalone = false }) {
       </div>
     </div>
     </div>
+  </>;
+  return embedded ? content : <DashShell standalone={standalone} view="play">{content}</DashShell>;
+}
+
+function PlayWorkspace({ standalone }) {
+  const [mode, setMode] = useState(() => new URLSearchParams(window.location.search).get('panel') === 'editor' ? 'editor' : 'game');
+  function choose(next) {
+    setMode(next);
+    const url = new URL(window.location.href);
+    if (next === 'editor') url.searchParams.set('panel', 'editor'); else url.searchParams.delete('panel');
+    window.history.replaceState(null, '', url);
+  }
+  return <DashShell standalone={standalone} view="play">
+    <nav className="play-subviews" aria-label="Play views">
+      <button aria-pressed={mode === 'game'} onClick={() => choose('game')}>Game</button>
+      <button aria-pressed={mode === 'editor'} onClick={() => choose('editor')}>Character editor</button>
+    </nav>
+    <div className="play-subview-body">{mode === 'editor' ? <CharacterEditor api={api} /> : <PoolradPlay embedded />}</div>
   </DashShell>;
 }
 
@@ -1031,7 +1050,7 @@ function StandaloneDesk({ view, known }) {
   }
   if (view === 'fleet') return <Fleet standalone />;
   if (view === 'operations') return <OpsBoard standalone />;
-  if (view === 'play') return <PoolradPlay standalone />;
+  if (view === 'play') return <PlayWorkspace standalone />;
   return <ChannelStandalone key={view} channel={view} />;
 }
 
