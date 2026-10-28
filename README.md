@@ -156,6 +156,14 @@ synthetic contract double; it cannot establish real reference editing or game
 loading. The optional CLI test uses the actual installed scripts with synthetic
 files for no-op identity and refusal of unsupported hashes.
 
+To check the real reference transition, give the browser tool both
+`--cli /path/to/edit_save.py` and `--reference-source /path/to/preserved-copy`.
+Use a hash-checked, isolated clone of the accepted reference set, never a running
+game folder. `--themes default` limits this optional integration run to one
+theme. The tool checks that only the two intended bytes change, other files and
+source hashes stay equal, and the downloaded receipt still says UNVERIFIED.
+Keep private save files and captures outside version control.
+
 ## Play: original or replacement build
 
 `VP_PLAY_BUILD=original` is the default. It launches the original `START.EXE`

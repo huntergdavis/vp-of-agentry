@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Isolated browser workflow; synthetic CLI double, never a game-load proof.
+"""Isolated browser workflow; never a game-load proof.
 
 Run through poolrad-heavy.sh with --dist pointing at an isolated Vite build.
 The browser talks HTTP to the actual ASGI editor router and disk-backed store.
-Only the Poolrad CLI is replaced by a clearly labelled synthetic contract double.
+By default the Poolrad CLI is replaced by a labelled synthetic contract double.
+--cli plus --reference-source exercises a preserved reference copy with the real
+CLI. Neither mode contacts the live desk or controls a game.
 """
 import argparse
 import functools
@@ -24,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
 from fastapi import FastAPI
 from playwright.sync_api import expect, sync_playwright
-from server.character_editor import router
+from server.character_editor import EditorStore, SAVE_NAME, router
 from test_character_editor import ASGIFixtureClient, FixtureStore, synthetic_save
 
 
@@ -62,23 +64,39 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dist', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--cli', type=Path, help='Use a real accepted CLI with --reference-source')
+    parser.add_argument('--reference-source', type=Path, help='Preserved private save copy; never a running game folder')
+    parser.add_argument('--themes', nargs='+', help='Optional subset of registered theme IDs')
     args = parser.parse_args()
+    if bool(args.cli) != bool(args.reference_source):
+        parser.error('--cli and --reference-source must be provided together')
     args.output.mkdir(parents=True, exist_ok=True)
     receipt = dict(source_head=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                    cases=[], failures=[], not_verified=[
-                       'Actual reference edits: browser uses a synthetic CLI contract double',
-                       'Game load, live desk, owner files, physical devices or other browsers',
+                       'Game load, live desk, current owner save files, physical devices or other browsers',
                        'Overlay pixel contrast, native file chooser, screen reader and full accessibility'])
+    receipt['fixture_kind'] = 'preserved reference copy with real CLI' if args.cli else 'synthetic CLI contract double'
+    if not args.cli:
+        receipt['not_verified'].append('Actual reference edits: browser uses a synthetic CLI contract double')
     names = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard',
                                      '--', 'server', 'web', 'tools', 'tests'], cwd=ROOT, text=True).split('\0')
     receipt['source_sha256'] = {n: hashlib.sha256((ROOT/n).read_bytes()).hexdigest() for n in names if n and (ROOT/n).is_file()}
     receipt['build_sha256'] = {str(p.relative_to(args.dist)): hashlib.sha256(p.read_bytes()).hexdigest()
                                for p in args.dist.rglob('*') if p.is_file()}
     themes = sorted(json.loads(p.read_text())['id'] for p in (ROOT/'web/src/themes').glob('*.json'))
+    if args.themes:
+        if set(args.themes)-set(themes): parser.error('Unknown theme ID')
+        themes=args.themes
+    input_files = ({p.name:p.read_bytes() for p in args.reference_source.iterdir() if SAVE_NAME.fullmatch(p.name)}
+                   if args.reference_source else {'CHRDATA1.SAV':synthetic_save()})
+    receipt['input_hashes']={n:hashlib.sha256(b).hexdigest() for n,b in input_files.items()}
+    if args.cli:
+        receipt['cli_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest()
+                               for p in (args.cli,args.cli.with_name('disk_save.py'))}
     with tempfile.TemporaryDirectory() as temp:
         tool = Path(temp)/'synthetic-cli.py'
         tool.write_text('# Synthetic contract double only')
-        store = FixtureStore(Path(temp)/'store', tool)
+        store = EditorStore(Path(temp)/'store', args.cli) if args.cli else FixtureStore(Path(temp)/'store', tool)
         app = FastAPI()
         app.include_router(router(store, lambda: 'synthetic-auth'))
         client = ASGIFixtureClient(app)
@@ -130,7 +148,7 @@ def main():
                         page.route('**/*',lambda r:r.continue_() if r.request.url.startswith(origin+'/') else r.abort())
                         try:
                             page.goto(origin+'/dash/play?panel=editor',wait_until='networkidle')
-                            page.locator('#editor-files').set_input_files(dict(name='CHRDATA1.SAV',mimeType='application/octet-stream',buffer=synthetic_save()))
+                            page.locator('#editor-files').set_input_files([dict(name=n,mimeType='application/octet-stream',buffer=b) for n,b in input_files.items()])
                             page.get_by_role('button',name='Import and inspect',exact=True).click()
                             boxes=page.locator('.editor-profile input')
                             boxes.first.wait_for()
@@ -151,7 +169,10 @@ def main():
                                 page.get_by_role('link',name='Download save copy').click()
                             with zipfile.ZipFile(info.value.path()) as archive:
                                 after=archive.read('CHRDATA1.SAV')
-                                assert [i for i,(a,b) in enumerate(zip(synthetic_save(),after)) if a!=b]==[16,152]
+                                assert [i for i,(a,b) in enumerate(zip(input_files['CHRDATA1.SAV'],after)) if a!=b]==[16,152]
+                                for name,data in input_files.items():
+                                    if name!='CHRDATA1.SAV': assert archive.read(name)==data
+                                case['output_character_sha256']=hashlib.sha256(after).hexdigest()
                                 exported=json.loads(archive.read('write-receipts.json'))
                                 assert exported['game_validation']=='UNVERIFIED' and exported['game_build_loaded'] is None
                                 assert temp not in json.dumps(exported)
@@ -187,6 +208,10 @@ def main():
                 browser.close()
             receipt['game_requests']=[r for r in requests if r['path'].startswith('/api/game')]
             if receipt['game_requests']: receipt['failures'].append('Unexpected game request')
+            if args.reference_source:
+                current={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in args.reference_source.iterdir() if SAVE_NAME.fullmatch(p.name)}
+                receipt['reference_source_unchanged']=current==receipt['input_hashes']
+                if not receipt['reference_source_unchanged']: receipt['failures'].append('Reference source changed')
         finally:
             server.shutdown(); server.server_close()
             (args.output/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
