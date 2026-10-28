@@ -1,5 +1,6 @@
 {
   "id": "crt",
   "name": "1980s CRT",
-  "order": 10
+  "order": 10,
+  "group": "Standard"
 }

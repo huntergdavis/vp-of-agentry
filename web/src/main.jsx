@@ -28,6 +28,13 @@ function LaneStatus({ row }) {
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const themeManifests = import.meta.glob('./themes/*.json', { eager: true, import: 'default' });
 const THEMES = buildThemeRegistry(themeManifests, themeStyles);
+const THEME_GROUPS = THEMES.reduce((groups, option) => {
+  const label = option.group || 'Other';
+  const last = groups.at(-1);
+  if (last && last.label === label) last.options.push(option);
+  else groups.push({ label, options: [option] });
+  return groups;
+}, []);
 const ThemeContext = createContext(null);
 const validTheme = value => THEMES.some(theme => theme.id === value) ? value : 'default';
 function storedTheme() {
@@ -177,7 +184,9 @@ function AppearanceSettings({ onClose }) {
     <div className="settings-head"><h2>Appearance</h2><button className="icon-button" onClick={onClose} aria-label="Close appearance">×</button></div>
     <label htmlFor="desk-theme">Theme</label>
     <select id="desk-theme" value={theme} onChange={event => chooseTheme(event.target.value)} autoFocus>
-      {THEMES.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+      {THEME_GROUPS.map(group => <optgroup key={group.label} label={group.label}>
+        {group.options.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+      </optgroup>)}
     </select>
     {themeError && <p role="status">Theme preference could not be saved. Using Default.</p>}
   </div></div>;
