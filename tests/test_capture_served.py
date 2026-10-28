@@ -31,6 +31,7 @@ class ServedCaptureTests(unittest.TestCase):
         self.credentials.write_text("Password: " + PASSWORD + "\n")
         self.requests = []
         self.script_bodies = []
+        self.documents = 0
         self.mode = "normal"
         owner = self
 
@@ -69,11 +70,17 @@ class ServedCaptureTests(unittest.TestCase):
                     self.reply(401)
                     return
                 if self.path == "/dash/cos":
-                    script = "/assets/index-fixture.js?private=" + PASSWORD
+                    owner.documents += 1
+                    suffix = str(owner.documents) if owner.mode == "bundle_filename_drift" else "fixture"
+                    script = "/assets/index-" + suffix + ".js?private=" + PASSWORD
                     html = ('<!doctype html><title>Isolated desk</title>'
                             '<script type="module" src="' + script + '"></script>')
                     self.reply(200, html.encode())
-                elif self.path.startswith("/assets/index-fixture.js"):
+                elif self.path.startswith("/assets/index-"):
+                    if owner.mode in ("script_redirect", "redirect_chain"):
+                        location = "/redirect-hop" if owner.mode == "redirect_chain" else owner.redirect_url
+                        self.reply(302, headers={"Location": location})
+                        return
                     if owner.mode == "missing_bundle":
                         self.reply(404)
                         return
@@ -88,11 +95,13 @@ class ServedCaptureTests(unittest.TestCase):
                         script += "fetch('http://127.0.0.1:1/private?token=synthetic-session-marker').catch(()=>{});"
                     if owner.mode == "javascript_error":
                         script += "throw new Error('synthetic-capture-password-marker');"
-                    if owner.mode == "bundle_drift":
+                    if owner.mode in ("bundle_drift", "bundle_filename_drift"):
                         script += "// response " + str(len(owner.script_bodies))
                     body = script.encode()
                     owner.script_bodies.append(body)
                     self.reply(200, body, "application/javascript")
+                elif self.path == "/redirect-hop":
+                    self.reply(302, headers={"Location": owner.redirect_url})
                 else:
                     self.reply(404)
 
@@ -115,6 +124,8 @@ class ServedCaptureTests(unittest.TestCase):
         all_text = result.stdout + result.stderr + (out / "evidence.json").read_text()
         for secret in (PASSWORD, SESSION, str(self.credentials)):
             self.assertNotIn(secret, all_text)
+        if os.environ.get("VP_CAPTURE_TEST_ARTIFACTS"):
+            shutil.copytree(out, Path(os.environ["VP_CAPTURE_TEST_ARTIFACTS"]) / mode)
         return result, evidence, out
 
     def test_actual_response_hashes_two_viewports_and_one_login(self):
@@ -131,8 +142,6 @@ class ServedCaptureTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(body).hexdigest(), record["bundles"][0]["sha256"])
             self.assertEqual(hashlib.sha256((out / record["screenshot"]).read_bytes()).hexdigest(),
                              record["screenshot_sha256"])
-        if os.environ.get("VP_CAPTURE_TEST_ARTIFACTS"):
-            shutil.copytree(out, Path(os.environ["VP_CAPTURE_TEST_ARTIFACTS"]) / "positive")
 
     def assert_refused(self, mode, code):
         result, evidence, out = self.run_capture(mode)
@@ -166,6 +175,47 @@ class ServedCaptureTests(unittest.TestCase):
 
     def test_changed_bundle_between_viewports_invalidates_all_captures(self):
         self.assert_refused("bundle_drift", "bundle_changed_during_capture")
+
+    def test_changed_bundle_filename_and_bytes_invalidates_all_captures(self):
+        evidence = self.assert_refused("bundle_filename_drift", "bundle_changed_during_capture")
+        self.assertEqual([["index-1.js"], ["index-2.js"]],
+                         [[b["name"] for b in row["bundles"]] for row in evidence["cases"]])
+
+    def check_redirect(self, mode):
+        external_requests = []
+
+        class External(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                external_requests.append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript")
+                self.end_headers()
+                self.wfile.write(b"document.body.innerHTML='<nav class=\"dash-nav\">Foreign script</nav>';")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), External)
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            self.redirect_url = f"http://127.0.0.1:{server.server_port}/redirected.js"
+            evidence = self.assert_refused(mode, "request_policy_violation")
+            self.assertEqual([], external_requests, "Redirect left the allowed origin before refusal")
+            self.assertNotIn(("GET", "/redirect-hop"), self.requests)
+            self.assertIn({"reason": "redirect"}, evidence["violations"])
+            if os.environ.get("VP_CAPTURE_TEST_ARTIFACTS"):
+                path = Path(os.environ["VP_CAPTURE_TEST_ARTIFACTS"]) / mode / "server-observations.json"
+                path.write_text(json.dumps(dict(external_requests=external_requests,
+                    redirect_hop_requests=sum(path == "/redirect-hop" for _, path in self.requests))))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_cross_origin_script_redirect_never_leaves_origin(self):
+        self.check_redirect("script_redirect")
+
+    def test_same_origin_hop_cannot_hide_foreign_redirect(self):
+        self.check_redirect("redirect_chain")
 
     def test_login_redirect_not_followed(self):
         self.assert_refused("auth_redirect", "authentication_http_status")

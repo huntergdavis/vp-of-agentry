@@ -76,6 +76,7 @@ def capture(args):
                   failures=[], passed=False, not_verified=NOT_VERIFIED)
     expected_origin = origin(args.url)
     asset_versions = {}
+    expected_bundles = None
     stage = "setup"
     try:
         from playwright.sync_api import sync_playwright
@@ -110,7 +111,22 @@ def capture(args):
                                 reason="non_get" if request.method != "GET" else "foreign_origin"))
                             route.abort()
                         else:
-                            route.continue_()
+                            # Browser redirects after continue_() need not re-enter routing.
+                            # Fetch exactly one hop, then refuse redirects before the browser
+                            # can issue a follow-up request (even to another same-origin path).
+                            try:
+                                fetched = route.fetch(max_redirects=0, timeout=args.timeout_ms)
+                                try:
+                                    if 300 <= fetched.status < 400:
+                                        report["violations"].append(dict(reason="redirect"))
+                                        route.abort()
+                                    else:
+                                        route.fulfill(response=fetched)
+                                finally:
+                                    fetched.dispose()
+                            except Exception:
+                                report["violations"].append(dict(reason="get_fetch_failed"))
+                                route.abort()
 
                     context.route("**/*", readonly)
 
@@ -156,6 +172,8 @@ def capture(args):
                                 raise Refused("document_http_status")
                             if page.url != args.url + args.path:
                                 raise Refused("unexpected_navigation")
+                            if report["violations"]:
+                                raise Refused("request_policy_violation")
                             if errors or bundle_errors or not record["bundles"]:
                                 raise Refused("page_or_bundle_failure")
                             page.locator(args.ready_selector).first.wait_for(timeout=args.timeout_ms)
@@ -165,6 +183,11 @@ def capture(args):
                                 raise Refused("request_policy_violation")
                             if errors or bundle_errors or not record["bundles"]:
                                 raise Refused("page_or_bundle_failure")
+                            bundles = {(b["name"], b["sha256"]) for b in record["bundles"]}
+                            if expected_bundles is None:
+                                expected_bundles = bundles
+                            elif bundles != expected_bundles:
+                                raise Refused("bundle_changed_during_capture")
                             record["actual_viewport"] = page.evaluate(
                                 "({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})")
                             if record["actual_viewport"] != dict(width=width, height=height, dpr=1):
@@ -179,6 +202,8 @@ def capture(args):
                             if (not closed(record["dialog_counts_after"]) or report["violations"]
                                     or errors or bundle_errors):
                                 raise Refused("capture_postcondition_failed")
+                            if {(b["name"], b["sha256"]) for b in record["bundles"]} != expected_bundles:
+                                raise Refused("bundle_changed_during_capture")
                             record.update(captured=True, screenshot=filename,
                                 screenshot_sha256=hashlib.sha256((out / filename).read_bytes()).hexdigest())
                         finally:
