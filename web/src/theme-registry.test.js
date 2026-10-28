@@ -17,6 +17,20 @@ test('default first, then numeric order, name and stable id tie-break', () => {
     manifest('a', 'Alpha', 1), manifest('default', 'Default', 99), manifest('x', 'Same', 2)];
   assert.deepEqual(registry(rows).map(t => t.id), ['default', 'a', 'b', 'x', 'z']);
 });
+test('group passes through when present and is absent otherwise', () => {
+  const rows = [manifest('default', 'Default', 0), manifest('crt', '1980s CRT', 10)];
+  Object.assign(Object.fromEntries(rows)['./themes/crt.json'], { group: ' Classic sci-fi ' });
+  const themes = registry(rows);
+  assert.equal(themes[0].group, undefined);
+  assert.equal(themes[1].group, 'Classic sci-fi');
+});
+test('an empty or non-string group fails visibly', () => {
+  for (const group of ['', 7]) {
+    const rows = [manifest('default', 'Default', 0), manifest('crt', '1980s CRT', 10)];
+    Object.assign(Object.fromEntries(rows)['./themes/crt.json'], { group });
+    assert.throws(() => registry(rows), /Invalid theme manifest/);
+  }
+});
 test('invalid or incomplete theme pairs fail visibly', () => {
   const base = Object.fromEntries([manifest('default', 'Default', 0)]);
   assert.throws(() => buildThemeRegistry(base, {}), /stylesheet missing/);

@@ -4,14 +4,17 @@ export function buildThemeRegistry(manifests, styles) {
     const id = file.split('/').pop().replace(/\.json$/, '');
     if (!theme || theme.id !== id || !/^[a-z0-9][a-z0-9-]*$/.test(id) ||
         typeof theme.name !== 'string' || !theme.name.trim() ||
-        !Number.isFinite(theme.order) || seen.has(id)) {
+        !Number.isFinite(theme.order) || seen.has(id) ||
+        (theme.group !== undefined && (typeof theme.group !== 'string' || !theme.group.trim()))) {
       throw new Error('Invalid theme manifest: ' + file);
     }
     if (!(file.replace(/\.json$/, '.css') in styles)) {
       throw new Error('Theme stylesheet missing: ' + id);
     }
     seen.add(id);
-    return { id, name: theme.name, order: theme.order };
+    const row = { id, name: theme.name, order: theme.order };
+    if (theme.group !== undefined) row.group = theme.group.trim();
+    return row;
   });
   for (const file of Object.keys(styles)) {
     if (!(file.replace(/\.css$/, '.json') in manifests)) {
