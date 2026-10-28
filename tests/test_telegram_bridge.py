@@ -85,6 +85,9 @@ class TelegramBridgeTests(unittest.TestCase):
         self.config = {"bot_token": "private", "pair_code": "pair-code", "chat_id": None,
                        "last_brief_id": None, "update_offset": None}
 
+    def set_channel(self, channel):
+        (desk.DATA / "telegram-routing.json").write_text(json.dumps({"channel": channel}))
+
     @staticmethod
     def update(ident, chat_id, **content):
         return {"update_id": ident, "message": {"chat": {"id": chat_id, "type": "private"}, **content}}
@@ -154,7 +157,8 @@ class TelegramBridgeTests(unittest.TestCase):
     def test_channel_setting_and_environment_override_route_both_directions(self):
         for config_channel, override, expected in [("vp", None, "vp"), ("vp", "cos", "cos")]:
             with self.subTest(channel=config_channel, override=override):
-                self.config.update(channel=config_channel, chat_id=None)
+                self.set_channel(config_channel)
+                self.config.update(chat_id=None)
                 if override is None:
                     os.environ.pop("VP_TELEGRAM_CHANNEL", None)
                 else:
@@ -197,7 +201,8 @@ class TelegramBridgeTests(unittest.TestCase):
         self.assertEqual(1, len(self.bot.calls))
 
     def test_same_channel_keeps_partial_send_resume(self):
-        self.config.update(chat_id=42, channel="vp", last_brief_id=0)
+        self.set_channel("vp")
+        self.config.update(chat_id=42, last_brief_id=0)
         brief = desk.post_brief(desk.BriefIn(channel="vp", body="A" * 5000), "api")
         self.config.update(outbound_message_id=brief["id"], outbound_part=1)
         bridge.send_briefs(self.config, self.bot)
@@ -206,11 +211,11 @@ class TelegramBridgeTests(unittest.TestCase):
         self.assertEqual(brief["id"], self.config["last_brief_id"])
 
     def test_replayed_update_after_switch_is_not_delivered_twice(self):
-        self.config["channel"] = "vp"
+        self.set_channel("vp")
         self.pair()
         update = self.update(3, 42, text="Deliver once")
         bridge.process_update(update, self.config, self.bot)
-        self.config["channel"] = "cos"
+        self.set_channel("cos")
         bridge.process_update(update, self.config, self.bot)
         self.assertEqual(1, self.direct.call_count)
         with desk._db() as conn:
@@ -218,8 +223,8 @@ class TelegramBridgeTests(unittest.TestCase):
         self.assertEqual(["vp"], [row[0] for row in rows])
 
     def test_unknown_channel_fails_before_sending(self):
-        self.config["channel"] = "missing-channel"
-        with self.assertRaisesRegex(RuntimeError, "configured desk channel"):
+        self.set_channel("missing-channel")
+        with self.assertRaisesRegex(ValueError, "configured desk channel"):
             bridge.process_update(self.update(1, 42, text="/pair pair-code"), self.config, self.bot)
         self.assertEqual([], self.bot.calls)
         self.direct.assert_not_called()

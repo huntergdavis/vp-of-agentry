@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 
 desk = importlib.import_module("server.app")
+from dunk_telegram_routing import resolve_telegram_channel
 CONFIG = desk.DATA / "telegram.json"
 LOCK = desk.DATA / "telegram.lock"
 DOWNLOAD_LIMIT = 20 * 1024 * 1024
@@ -102,10 +103,9 @@ class Telegram:
 
 
 def _channel(config: dict) -> str:
-    channel = os.getenv("VP_TELEGRAM_CHANNEL", config.get("channel", "cos"))
-    if not isinstance(channel, str) or channel not in desk.CHANNEL_INDEX:
-        raise RuntimeError("Telegram channel must name a configured desk channel")
-    return channel
+    if "channel" in config:
+        raise ValueError("Move Telegram channel from credential config to telegram-routing.json")
+    return resolve_telegram_channel(desk.DATA, channels_root=desk.ROOT)
 
 
 def _channel_name(channel: str) -> str:
@@ -297,7 +297,7 @@ def setup():
     bot = Telegram(token)
     info = bot.call("getMe")
     config = {"bot_token": token, "pair_code": secrets.token_urlsafe(18), "chat_id": None,
-              "update_offset": None, "last_brief_id": None, "channel": "cos"}
+              "update_offset": None, "last_brief_id": None}
     save_config(config)
     print(f"Bot @{info['username']} saved in private local data.\nStart ./install-telegram-service.sh, then DM the bot: /pair {config['pair_code']}")
 
@@ -343,8 +343,8 @@ def main():
         else:
             config = load_config()
             print(f"channel={_channel(config)}; brief_channel={config.get('brief_channel', 'vp')}; paired={'yes' if config.get('chat_id') is not None else 'no'}; last_brief_id={config.get('last_brief_id')}; update_offset={config.get('update_offset')}")
-    except (RuntimeError, KeyboardInterrupt) as exc:
-        if isinstance(exc, RuntimeError):
+    except (RuntimeError, ValueError, OSError, KeyboardInterrupt) as exc:
+        if not isinstance(exc, KeyboardInterrupt):
             print(str(exc), file=sys.stderr)
             sys.exit(1)
 
