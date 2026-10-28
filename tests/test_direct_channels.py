@@ -79,3 +79,65 @@ class DirectChannelTests(unittest.TestCase):
         self.assertEqual("uncertain", item["delivery"])
         self.assertIsNone(item["outcome"])
         self.assertEqual(1, send.call_count)
+
+    def pushed(self):
+        with patch.object(server, "_send_to_pane", return_value={
+                "outcome": "stored", "push_id": 7, "pane": "%2", "route": "owner_push"}), \
+                patch.object(server.time, "time", return_value=100):
+            return self.send(text="Cost $901, **bold** and [brackets].")
+
+    def test_pickup_receipt_records_actual_latency_and_preserves_body_and_original_outcome(self):
+        item = self.pushed()
+        receipt = dict(id=7, pane_id="%2", created_at=100.5, taken_at=102.25)
+        with patch.object(server, "_flock") as flock, patch.object(server.time, "time", return_value=109):
+            flock.return_value.call.return_value = {"receipts": [receipt]}
+            response = server.messages("vp", "owner")
+            flock.return_value.call.assert_called_once_with("owner_receipts", push_ids=[7])
+        delivered = response["items"][0]
+        self.assertEqual("delivered", delivered["delivery"])
+        self.assertEqual("stored", delivered["outcome"])
+        self.assertEqual(102.25, delivered["delivered_at"])
+        self.assertEqual(2.25, delivered["delivery_latency_s"])
+        self.assertEqual(receipt, delivered["transport"]["pickup_receipt"])
+        self.assertEqual(item["body"].encode(), delivered["body"].encode())
+        self.assertEqual(item["id"], response["last_delivery"]["id"])
+        # A later browser poll cannot inflate the recorded transport duration.
+        with patch.object(server, "_flock") as flock:
+            self.assertEqual(2.25, server.messages("vp", "owner")["last_delivery"]["delivery_latency_s"])
+            flock.assert_not_called()
+
+    def test_unproven_pickup_never_becomes_delivered(self):
+        valid = dict(id=7, pane_id="%2", created_at=100.5, taken_at=102.25)
+        responses = [{"receipts": []}, {}, {"receipts": [valid, valid]}]
+        for changes in ({"id": 8}, {"id": "7"}, {"pane_id": "%9"}, {"taken_at": None},
+                        {"taken_at": "102.25"}, {"taken_at": True}, {"taken_at": float("nan")},
+                        {"created_at": 99}, {"taken_at": 100.1}, {"taken_at": 200}):
+            responses.append({"receipts": [{**valid, **changes}]})
+        for response in responses:
+            with self.subTest(response=response):
+                with server._db() as conn:
+                    conn.execute("DELETE FROM messages")
+                self.pushed()
+                with patch.object(server, "_flock") as flock, patch.object(server.time, "time", return_value=109):
+                    flock.return_value.call.return_value = response
+                    result = server.messages("vp", "owner")
+                self.assertEqual("stored", result["items"][0]["delivery"])
+                self.assertIsNone(result["items"][0]["delivered_at"])
+                self.assertIsNone(result["last_delivery"])
+        with patch.object(server, "_flock", side_effect=RuntimeError("older daemon")):
+            self.assertEqual("stored", server.messages("vp", "owner")["items"][0]["delivery"])
+
+    def test_last_delivery_is_channel_scoped_and_independent_of_history_window(self):
+        self.pushed()
+        with server._db() as conn:
+            conn.execute("UPDATE messages SET delivery='delivered',delivered_at=102,delivery_latency_s=2")
+            delivered_id = conn.execute("SELECT id FROM messages").fetchone()[0]
+            conn.execute("INSERT INTO messages(channel,role,body) VALUES('vp','agent','Later reply')")
+            conn.execute("INSERT INTO messages(channel,role,body,delivery,delivered_at,delivery_latency_s) "
+                         "VALUES('cos','owner','Other channel','delivered',110,3)")
+        with patch.object(server, "_flock") as flock:
+            response = server.messages("vp", "owner", limit=1)
+            flock.assert_not_called()
+        self.assertEqual("Later reply", response["items"][0]["body"])
+        self.assertEqual(delivered_id, response["last_delivery"]["id"])
+        self.assertEqual(2, response["last_delivery"]["delivery_latency_s"])
