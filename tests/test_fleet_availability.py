@@ -1,5 +1,6 @@
 """An unavailable roster is not evidence of zero lanes."""
 import importlib
+import json
 import subprocess
 import unittest
 from types import SimpleNamespace
@@ -60,3 +61,51 @@ class FleetAvailabilityTests(unittest.TestCase):
         self.assertEqual("ok", result["state"])
         self.assertEqual(0, result["count"])
         self.assertEqual([], result["rows"])
+
+
+    def fleet_with_pending_result(self, pending_result):
+        def run(argv, **kwargs):
+            if argv == ["dunkingsheep", "panes", "--json"]:
+                return SimpleNamespace(returncode=0, stderr="", stdout=json.dumps({
+                    "panes": [{"pane_id": "%35", "agent": "codex", "label": "fixture"}]
+                }))
+            self.assertEqual(["dunkingsheep", "--json", "owner", "stats"], argv)
+            if isinstance(pending_result, Exception):
+                raise pending_result
+            return pending_result
+
+        with patch.object(server.subprocess, "run", side_effect=run), \
+             patch.object(server, "_FLEET_CACHE", {"at": 0, "payload": None}), \
+             patch.object(server, "_capability", return_value={}), \
+             patch.object(server, "_desk_token", return_value=""), \
+             patch.object(server.os.path, "expanduser", return_value="/nonexistent-test-fleet"), \
+             patch("fleet_inventory.collect", return_value={"state": "ok", "rows": []}):
+            return server.api_fleet()
+
+    def test_failed_pending_read_is_unknown_not_zero_in_fleet(self):
+        failures = [
+            SimpleNamespace(returncode=1, stderr="refused", stdout='{"pending": []}'),
+            subprocess.TimeoutExpired("dunkingsheep", 10),
+            OSError("missing executable"),
+        ]
+        for body in ("", "not json", "{}", "[]", "null", '{"pending": null}',
+                     '{"pending": {}}', '{"pending": [null]}',
+                     '{"pending": [{"pane_id": []}]}',
+                     '{"ok": false, "pending": []}'):
+            failures.append(SimpleNamespace(returncode=0, stderr="", stdout=body))
+        for result in failures:
+            with self.subTest(result=result):
+                fleet = self.fleet_with_pending_result(result)
+                self.assertEqual("ok", fleet["state"])
+                self.assertEqual(1, fleet["count"])
+                self.assertIsNone(fleet["rows"][0]["pending"])
+                self.assertEqual("unknown", fleet["rows"][0]["pending_state"])
+
+    def test_valid_pending_read_preserves_counts_and_real_zero(self):
+        for pending, expected in (([], 0), ([{"pane_id": "%2"}], 0),
+                                  ([{"pane_id": "%35"}] * 2, 2)):
+            with self.subTest(pending=pending):
+                result = SimpleNamespace(returncode=0, stderr="", stdout=json.dumps({"pending": pending}))
+                fleet = self.fleet_with_pending_result(result)
+                self.assertEqual(expected, fleet["rows"][0]["pending"])
+                self.assertEqual("ok", fleet["rows"][0]["pending_state"])

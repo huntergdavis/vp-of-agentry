@@ -584,6 +584,7 @@ function Fleet({ standalone = false }) {
         <div className="fleet-lanes">{rows.map(row => <button key={row.pane_id}
           aria-pressed={selected === row.pane_id} onClick={() => setSelected(row.pane_id)}>
           {row.name} <small>{row.agent} · {age(row.last_activity_s)}</small>
+          {(row.pending_state === 'unknown' || row.pending == null) && <small>Pending: UNKNOWN</small>}
         </button>)}</div>
       </section>)}
     <section className="dash-terminal" aria-label="Unrouted agent processes">
@@ -605,8 +606,10 @@ function Fleet({ standalone = false }) {
       {(() => {
         const lane = (fleet?.rows || []).find(r => r.pane_id === selected);
         if (!lane) return null;
-        return <p className="dash-muted">
-          {lane.pending ? `${lane.pending} message(s) awaiting receipt.` : 'Delivery status appears after sending.'}
+        return <p className="dash-muted" role="status" data-testid="pending-status">
+          {lane.pending_state === 'unknown' || lane.pending == null
+            ? 'Pending: UNKNOWN — message receipt counts could not be read.'
+            : `${lane.pending} message(s) awaiting receipt.`}
         </p>;
       })()}
       {(() => {

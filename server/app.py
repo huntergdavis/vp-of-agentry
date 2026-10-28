@@ -501,17 +501,26 @@ def _desk_token() -> str:
         return ""
 
 
-def _pending_by_pane() -> dict:
-    """How many pushed messages a lane has not taken yet - the honest 'delivered?' number."""
+def _pending_by_pane() -> dict | None:
+    """Counts of untaken pushes, or None when the source cannot establish a count."""
     try:
         result = subprocess.run(["dunkingsheep", "--json", "owner", "stats"],
                                 capture_output=True, text=True, timeout=10)
-        payload = json.loads(result.stdout or "{}")
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return {}
+        if result.returncode != 0:
+            return None
+        payload = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None
+    if (not isinstance(payload, dict) or payload.get("ok") is False
+            or not isinstance(payload.get("pending"), list)):
+        return None
     counts = {}
-    for item in payload.get("pending") or []:
+    for item in payload["pending"]:
+        if not isinstance(item, dict):
+            return None
         pane = item.get("pane_id")
+        if pane is not None and not isinstance(pane, str):
+            return None
         if pane:
             counts[pane] = counts.get(pane, 0) + 1
     return counts
@@ -792,7 +801,8 @@ def api_fleet():
             # "owner_push" = it drains pushes; "guarded" = immediate typed send.
             "send": (cap or {}).get("send"),
             "drains": (cap or {}).get("drains"),
-            "pending": pending.get(pane_id, 0),
+            "pending": pending.get(pane_id, 0) if pending is not None else None,
+            "pending_state": "ok" if pending is not None else "unknown",
             # Whether the desk can actually reach the typed route for this lane: the
             # capability says what it would take, this says whether we hold the credential.
             "can_type": bool(_desk_token()),
