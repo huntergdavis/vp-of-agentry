@@ -6,6 +6,12 @@
     "kind": "active"
   },
   {
+    "id": "cos",
+    "name": "Chief of Staff",
+    "match": "chief of staff",
+    "kind": "active"
+  },
+  {
     "id": "project",
     "name": "Project",
     "match": "project agent",
