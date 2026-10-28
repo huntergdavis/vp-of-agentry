@@ -130,6 +130,16 @@ class OpsBoardTests(unittest.TestCase):
         lanes = ops_board.build(client, self.conn, now=NOW)["brief"]["lanes"]
         self.assertEqual((1, 1, 1), (lanes["working"], lanes["idle"], lanes["unknown"]))
 
+    def test_lane_provenance_survives_projection_to_operations(self):
+        client = sample_client()
+        pane = client.responses["list_panes"]["panes"][0]
+        pane.update(agent_status="working", agent_status_source="codex declared turns",
+                    agent_status_reason=None, agent_status_inferred=True)
+        rows = ops_board.build(client, self.conn, now=NOW)["reference"]["lanes"]["items"]
+        row = next(row for row in rows if row["pane_id"] == pane["pane_id"])
+        for key in ("agent_status", "agent_status_source", "agent_status_reason", "agent_status_inferred"):
+            self.assertEqual(pane[key], row[key])
+
     def test_only_explicit_owner_tasks_require_owner(self):
         client = sample_client()
         client.responses["task_list"]["tasks"][0]["assignees"] = ["owner"]
