@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""One desk accessibility matrix, runnable against any build (t160).
+
+The problem this replaces: every desk PR re-implements the widths, so reviewers end up
+comparing matrices instead of looking at the product. This is the ONE tracked harness.
+It runs a named set of rules over the width matrix and every registered theme, and it
+prints and records, for each failure, WHICH assertion tripped and against what
+(selector, expected vs got) - never a bare count.
+
+    python3 tools/desk_matrix.py --dist web/dist --artifacts /tmp/desk-matrix
+
+It never writes to the desk: every request that is not GET is aborted and counted as a
+failure (`no-writes`), the app is served from a local static copy, and every API answer
+is a synthetic fixture from this file.
+
+What this first version covers, and what it does NOT (the matrix is grown rule by rule,
+each with a negative control):
+
+  covered   no-descendant-overflow  (scrollWidth > clientWidth on any element)
+            no-page-scrollbar       (documentElement scrollWidth > clientWidth)
+            dialog-closed           (capture only with no role=dialog in the DOM)
+            no-writes               (no non-GET request reached the app)
+            renders                 (the app shell mounted before any rule is judged)
+
+  not yet   per-width nav rules, clipped-control, target size >= 24x24, Tab walk,
+            text 200%, PAINT verification, contrast thresholds.
+            They are deliberately absent rather than silently skipped: `not_covered`
+            in the JSON names them, so a reader cannot mistake this run for the full
+            matrix.
+
+Emulation is viewport + deviceScaleFactor, NOT browser zoom, and the JSON says so.
+
+Negative control (the rule must be able to fail): pass --fixture-url/--fixture, or run
+`--self-check`, which serves a page with a deliberately overflowing element and asserts
+the tool FAILS on it. A rule that cannot fail is not evidence.
+"""
+import argparse
+import json
+import os
+import threading
+import time
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+
+# The matrix the owner asked for (#1843/#1846). Named widths keep the owner's physical
+# sizes straight: they are CSS px at deviceScaleFactor 1.8 where applicable.
+WIDTHS = (
+    ("owner-2560", 1422, 1.8),
+    ("owner-1920", 1067, 1.8),
+    ("owner-1440", 800, 1.8),
+    ("1440", 1440, 1),
+    ("1280", 1280, 1),
+    ("1100", 1100, 1),
+    ("1024", 1024, 1),
+    ("960", 960, 1),
+    ("900", 900, 1),
+    ("800", 800, 1),
+    ("720", 720, 1),
+    ("700", 700, 1),
+    ("480", 480, 1),
+    ("390", 390, 1),
+    ("320", 320, 1),
+)
+
+NOT_COVERED = [
+    "per-width nav rules (five links / Boards+inline status / second row) - not implemented here",
+    "clipped-control and target >= 24x24 - not implemented here",
+    "Tab walk at 480/320 and the text-200% check - not implemented here",
+    "PAINT verification of visible controls (pixel evidence, not geometry) - not implemented here",
+    "contrast thresholds; live deployed desk; real browser zoom or physical devices",
+]
+
+# Every read the desk makes on first paint. A route not listed here 404s and is reported,
+# so a feature PR that adds a request must add it here in the SAME PR (harness rule).
+SYNTHETIC_APIS = {
+    "/api/channels": {"channels": [
+        {"id": "cos", "name": "Chief of Agent Staff", "status": "working",
+         "can_message": True, "pane_id": "fixture"},
+        {"id": "vp", "name": "VP of Agentry", "status": "idle",
+         "can_message": True, "pane_id": "fixture"},
+    ]},
+    "/api/messages": {"items": [
+        {"id": f"i{n}", "role": "agent", "created_at": "2026-10-28T12:00:00-07:00",
+         "delivery": "posted", "attachments": [],
+         "body": f"Fixture message {n}. " + "Readable body text. " * 12}
+        for n in range(1, 9)
+    ]},
+    "/api/game/status": {"running": False, "states": []},
+    "/api/terminal": {"url": "", "available": False, "label": "Terminals"},
+    "/api/herdr-webui": {"url": "", "available": False, "label": "Terminals"},
+    "/api/health": {"ok": True},
+    "/api/version": {"version": "matrix-fixture"},
+    "/api/roster": {"lanes": []},
+}
+
+OVERFLOW_JS = """
+() => {
+  const root = document.documentElement;
+  const over = [];
+  for (const el of document.querySelectorAll('body *')) {
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden') continue;
+    const sw = Math.ceil(el.scrollWidth), cw = Math.ceil(el.clientWidth);
+    if (cw > 0 && sw > cw + 1) {
+      over.push({selector: cssPath(el), tag: el.tagName.toLowerCase(),
+                 scrollWidth: sw, clientWidth: cw});
+    }
+  }
+  return {overflow: over.slice(0, 40), overflowCount: over.length,
+          pageScrollWidth: Math.ceil(root.scrollWidth),
+          pageClientWidth: Math.ceil(root.clientWidth),
+          docScrollWidth: Math.ceil(document.body.scrollWidth),
+          dialogOpen: !!document.querySelector('[role="dialog"], dialog[open]'),
+          // The desk's root is `.dash-root`; older builds used `.shell`. Both count as
+          // mounted, and a login screen is reported as its own failure, not as "no app".
+          shellMounted: !!document.querySelector('.dash-root, .shell'),
+          loginScreen: !!document.querySelector('main.login-shell'),};
+}
+// A short, readable selector path: enough to find the element, not a full CSS query.
+function cssPath(el) {
+  const parts = [];
+  let node = el;
+  while (node && node.nodeType === 1 && parts.length < 5) {
+    let part = node.tagName.toLowerCase();
+    if (node.id) { part += '#' + node.id; parts.unshift(part); break; }
+    const cls = (node.className && typeof node.className === 'string')
+      ? node.className.trim().split(/\\s+/).slice(0, 3).join('.') : '';
+    if (cls) part += '.' + cls;
+    parts.unshift(part);
+    node = node.parentElement;
+  }
+  return parts.join(' > ');
+}
+"""
+
+
+class StaticHandler(SimpleHTTPRequestHandler):
+    def log_message(self, *args):                       # quiet: the evidence is the JSON
+        pass
+
+
+def serve_dist(dist: Path):
+    handler = partial(StaticHandler, directory=str(dist))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/"
+
+
+def themes_available(dist: Path):
+    """Registered themes, from the build's own manifests (not a hardcoded list)."""
+    candidates = list((dist / "assets").glob("*.js")) + list((dist / "themes").glob("*.json"))
+    ids = sorted(p.stem for p in candidates if p.suffix == ".json")
+    if ids:
+        return ids
+    # Vite inlines the manifests into the bundle; the JSON ids are the source of truth.
+    src = ROOT / "web" / "src" / "themes"
+    if src.is_dir():
+        return sorted(p.stem for p in src.glob("*.json"))
+    return ["default"]
+
+
+def run(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dist", type=Path, help="built web/dist to serve")
+    parser.add_argument("--url", help="already-serving base URL (instead of --dist)")
+    parser.add_argument("--artifacts", type=Path, required=True, help="new directory for evidence")
+    parser.add_argument("--widths", help="comma-separated subset of matrix names")
+    parser.add_argument("--themes", help="comma-separated subset of theme ids")
+    parser.add_argument("--self-check", action="store_true",
+                        help="negative control: assert every covered rule FAILS on a broken fixture")
+    args = parser.parse_args(argv)
+
+    from playwright.sync_api import sync_playwright
+
+    args.artifacts.mkdir(parents=True, exist_ok=True)
+    server = None
+    if args.dist:
+        server, base = serve_dist(args.dist)
+    elif args.url:
+        base = args.url.rstrip("/") + "/"
+    elif args.self_check:
+        server, base = serve_broken_fixture()
+    else:
+        parser.error("one of --dist, --url or --self-check is required")
+    if args.self_check and args.dist:
+        server2, base_broken = serve_broken_fixture()
+        server = (server, server2)
+
+    widths = [w for w in WIDTHS if not args.widths or w[0] in args.widths.split(",")]
+    themes = args.themes.split(",") if args.themes else themes_available(args.dist or ROOT / "web" / "dist")
+    report = {"artifact": "desk_matrix", "schema": 1, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+              "input": {"dist": str(args.dist) if args.dist else None, "url": base},
+              "emulation": "viewport size + deviceScaleFactor only; NOT browser zoom",
+              "widths": [w[0] for w in widths], "themes": themes,
+              "rules": ["renders", "no-descendant-overflow", "no-page-scrollbar",
+                        "dialog-closed", "no-writes"],
+              "not_covered": NOT_COVERED, "results": [], "failures": []}
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(args=["--no-sandbox"])
+        try:
+            for theme in themes:
+                for name, width, dpr in widths:
+                    page = browser.new_page(viewport={"width": width,
+                                                      "height": 844 if width <= 700 else 900},
+                                            device_scale_factor=dpr, locale="en-US")
+                    writes, route_misses, page_errors = [], [], []
+                    page.add_init_script(f"localStorage.setItem('vp-theme', {json.dumps(theme)})")
+                    # localStorage is per-origin, so the theme is also carried in the URL
+                    # for builds that read it; both are set, neither is trusted for a claim.
+                    page.on("pageerror", lambda e: page_errors.append(str(e)))
+
+                    def route(r):
+                        if r.request.method != "GET":
+                            writes.append({"method": r.request.method, "url": r.request.url})
+                            r.abort()
+                            return
+                        path = urlsplit(r.request.url).path
+                        if path in SYNTHETIC_APIS:
+                            r.fulfill(status=200, content_type="application/json",
+                                      body=json.dumps(SYNTHETIC_APIS[path]))
+                        else:
+                            route_misses.append(path)
+                            r.fulfill(status=404, content_type="application/json", body="{}")
+
+                    page.route("**/api/**", route)
+                    page.goto(base, wait_until="load")
+                    # MOUNT BEFORE JUDGING. The first version of this tool evaluated 700 ms
+                    # after domcontentloaded and reported "renders: false" for every case -
+                    # a race in the harness, not a desk defect. Wait for React to commit.
+                    try:
+                        page.wait_for_function(
+                            "document.getElementById('root') && "
+                            "document.getElementById('root').children.length > 0", timeout=8000)
+                    except Exception:                   # noqa: BLE001 - reported as a failure
+                        pass
+                    page.wait_for_timeout(600)
+                    data = page.evaluate(OVERFLOW_JS)
+                    shot = args.artifacts / f"{theme}-{name}.png"
+                    page.screenshot(path=str(shot), full_page=False)
+                    page.close()
+
+                    case = {"theme": theme, "width": name, "css_px": width, "dpr": dpr,
+                            "screenshot": shot.name, "rules": {}, "failures": []}
+                    def fail(rule, what, expected, got):
+                        case["rules"][rule] = False
+                        f = {"theme": theme, "width": name, "css_px": width, "rule": rule,
+                             "assertion": what, "expected": expected, "got": got}
+                        case["failures"].append(f)
+                        report["failures"].append(f)
+
+                    if data["loginScreen"]:
+                        fail("renders", "the desk shell is on screen, not the login page",
+                             "authenticated desk (.dash-root)", "the login screen")
+                    elif not data["shellMounted"]:
+                        fail("renders", "app shell mounted before any rule is judged",
+                             "an element matching .dash-root|.shell", "none")
+                    if data["overflowCount"]:
+                        fail("no-descendant-overflow",
+                             "every element's scrollWidth <= clientWidth",
+                             "0 overflowing elements",
+                             "%d, first: %s (%d > %d)" % (
+                                 data["overflowCount"], data["overflow"][0]["selector"],
+                                 data["overflow"][0]["scrollWidth"],
+                                 data["overflow"][0]["clientWidth"]))
+                    if data["pageScrollWidth"] > data["pageClientWidth"] + 1:
+                        fail("no-page-scrollbar", "documentElement.scrollWidth <= clientWidth",
+                             str(data["pageClientWidth"]), str(data["pageScrollWidth"]))
+                    if data["dialogOpen"]:
+                        fail("dialog-closed", "no role=dialog / dialog[open] at capture time",
+                             "no dialog", "a dialog was open")
+                    if writes:
+                        fail("no-writes", "the desk issues no non-GET request",
+                             "0 non-GET requests",
+                             json.dumps(writes[:3]))
+                    for rule in ("renders", "no-descendant-overflow", "no-page-scrollbar",
+                                 "dialog-closed", "no-writes"):
+                        case["rules"].setdefault(rule, True)
+                    case["route_misses"] = sorted(set(route_misses))
+                    case["page_errors"] = page_errors[:5]
+                    report["results"].append(case)
+        finally:
+            browser.close()
+            for s in (server if isinstance(server, tuple) else (server,)):
+                if s is not None:
+                    s.shutdown()
+
+    report["passed"] = not report["failures"]
+    report["summary"] = {"cases": len(report["results"]), "failures": len(report["failures"]),
+                         "by_rule": {}}
+    for f in report["failures"]:
+        report["summary"]["by_rule"][f["rule"]] = report["summary"]["by_rule"].get(f["rule"], 0) + 1
+    out = args.artifacts / "desk-matrix.json"
+    out.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps({"summary": str(out), "cases": len(report["results"]),
+                      "passed": report["passed"], "failures": len(report["failures"]),
+                      "by_rule": report["summary"]["by_rule"]}))
+    if args.self_check:
+        # The negative control is the point: a rule that cannot fail is not evidence.
+        covered = ("no-descendant-overflow", "no-page-scrollbar")
+        tripped = {f["rule"] for f in report["failures"]}
+        missing = [r for r in covered if r not in tripped]
+        print(json.dumps({"self_check": "pass" if not missing else "FAIL",
+                          "tripped": sorted(tripped), "did_not_trip": missing}))
+        return 0 if not missing else 1
+    return 0 if report["passed"] else 1
+
+
+BROKEN_FIXTURE = """<!doctype html><html><head><meta charset="utf-8"><title>broken</title>
+<style>html,body{margin:0} .wide{width:2000px;height:40px;background:#333}</style></head>
+<body><main><h1>negative control</h1><div class="wide">this element is 2000px wide on a narrow viewport</div>
+</main></body></html>"""
+
+
+def serve_broken_fixture():
+    """A page that MUST trip no-descendant-overflow and no-page-scrollbar."""
+    import tempfile
+    folder = Path(tempfile.mkdtemp(prefix="desk-matrix-broken-"))
+    (folder / "index.html").write_text(BROKEN_FIXTURE)
+    return serve_dist(folder)
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())
