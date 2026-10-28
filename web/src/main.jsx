@@ -574,7 +574,7 @@ function Fleet({ standalone = false }) {
 
   return <DashShell standalone={standalone} view="fleet">
     <div className="dash-body fleet-body">
-    <p className="dash-lead">Select an agent to view its terminal and send a message.</p>
+    <p className="dash-lead">Choose an agent to view or message.</p>
     {error && <p className="dash-error" role="alert">{error}</p>}
     {!fleet && !error && <p className="dash-empty">Loading agents…</p>}
     {fleet && !fleet.rows.length && <p className="dash-empty">No active agents right now.</p>}
@@ -633,7 +633,7 @@ function Fleet({ standalone = false }) {
         {sent && <p className="dash-muted" role="status">{sent}</p>}
         {sendError && <p className="dash-error">{sendError}</p>}
       </form>
-      <p className="dash-muted">Current screen only. Full-screen app history is not captured; scrolling here moves this captured screen.</p>
+      <p className="dash-muted">Current screen only. Full-screen app history is not captured.</p>
       {paneText && paneText.reason && <p className="dash-error">{paneText.reason}</p>}
       {paneText && !paneText.reason && <pre className="dash-terminal-text" tabIndex={0} aria-label="Current terminal screen">{paneText.text}</pre>}
       {!paneText && <p className="dash-empty">Loading terminal…</p>}
@@ -733,7 +733,7 @@ function OpsBoard({ standalone = false }) {
         </section>
         {board.budget && <Budget data={board.budget} />}
         <section className="ops-reference" data-ops-section="reference">
-          <h2>Reference: Poolrad evidence, tasks, lanes and schedules</h2>
+          <h2>Reference</h2>
           <PoolradReference data={poolrad.data} error={poolrad.error} />
           {alarms.length > 3 && <ul>{alarms.map((alarm, i) => <li key={i} title={evidence(alarm)}>{alarm.source}: {alarm.text}</li>)}</ul>}
           {[
@@ -919,7 +919,7 @@ function PoolradPlay({ vpChannel, standalone = false }) {
     {error && <div className="game-error" role="alert">{error}</div>}
     <div className="game-tools" aria-label="Session build"><strong>{buildLabel}</strong></div>
     <div className="game-stage" ref={screenRef} tabIndex={0} onKeyDown={keyDown} onClick={() => screenRef.current?.focus()} aria-label="Poolrad game screen; click here to control with keyboard">
-      {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game to play here.</div>}
+      {status?.running ? <img key={stream} src={`/api/game/video?v=${stream}`} alt="Live Poolrad game display" draggable="false" /> : <div className="game-placeholder">Start the private DOS game.</div>}
     </div>
     <div className="game-footer"><span>Click the screen, then use your keyboard. Arrow keys move; Enter selects; Escape goes back. Saves stay in the private run on this PC.</span>{status?.running && status.audio && <audio key={stream} controls preload="none" src={`/api/game/audio?v=${stream}`} aria-label="Poolrad game audio" />}</div>
     <div className="game-type">
@@ -945,9 +945,9 @@ function PoolradPlay({ vpChannel, standalone = false }) {
     {status?.state_archive?.status === 'verified' && status.state_archive.verified_count > 0 && <div className="game-footer" role="note">States from earlier sessions are archived. We cannot verify which build wrote them.</div>}
     <CodewheelPicker screenRef={screenRef} inputRevision={inputRevision} running={Boolean(status?.running)} runKey={status?.run_name} busy={busy} onSend={sendWord} onAuto={autoCodeWord} />
     <div className="game-chat" aria-label="Direct line to the VP">
-      <div className="game-chat-head"><strong>Direct line to the VP</strong><small>Tell me where you are, what you want, or issue a quick action.</small></div>
+      <div className="game-chat-head"><strong>Direct line to the VP</strong></div>
       <div className="game-chat-log" ref={chatScroll.ref} onScroll={chatScroll.onScroll}>
-        {chat.length === 0 && <div className="game-chat-empty">{channel ? 'No messages yet. Say where you are, or hit Quicksave.' : 'VP channel unavailable.'}</div>}
+        {chat.length === 0 && <div className="game-chat-empty">{channel ? 'No messages yet.' : 'VP channel unavailable.'}</div>}
         {chat.map(m => <div key={m.id} className={`game-chat-item ${m.role === 'owner' ? 'owner' : 'agent'}`}><span className="game-chat-role">{m.role === 'owner' ? 'You' : 'VP'}</span><span className="game-chat-body">{m.body}</span></div>)}
       </div>
       {chatScroll.hasNew && <button className="chat-new-messages" onClick={chatScroll.jump}>New messages · Jump to latest</button>}
@@ -1001,7 +1001,7 @@ function ChannelStandalone({ channel }) {
       {error && <div className="dash-error" role="alert">{error}</div>}
       <div className="conversation" ref={messageScroll.ref} onScroll={messageScroll.onScroll}>
         <div className="conversation-inner">
-          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2><p>Your messages and the agent’s replies appear here.</p></div>}
+          {!items.length && <div className="empty-state"><div className="empty-icon">✦</div><h2>Direct line to {selected?.name || 'the agent'}</h2></div>}
           <MessageList autoScrollToBottom={false} autoScrollToBottomOnMount={false}>{items.map(item => <MessageCard key={item.id} item={item} onSendNow={() => {}} onInspect={() => {}} />)}</MessageList>
         </div>
       </div>
