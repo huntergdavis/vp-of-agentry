@@ -38,6 +38,7 @@ Negative control (the rule must be able to fail): pass --fixture-url/--fixture, 
 the tool FAILS on it. A rule that cannot fail is not evidence.
 """
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -185,16 +186,51 @@ BUILD_RECIPE = ("cd <dist> && find . -type f | LC_ALL=C sort | xargs sha256sum |
 BUILD_PIPELINE = "find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
 
 
-def _digest(folder: Path, follow_links: bool):
-    """sha256 over a folder's files, the way the recipe does it (sorted, './' prefix)."""
-    pattern = "find . \\( -type f -o -type l \\) | LC_ALL=C sort" if follow_links else \
-              "find . -type f | LC_ALL=C sort"
-    listed = subprocess.run(pattern, shell=True, cwd=str(folder),
-                            capture_output=True, text=True)
-    lines = [line for line in listed.stdout.splitlines() if line.strip()]
-    hashed = subprocess.run("xargs sha256sum | sha256sum", shell=True, cwd=str(folder),
-                            input="\n".join(lines) + "\n", capture_output=True, text=True)
-    return (hashed.stdout.split() or [None])[0], lines
+def _manifest(folder: Path, follow_dir_symlinks=True):
+    """Walk and hash in Python. Returns (digest, entries, problems).
+
+    Reviewer %31 (t458, P2): the shell recipe silently tolerated failures - `xargs`
+    split a filename on whitespace, `sha256sum` reported missing-file errors, and the
+    trailing `sha256sum` still printed the digest of the files it DID see, so a
+    four-file tree was reported with the three-file digest and passed. Nothing here
+    shells out: every entry is opened and hashed individually, ANY error becomes a
+    problem, and a manifest with a problem yields NO digest at all - an incomplete
+    manifest is a failure, never a smaller number.
+
+    Symlink policy, stated rather than implied: file symlinks are read through (their
+    target's bytes are what the static server sends), directory symlinks are followed
+    with a realpath cycle guard (a cycle is a problem, not an infinite walk), and every
+    entry is recorded by its path INSIDE the tree, verbatim, spaces included.
+    """
+    root = str(folder)
+    entries, problems, seen = [], [], set()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_dir_symlinks):
+        real = os.path.realpath(dirpath)
+        if real in seen:
+            problems.append({"path": "./" + os.path.relpath(dirpath, root),
+                             "problem": "directory symlink cycle"})
+            dirnames[:] = []
+            continue
+        seen.add(real)
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            rel = "./" + os.path.relpath(full, root)
+            if os.path.isdir(full) and not os.path.islink(full):
+                continue
+            try:
+                with open(full, "rb") as handle:
+                    data = handle.read()
+            except OSError as error:
+                problems.append({"path": rel, "problem": "%s: %s"
+                                 % (type(error).__name__, error)})
+                continue
+            entries.append((rel, hashlib.sha256(data).hexdigest()))
+    entries.sort()
+    digest = None
+    if not problems:
+        payload = "".join("%s  %s\n" % (digest_hex, path) for path, digest_hex in entries)
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+    return digest, entries, problems
 
 
 def snapshot_build(dist: Path):
@@ -227,22 +263,29 @@ def snapshot_build(dist: Path):
         return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
                       "reason": "snapshot copy failed: %s" % (copy.stderr or "")[:120],
                       "file_count": None}
-    release, release_files = _digest(snapshot, follow_links=False)
-    served, served_files = _digest(snapshot, follow_links=True)
-    return snapshot, {"manifest_sha256": served,
-                      "served_sha256": served,
-                      "release_recipe_sha256": release,
-                      "served_files": len(served_files),
-                      "release_files": len(release_files),
-                      "command": BUILD_RECIPE,
-                      "served_command": "find . \\( -type f -o -type l \\) | LC_ALL=C sort"
-                                        " | xargs sha256sum | sha256sum",
-                      "recipe_note": "the './' prefix is part of the hashed bytes; the "
-                                     "served digest follows symlinks because the static "
-                                     "server serves their targets",
-                      "input_tree": str(dist),
-                      "served_snapshot": str(snapshot),
-                      "reason": None}
+    served, entries, problems = _manifest(snapshot, follow_dir_symlinks=True)
+    strict, strict_entries, strict_problems = _manifest(snapshot, follow_dir_symlinks=False)
+    block = {"manifest_sha256": served,
+             "served_sha256": served,
+             "release_recipe_sha256": strict,
+             "served_files": len(entries),
+             "release_files": len(strict_entries),
+             "command": BUILD_RECIPE,
+             "served_command": "python: sorted './path' + sha256(file bytes), sha256man-like"
+                               " payload, digest of that payload",
+             "symlink_policy": "file symlinks read through; directory symlinks followed "
+                               "with a realpath cycle guard; entries recorded verbatim",
+             "problems": problems + strict_problems,
+             "input_tree": str(dist),
+             "served_snapshot": str(snapshot),
+             "reason": None}
+    if problems:
+        # An incomplete manifest must not masquerade as a binding for a smaller tree.
+        block["manifest_sha256"] = None
+        block["served_sha256"] = None
+        block["reason"] = ("manifest incomplete: %d problem(s); no digest is reported "
+                           "for a tree that could not be fully hashed" % len(problems))
+    return snapshot, block
 
 
 def serve_dist(dist: Path):
@@ -282,7 +325,9 @@ def run(argv=None):
     args.artifacts.mkdir(parents=True, exist_ok=True)
     server = None
     served_dir = None
-    build_block = {"manifest_sha256": None, "reason": "not computed"}
+    build_block = {"manifest_sha256": None, "served_sha256": None,
+                   "reason": "no --dist given: a --url run is NOT bound to immutable bytes"}
+
     if args.dist:
         served_dir, build_block = snapshot_build(args.dist)
         if served_dir is None:
@@ -426,7 +471,12 @@ def run(argv=None):
                     s.shutdown()
 
     if served_dir is not None:
-        after, _ = _digest(served_dir, follow_links=True)
+        after, _, after_problems = _manifest(served_dir, follow_dir_symlinks=True)
+        if after_problems:
+            report["failures"].append({"theme": "*", "width": "*", "rule": "build-stable",
+                                       "assertion": "the served tree stays fully hashable",
+                                       "expected": "no problems",
+                                       "got": json.dumps(after_problems[:3])})
         report["build"]["served_sha256_after"] = after
         report["build"]["stable"] = (after == report["build"]["served_sha256"])
         if not report["build"]["stable"]:
