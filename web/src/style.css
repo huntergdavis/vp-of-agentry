@@ -212,6 +212,23 @@ h1,h2,p { margin-top: 0; }
 .settings-success { background: var(--jump-banner-surface); color: var(--settings-success-ink); padding: 9px; border-radius: var(--radius-7px); font-size: 11px; margin-bottom: 10px; }
 .update-banner { position: fixed; z-index: 40; top: 12px; left: 50%; transform: translateX(-50%); background: var(--update-banner-surface); color: var(--topbar-surface); border: 1px solid var(--update-banner-border); box-shadow: var(--update-banner-shadow); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; max-width: min(90vw,420px); text-align: center; }
 .update-banner button { border: 0; background: var(--clear); color: var(--brand-mark-surface); text-decoration: underline; font-weight: 800; padding: 0; }
+/* A real update notice gets its own row above the dashboard. Its height can
+ * grow with text size without covering keyboard-focused navigation. */
+#root:has(> .update-banner + .dash-standalone) {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--bg);
+}
+#root:has(> .update-banner + .dash-standalone) > .update-banner {
+  position: static;
+  transform: none;
+  flex: none;
+  align-self: center;
+  margin: 8px;
+}
+#root:has(> .update-banner + .dash-standalone) > .dash-standalone { height: auto; }
 @media(max-width:700px) {
   .topbar-right .icon-button { width: 29px; height: 29px; font-size: 17px; flex: none; }
   .topbar-right { gap: 5px; }
