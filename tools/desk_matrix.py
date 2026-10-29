@@ -134,8 +134,11 @@ OVERFLOW_JS = """
               const r = el.getBoundingClientRect();
               if (r.width === 0 && r.height === 0) continue;          // not rendered
               if (el.tagName === 'A' && s.display === 'inline') continue;   // WCAG inline exception
+              // COMPARE UNROUNDED. Rounding first let a 23.75px control round to 24 and
+              // pass a >=24 floor (reviewer %65, t432 false-pass 2). The epsilon only
+              // absorbs float noise from layout, not real sub-floor sizes.
               const w = r.width, h = r.height;
-              if (Math.round(w) < 24 || Math.round(h) < 24) {
+              if (w < 24 - 0.01 || h < 24 - 0.01) {
                 out.push({selector: cssPath(el), tag: el.tagName.toLowerCase(),
                           width: Math.round(w), height: Math.round(h)});
               }
@@ -220,7 +223,15 @@ def run(argv=None):
         server = (server, server2)
 
     widths = [w for w in WIDTHS if not args.widths or w[0] in args.widths.split(",")]
-    themes = args.themes.split(",") if args.themes else themes_available(args.dist or ROOT / "web" / "dist")
+    if not widths:
+        parser.error("no matrix width matched --widths %r; known: %s"
+                     % (args.widths, ", ".join(w[0] for w in WIDTHS)))
+    registered = themes_available(args.dist or ROOT / "web" / "dist")
+    themes = args.themes.split(",") if args.themes else registered
+    unknown = [t for t in themes if t not in registered]
+    if unknown:
+        parser.error("unknown theme(s) %s; available: %s"
+                     % (", ".join(repr(t) for t in unknown), ", ".join(registered)))
     report = {"artifact": "desk_matrix", "schema": 1, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
               "input": {"dist": str(args.dist) if args.dist else None, "url": base},
               "emulation": "viewport size + deviceScaleFactor only; NOT browser zoom",
@@ -243,9 +254,18 @@ def run(argv=None):
                     # for builds that read it; both are set, neither is trusted for a claim.
                     page.on("pageerror", lambda e: page_errors.append(str(e)))
 
+                    def note_write(request):
+                        # A route on **/api/** cannot see a POST to /mutation, so a
+                        # non-API write reached the server while the report passed clean
+                        # (reviewer %65, t432 false-pass 1). EVERY non-GET is recorded here;
+                        # the /api/** route below still aborts what it can.
+                        if request.method != "GET":
+                            writes.append({"method": request.method, "url": request.url})
+
+                    page.on("request", note_write)
+
                     def route(r):
                         if r.request.method != "GET":
-                            writes.append({"method": r.request.method, "url": r.request.url})
                             r.abort()
                             return
                         path = urlsplit(r.request.url).path
@@ -312,7 +332,7 @@ def run(argv=None):
                         fail("dialog-closed", "no role=dialog / dialog[open] at capture time",
                              "no dialog", "a dialog was open")
                     if writes:
-                        fail("no-writes", "the desk issues no non-GET request",
+                        fail("no-writes", "the desk issues no non-GET request (any method, any path)",
                              "0 non-GET requests",
                              json.dumps(writes[:3]))
                     for rule in ("renders", "no-descendant-overflow", "no-page-scrollbar",
@@ -350,9 +370,13 @@ def run(argv=None):
 
 BROKEN_FIXTURE = """<!doctype html><html><head><meta charset="utf-8"><title>broken</title>
 <style>html,body{margin:0} .wide{width:2000px;height:40px;background:#333}
-.tiny{width:10px;height:10px;border:0;padding:0;background:#555}</style></head>
+.tiny{width:10px;height:10px;border:0;padding:0;background:#555}
+.under{width:23.75px;height:23.75px;border:0;padding:0;background:#777}</style></head>
 <body><main><h1>negative control</h1><div class="wide">this element is 2000px wide on a narrow viewport</div>
 <button class="tiny" aria-label="too small"></button>
+<!-- 23.75 rounds to 24: this control exists to prove the floor compares UNROUNDED -->
+<button class="under" aria-label="just under the floor"></button>
+<script>fetch('/mutation', {method: 'POST', body: 'x'})</script>
 </main></body></html>"""
 
 
