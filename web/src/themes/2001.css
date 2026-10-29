@@ -22,7 +22,7 @@
   --radius: 3px;
   --font-body: 'Liberation Sans', Arial, sans-serif;
   --font-dashboard: var(--font-body);
-  --font-display: 'DejaVu Sans', 'Avenir Next', sans-serif;
+  --font-display: 'Michroma', 'DejaVu Sans', 'Avenir Next', sans-serif;
   --font-mono: 'Liberation Mono', 'Courier New', monospace;
   --scanline-strength: 0;
   --overlay: none;

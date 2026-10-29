@@ -23,7 +23,7 @@
   --font-body: 'Liberation Mono', 'Courier New', monospace;
   --font-mono: 'Liberation Mono', 'Courier New', monospace;
   --font-dashboard: var(--font-body);
-  --font-display: 'DejaVu Sans Condensed', 'Arial Narrow', sans-serif;
+  --font-display: 'Black Ops One', 'DejaVu Sans Condensed', 'Arial Narrow', sans-serif;
   --scanline-strength: 0.12;
   --overlay: repeating-linear-gradient(0deg, rgb(0 0 0 / var(--scanline-strength)) 0 1px, transparent 1px 4px);
 }

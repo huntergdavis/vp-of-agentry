@@ -21,7 +21,7 @@
   --radius: 18px;
   --font-body: 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
   --font-dashboard: var(--font-body);
-  --font-display: 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Dosis', 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, monospace;
   --scanline-strength: 0;
   --overlay: none;
