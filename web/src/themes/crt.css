@@ -89,6 +89,15 @@
   --form-error-ink: var(--danger);
   --update-banner-surface: var(--surface-raised);
   --update-banner-border: var(--border-strong);
+  /* Keep queue warnings and hover controls on the phosphor palette. */
+  --queue-help-ink: var(--warning);
+  --queue-help-border: var(--border-strong);
+  --queue-help-surface: var(--surface-raised);
+  --queue-help-ink-2: var(--warning);
+  --queue-help-surface-2: var(--surface-raised);
+  --queue-help-surface-3: var(--surface-raised);
+  --queue-help-border-2: var(--warning);
+  --queue-help-ink-3: var(--warning);
 }
 
 /* The overlay never receives input and does not create a scrolling surface.
