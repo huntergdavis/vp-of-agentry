@@ -257,7 +257,12 @@ def snapshot_build(dist: Path):
         return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
                       "reason": "dist path is not a directory: %s" % dist, "file_count": None}
     snapshot = Path(tempfile.mkdtemp(prefix="desk-matrix-snapshot-"))
-    copy = subprocess.run(["cp", "-a", str(dist) + "/.", str(snapshot)],
+    # DEREFERENCE. `cp -a` keeps links to files and directories OUTSIDE the snapshot, so
+    # the static server would keep following mutable external targets while the manifests
+    # hashed them once - a before/after comparison catches a persistent change, not one
+    # restored after its response (reviewer %31, t460 P2). `-L` copies target CONTENT, so
+    # the snapshot is self-contained and the bytes hashed are the bytes served.
+    copy = subprocess.run(["cp", "-aL", str(dist) + "/.", str(snapshot)],
                           capture_output=True, text=True)
     if copy.returncode != 0:
         return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
@@ -273,8 +278,10 @@ def snapshot_build(dist: Path):
              "command": BUILD_RECIPE,
              "served_command": "python: sorted './path' + sha256(file bytes), sha256man-like"
                                " payload, digest of that payload",
-             "symlink_policy": "file symlinks read through; directory symlinks followed "
-                               "with a realpath cycle guard; entries recorded verbatim",
+             "symlink_policy": "snapshot dereferences links (cp -L): served bytes are copies "
+                               "inside the snapshot, so an external target cannot change what "
+                               "the browser got after the manifest was taken; a dangling link "
+                               "or cycle is a problem, not a silently skipped entry",
              "problems": problems + strict_problems,
              "input_tree": str(dist),
              "served_snapshot": str(snapshot),
