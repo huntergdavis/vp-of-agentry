@@ -68,7 +68,7 @@ Page: `prototype/dune-sand.html`. **Off by default** — applies only with `?tex
 
 I reported 12.68:1 → 12.06:1 ("costs 0.62, about 5%") by taking a percentile of all pixels in the text box. Reviewer %36 (t484) showed that method **falsely passes a bright local background patch**: a percentile of the whole box hides a bright region behind a glyph. My own follow-up attempt to make it conservative by pairing the lightest glyph core with the brightest non-ink pixel instead measured glyph **anti-aliasing** — ratios of ~1.2 across the board — which is not a background measurement either. Both numbers are withdrawn rather than re-labelled.
 
-**The measurement to use is the independent one**, taken by %36 at measured head `b5a5f12` (the HTML is byte-identical since; only text changed). Both widths, DPR 1.8, minimum over each surface:
+**The measurement to use is the independent one**, taken by %36 at rendered head `b5a5f12`. Those figures are **historical**: the CSS, palette values and the texture flag are unchanged since that render, but the panel's own sentence has since changed, so glyph layout on that panel may differ and **the current panel text has NOT been re-measured**. Both widths, DPR 1.8, minimum over each surface, for that earlier render:
 
 | surface | flat | textured | loss |
 |---|---|---|---|
