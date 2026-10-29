@@ -9,9 +9,11 @@ prints and records, for each failure, WHICH assertion tripped and against what
 
     python3 tools/desk_matrix.py --dist web/dist --artifacts /tmp/desk-matrix
 
-It never writes to the desk: every request that is not GET is aborted and counted as a
-failure (`no-writes`), the app is served from a local static copy, and every API answer
-is a synthetic fixture from this file.
+It never writes to the desk: every request that is not GET is RECORDED and fails
+(`no-writes`), and aborted as well wherever a route can match it (requests under
+/api/**); a non-API write under --url is recorded but cannot be blocked, so the rule
+fails on the attempt rather than pretending it was stopped. The app is served from a
+local static copy, and every API answer is a synthetic fixture from this file.
 
 What this first version covers, and what it does NOT (the matrix is grown rule by rule,
 each with a negative control):
@@ -36,8 +38,11 @@ Negative control (the rule must be able to fail): pass --fixture-url/--fixture, 
 the tool FAILS on it. A rule that cannot fail is not evidence.
 """
 import argparse
+import hashlib
 import json
 import os
+import subprocess
+import tempfile
 import threading
 import time
 from functools import partial
@@ -174,6 +179,198 @@ class StaticHandler(SimpleHTTPRequestHandler):
         pass
 
 
+# The NUL-safe command that reproduces release_recipe_sha256 EXACTLY, including
+# filenames containing spaces. The older whitespace-splitting pipeline
+# (`find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum`) is still recorded, but
+# as LEGACY_RECIPE and flagged non-reproducing when a supported filename has whitespace:
+# advertising a command that silently hashes 3 of 4 files under a name that promises the
+# release hash is how a receipt becomes a lie (reviewer %31, t463 P2).
+BUILD_RECIPE = ("cd <dist> && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum"
+                " | sha256sum   # NUL-delimited: filenames with spaces stay one path")
+BUILD_PIPELINE = ("find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum")
+LEGACY_RECIPE = ("cd <dist> && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
+                 "   # LEGACY: splits names on whitespace; only valid for trees with no spaces")
+
+
+def _manifest(folder: Path, follow_dir_symlinks=True):
+    """Walk and hash in Python. Returns (digest, entries, problems).
+
+    Reviewer %31 (t458, P2): the shell recipe silently tolerated failures - `xargs`
+    split a filename on whitespace, `sha256sum` reported missing-file errors, and the
+    trailing `sha256sum` still printed the digest of the files it DID see, so a
+    four-file tree was reported with the three-file digest and passed. Nothing here
+    shells out: every entry is opened and hashed individually, ANY error becomes a
+    problem, and a manifest with a problem yields NO digest at all - an incomplete
+    manifest is a failure, never a smaller number.
+
+    Symlink policy, stated rather than implied: file symlinks are read through (their
+    target's bytes are what the static server sends), directory symlinks are followed
+    with a realpath cycle guard (a cycle is a problem, not an infinite walk), and every
+    entry is recorded by its path INSIDE the tree, verbatim, spaces included.
+    """
+    root = str(folder)
+    entries, problems, seen = [], [], set()
+
+    def _onerror(error):
+        # os.walk SKIPS a directory it cannot scan and says nothing. Without this the
+        # files inside it are invisible, the digest is a partial digest and problems
+        # stays empty - a passing matrix for a tree that was never fully hashable
+        # (reviewer %31, t460 P2#2, measured with a real chmod 000 directory).
+        try:
+            where = os.path.relpath(getattr(error, "filename", None) or root, root)
+        except Exception:                              # noqa: BLE001 - never fail the report
+            where = "<unknown>"
+        problems.append({"path": "./" + where,
+                         "problem": "%s: %s" % (type(error).__name__, error)})
+
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_dir_symlinks,
+                                                onerror=_onerror):
+        real = os.path.realpath(dirpath)
+        if real in seen:
+            problems.append({"path": "./" + os.path.relpath(dirpath, root),
+                             "problem": "directory symlink cycle"})
+            dirnames[:] = []
+            continue
+        seen.add(real)
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            rel = "./" + os.path.relpath(full, root)
+            if os.path.isdir(full) and not os.path.islink(full):
+                continue
+            if not follow_dir_symlinks and os.path.islink(full):
+                # `find . -type f` does NOT list a symlink, so the recipe-side digest must
+                # not include one either - otherwise the field named after that recipe is
+                # a different number under a familiar name (reviewer %31, t460 P2#3).
+                continue
+            try:
+                with open(full, "rb") as handle:
+                    data = handle.read()
+            except OSError as error:
+                problems.append({"path": rel, "problem": "%s: %s"
+                                 % (type(error).__name__, error)})
+                continue
+            entries.append((rel, hashlib.sha256(data).hexdigest()))
+    entries.sort()
+    digest = None
+    if not problems:
+        payload = "".join("%s  %s\n" % (digest_hex, path) for path, digest_hex in entries)
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+    return digest, entries, problems
+
+
+def _hazards(path):
+    """Why a name may defeat an advertised command (empty list = it does not)."""
+    found = []
+    if any(ch.isspace() for ch in path):
+        found.append("whitespace")
+    if "'" in path or '"' in path:
+        found.append("quote")
+    if "\\" in path:
+        found.append("backslash")
+    if any(ord(ch) < 32 for ch in path):
+        found.append("control-character")
+    return found
+
+
+def reproduces_block(entries):
+    """Compatibility claims DERIVED from the names, not asserted.
+
+    Reviewer %31 (t465 P2) broke the previous version with two supported names:
+    `it's.js` makes the legacy pipeline fail on xargs' unmatched quote even with no
+    whitespace, and a name containing a newline makes sha256sum ESCAPE its OUTPUT line,
+    so the NUL-safe pipeline's digest no longer equals our raw-path payload even though
+    it exits 0. Both flags were unconditional claims; both are now computed.
+    The complete logical hash is unchanged: if a name defeats a command, the command is
+    declared non-reproducing, never the hash."""
+    legacy_risk, nul_risk = [], []
+    for path, _ in entries:
+        hazards = _hazards(path)
+        if hazards:
+            legacy_risk.append((path, hazards))
+        if any(h in ("backslash", "control-character") for h in hazards):
+            nul_risk.append((path, hazards))
+
+    def _reason(risks):
+        return None if not risks else ("%d name(s) defeat this command: %s"
+                                       % (len(risks), "; ".join(
+                                           "%s (%s)" % (p, ",".join(h))
+                                           for p, h in risks[:3])))
+
+    return {"nul_safe_command": BUILD_PIPELINE,
+            "legacy_command": LEGACY_RECIPE,
+            "supported_names_contract": "flags hold for names with no whitespace, no quote, "
+                                        "no backslash and no control character; anything else "
+                                        "is reported as a hazard on the command it defeats",
+            "nul_safe_reproduces": not nul_risk,
+            "nul_safe_reason": _reason(nul_risk),
+            "legacy_recipe_reproduces": not legacy_risk,
+            "legacy_reason": _reason(legacy_risk),
+            "payload": "sorted '<hex>  ./path' lines with RAW paths, sha256 of the joined text"}
+
+
+def snapshot_build(dist: Path):
+    """Serve an IMMUTABLE SNAPSHOT of the dist, and bind the receipt to it.
+
+    Reviewer %31 (t455, P2): the first version hashed the input tree once and then kept
+    serving that same writable directory, so a rebuild during the run produced a passing
+    report whose digest named an older tree. Hashing twice would only have detected it
+    after the fact; serving a copy removes the window.
+
+    Two digests are recorded, on purpose:
+      * release_recipe_sha256 - the desk's own recipe (find . -type f ...). It is what a
+        release manifest uses, so it stays for identity with releases.
+      * served_sha256 - the same walk INCLUDING symlinks, because SimpleHTTPRequestHandler
+        serves a symlinked file's target content while `find -type f` skips it (also
+        reviewer %31, t455 P2). This is the number that binds what the browser saw.
+    Both are recomputed after the run; a change is a failure, not a footnote.
+    """
+    if dist is None:
+        return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
+                      "reason": "no --dist given: a --url run is NOT bound to immutable bytes",
+                      "file_count": None}
+    if not dist.is_dir():
+        return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
+                      "reason": "dist path is not a directory: %s" % dist, "file_count": None}
+    snapshot = Path(tempfile.mkdtemp(prefix="desk-matrix-snapshot-"))
+    # DEREFERENCE. `cp -a` keeps links to files and directories OUTSIDE the snapshot, so
+    # the static server would keep following mutable external targets while the manifests
+    # hashed them once - a before/after comparison catches a persistent change, not one
+    # restored after its response (reviewer %31, t460 P2). `-L` copies target CONTENT, so
+    # the snapshot is self-contained and the bytes hashed are the bytes served.
+    copy = subprocess.run(["cp", "-aL", str(dist) + "/.", str(snapshot)],
+                          capture_output=True, text=True)
+    if copy.returncode != 0:
+        return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
+                      "reason": "snapshot copy failed: %s" % (copy.stderr or "")[:120],
+                      "file_count": None}
+    served, entries, problems = _manifest(snapshot, follow_dir_symlinks=True)
+    strict, strict_entries, strict_problems = _manifest(snapshot, follow_dir_symlinks=False)
+    block = {"manifest_sha256": served,
+             "served_sha256": served,
+             "release_recipe_sha256": strict,
+             "served_files": len(entries),
+             "release_files": len(strict_entries),
+             "command": BUILD_RECIPE,
+             "served_command": "python: sorted './path' + sha256(file bytes), sha256sum-like"
+                               " payload, digest of that payload",
+             "reproduces": reproduces_block(entries),
+             "symlink_policy": "snapshot dereferences links (cp -L): served bytes are copies "
+                               "inside the snapshot, so an external target cannot change what "
+                               "the browser got after the manifest was taken; a dangling link "
+                               "or cycle is a problem, not a silently skipped entry",
+             "problems": problems + strict_problems,
+             "input_tree": str(dist),
+             "served_snapshot": str(snapshot),
+             "reason": None}
+    if problems:
+        # An incomplete manifest must not masquerade as a binding for a smaller tree.
+        block["manifest_sha256"] = None
+        block["served_sha256"] = None
+        block["reason"] = ("manifest incomplete: %d problem(s); no digest is reported "
+                           "for a tree that could not be fully hashed" % len(problems))
+    return snapshot, block
+
+
 def serve_dist(dist: Path):
     handler = partial(StaticHandler, directory=str(dist))
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -210,8 +407,15 @@ def run(argv=None):
 
     args.artifacts.mkdir(parents=True, exist_ok=True)
     server = None
+    served_dir = None
+    build_block = {"manifest_sha256": None, "served_sha256": None,
+                   "reason": "no --dist given: a --url run is NOT bound to immutable bytes"}
+
     if args.dist:
-        server, base = serve_dist(args.dist)
+        served_dir, build_block = snapshot_build(args.dist)
+        if served_dir is None:
+            parser.error("could not snapshot the dist: %s" % build_block.get("reason"))
+        server, base = serve_dist(served_dir)
     elif args.url:
         base = args.url.rstrip("/") + "/"
     elif args.self_check:
@@ -234,6 +438,8 @@ def run(argv=None):
                      % (", ".join(repr(t) for t in unknown), ", ".join(registered)))
     report = {"artifact": "desk_matrix", "schema": 1, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
               "input": {"dist": str(args.dist) if args.dist else None, "url": base},
+              # The run is bound to bytes here, before any rule claims anything.
+              "build": build_block,
               "emulation": "viewport size + deviceScaleFactor only; NOT browser zoom",
               "widths": [w[0] for w in widths], "themes": themes,
               "rules": ["renders", "no-descendant-overflow", "no-page-scrollbar",
@@ -347,6 +553,20 @@ def run(argv=None):
                 if s is not None:
                     s.shutdown()
 
+    if served_dir is not None:
+        after, _, after_problems = _manifest(served_dir, follow_dir_symlinks=True)
+        if after_problems:
+            report["failures"].append({"theme": "*", "width": "*", "rule": "build-stable",
+                                       "assertion": "the served tree stays fully hashable",
+                                       "expected": "no problems",
+                                       "got": json.dumps(after_problems[:3])})
+        report["build"]["served_sha256_after"] = after
+        report["build"]["stable"] = (after == report["build"]["served_sha256"])
+        if not report["build"]["stable"]:
+            report["failures"].append({"theme": "*", "width": "*", "rule": "build-stable",
+                                       "assertion": "the served tree is unchanged for the whole run",
+                                       "expected": report["build"]["served_sha256"],
+                                       "got": after})
     report["passed"] = not report["failures"]
     report["summary"] = {"cases": len(report["results"]), "failures": len(report["failures"]),
                          "by_rule": {}}
