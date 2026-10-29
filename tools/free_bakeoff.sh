@@ -9,6 +9,30 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="${POOLRAD_REPO:-/home/hunter/workspace/poolrad-decomp}"
+PI="${FREE_PI:-pi}"                 # stand-in binary seam used by the isolated controls
+RETRIES="${FREE_RETRIES:-2}"        # bounded 429 retries (attempts after the first)
+BACKOFF="${FREE_BACKOFF:-20}"       # seconds, multiplied by the attempt number
+TIMEOUT="${FREE_TIMEOUT:-600}"      # per-attempt wall clock
+
+# Validate the retry/backoff/timeout bounds BEFORE any work: a non-integer or an unbounded value
+# must stop the run rather than steer the retry loop (an unvalidated bound once turned a bad value
+# into an eight-attempt loop with no diagnostic).
+fail() { printf 'free_bakeoff: %s\n' "$*" >&2; exit 2; }
+is_uint() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; return 0; }
+is_uint "$RETRIES" || fail "FREE_RETRIES must be a non-negative integer, got '$RETRIES'"
+[ "$RETRIES" -le 10 ] || fail "FREE_RETRIES must be <= 10, got '$RETRIES'"
+is_uint "$BACKOFF" || fail "FREE_BACKOFF must be a non-negative integer, got '$BACKOFF'"
+[ "$BACKOFF" -le 3600 ] || fail "FREE_BACKOFF must be <= 3600, got '$BACKOFF'"
+is_uint "$TIMEOUT" || fail "FREE_TIMEOUT must be a positive integer, got '$TIMEOUT'"
+[ "$TIMEOUT" -ge 1 ] && [ "$TIMEOUT" -le 7200 ] || fail "FREE_TIMEOUT must be in 1..7200, got '$TIMEOUT'"
+
+# A rate limit is a PROVIDER DIAGNOSTIC, not the substring "429" anywhere in the output: a file
+# name such as file_429.asm is not a rate limit. Only these structured forms count.
+is_rate_limit() {
+  [ -s "$1" ] || return 1
+  grep -qiE 'HTTP[[:space:]/]+[0-9.]*[[:space:]]*429\b|"?(code|status)"?[[:space:]]*[:=][[:space:]]*"?429\b|\b429[[:space:]]+Too[[:space:]]+Many[[:space:]]+Requests\b|\bToo[[:space:]]+Many[[:space:]]+Requests\b|\brate[[:space:]-]?limited[[:space:]]+upstream\b' "$1"
+}
+
 MODELS="${1:?usage: free_bakeoff.sh \"models\" \"bodies\" [parallel]}"
 BODIES="${2:?bodies required}"
 PAR="${3:-4}"
@@ -33,12 +57,28 @@ run_one() {
   local safe; safe=$(echo "$model" | tr '/:' '__')
   local dir="$OUT/$safe"; mkdir -p "$dir"
   local rep="$dir/$body.md"
-  local t0 t1
+  local t0 t1 rc attempt=1
   t0=$(date +%s)
-  ( cd "$REPO" && nice -n 15 timeout 600 env POOLRAD_REPO="$REPO" "$HERE/tools/free_sandbox.sh" "$dir" pi -p -ne --model "$model" "$(PROMPT_FOR "$body" "$desc")" ) > "$rep" 2>"$dir/$body.err"
+  while :; do
+    ( cd "$REPO" && nice -n 15 timeout "$TIMEOUT" env POOLRAD_REPO="$REPO" "$HERE/tools/free_sandbox.sh" "$dir" "$PI" -p -ne --model "$model" "$(PROMPT_FOR "$body" "$desc")" ) > "$rep" 2>"$dir/$body.try$attempt.err"
+    rc=$?
+    if [ "$attempt" -gt "$RETRIES" ] || ! is_rate_limit "$dir/$body.try$attempt.err"; then break; fi
+    sleep $(( BACKOFF * attempt + RANDOM % 5 ))
+    attempt=$((attempt+1))
+  done
+  cp -f "$dir/$body.try$attempt.err" "$dir/$body.err" 2>/dev/null || true
   t1=$(date +%s)
-  local verdict="EMPTY"
-  if [ -s "$rep" ]; then
+  local verdict
+  # Delivery failures are classified BEFORE any non-empty output can reach the judge: a partial
+  # print followed by a timeout or a 429 is a failed delivery, not a candidate decode.
+  if [ "$rc" -eq 124 ]; then
+    verdict="TIMEOUT (rc=124, attempts=$attempt, not judged)"
+  elif is_rate_limit "$dir/$body.err"; then
+    verdict="RATE_LIMITED (delivery failure, attempts=$attempt, not judged)"
+  elif [ "$rc" -ne 0 ]; then
+    # A non-zero exit is a failed delivery even when it printed something: only success may be judged.
+    verdict="FAILED (rc=$rc, attempts=$attempt, not judged)"
+  elif [ -s "$rep" ]; then
     local bv gate gate_rc
     gate=$(cd "$REPO" && python3 "$HERE/tools/free_body_check.py" "$rep" --expect-offset "$off" --expect-length "$length" 2>&1)
     gate_rc=$?
@@ -52,6 +92,8 @@ run_one() {
       *"NO DUMP"*) verdict="NO DUMP" ;;
       *) verdict="UNCHECKED ($bv)" ;;
     esac
+  else
+    verdict="EMPTY (rc=$rc, attempts=$attempt, not judged)"
   fi
   printf '%s\t%s\t%s\t%ss\n' "$model" "$body" "$verdict" "$((t1-t0))" >> "$OUT/results.tsv"
   echo "done $model $body -> $verdict"
