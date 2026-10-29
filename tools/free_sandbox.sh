@@ -57,8 +57,14 @@ if [ -L "$REPO/resources" ]; then
   # The deny paths are canonicalized BEFORE comparison: ~/.config can itself be a symlink to an external
   # directory, and an approved canonical target equal to that directory must still be refused (otherwise
   # the sentinel inside it is readable inside the sandbox).
-  for _priv in "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.pi" "$HOME/.config" "$HOME/.local" "$HOME/.aws" \
-               "$HOME/.kube" "$HOME/.docker" "$HOME/.cache" "$HOME/.netrc" "$HOME/.password-store"; do
+  # Assistant/CLI state roots are part of the same class: ~/.codex and ~/.claude by default, plus the
+  # non-empty configured roots (CODEX_HOME, CLAUDE_CONFIG_DIR) which can point anywhere.
+  _priv_roots=("$HOME/.ssh" "$HOME/.gnupg" "$HOME/.pi" "$HOME/.config" "$HOME/.local" "$HOME/.aws" \
+               "$HOME/.kube" "$HOME/.docker" "$HOME/.cache" "$HOME/.netrc" "$HOME/.password-store" \
+               "$HOME/.codex" "$HOME/.claude")
+  if [ -n "${CODEX_HOME:-}" ]; then _priv_roots+=("$CODEX_HOME"); fi
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then _priv_roots+=("$CLAUDE_CONFIG_DIR"); fi
+  for _priv in "${_priv_roots[@]}"; do
     _canon_priv="$(readlink -f -- "$_priv" 2>/dev/null)" || _canon_priv=""
     [ -n "$_canon_priv" ] || continue
     case "$media_target" in
