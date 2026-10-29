@@ -233,7 +233,7 @@ class ConsumerContrastTests(unittest.TestCase):
         baseline = json.loads(usage.DEFAULT_BASELINE.read_text())
         self.assertEqual(baseline['version'], 2)
         self.assertEqual([(s['entry_count'], s['expires_with']) for s in baseline['inputs']],
-                         [(99, 't192')])
+                         [(97, 't192')])
         self.assertEqual(len(usage.baseline_provenance(baseline)), len(baseline['entries']))
         for source in baseline['inputs']:
             entries = baseline['entries'][source['entry_start']:

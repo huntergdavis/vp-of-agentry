@@ -17,11 +17,11 @@
       "source_head": "4a85540b66aa57185becc1ea12072b5c3fe6ac85",
       "input_sha256": "b8f8402339a52c92e62e61a0c1c78775aceae0872ec7934ad4a73e9ec11fda7f",
       "entry_start": 0,
-      "entry_count": 99,
+      "entry_count": 97,
       "expires_with": "t192"
     }
   ],
-  "provenance_policy": "Input ranges index the ordered entries array and must cover it exactly once. input_sha256 preserves the cited original input; adjusted_input_sha256 identifies the same approved new-theme file with only expires_with changed to t203. Historical reason text is preserved verbatim; expires_with is authoritative under the recorded VP override. The remediated t203 input range (entry_start 99, entry_count 80) was removed when its rows were repaired; its original input hashes above are historical and no longer describe an entry range in this file.",
+  "provenance_policy": "Input ranges index the ordered entries array and must cover it exactly once. input_sha256 preserves the cited original input; adjusted_input_sha256 identifies the same approved new-theme file with only expires_with changed to t203. Historical reason text is preserved verbatim; expires_with is authoritative under the recorded VP override. The remediated t203 input range (entry_start 99, entry_count 80) was removed when its rows were repaired; its original input hashes above are historical and no longer describe an entry range in this file. The default-crt input hash still identifies the original 99-row triage; its current 97-entry range excludes only the two exact keys recorded in baseline_retirements.",
   "entries": [
     {
       "theme": "default",
@@ -271,86 +271,6 @@
     },
     {
       "theme": "default",
-      "pair": "border-strong/surface-raised",
-      "foreground_value": "#45475a",
-      "background_value": "#1e1e2e",
-      "floor": 3.0,
-      "decision": "fix-in-theme",
-      "reason": "Fix the shared theme border role: at least one listed consumer identifies an input, action, selected item or focusable control. Decorative consumers sharing this role do not justify waiving the control failures; alias duplicates share one palette fix. Temporary baseline expires with t192.",
-      "expires_with": "t192",
-      "measured_ratio": 1.797905293054602,
-      "evidence": [
-        {
-          "source": "web/src/style.css",
-          "line": 107,
-          "selector": ".login-card input",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 433,
-          "selector": ".login-card input",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 102,
-          "selector": ".dash-nav-links a[aria-current=\"page\"]",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 163,
-          "selector": ".dash-root button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 183,
-          "selector": ".dash-chip",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 340,
-          "selector": ".dash-root .editor",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 352,
-          "selector": ".dash-root .older-marker button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 383,
-          "selector": ".dash-root .game-type input, .dash-root .game-saves input, .dash-root .game-saves select,\n.dash-root .game-chat-input textarea",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 385,
-          "selector": ".dash-root .game-chat-actions button:not(.primary)",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 388,
-          "selector": ".dash-root .game-actions button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 491,
-          "selector": ".dash-root .settings-modal select",
-          "context": []
-        }
-      ],
-      "suggestion_for_this_pair_only": "#676978"
-    },
-    {
-      "theme": "default",
       "pair": "composer-border/topbar-surface",
       "foreground_value": "#e1e7eb",
       "background_value": "#fff",
@@ -548,74 +468,6 @@
         }
       ],
       "suggestion_for_this_pair_only": "#686976"
-    },
-    {
-      "theme": "default",
-      "pair": "dash-border-2/surface-raised",
-      "foreground_value": "#45475a",
-      "background_value": "#1e1e2e",
-      "floor": 3.0,
-      "decision": "fix-in-theme",
-      "reason": "Fix the shared theme border role: at least one listed consumer identifies an input, action, selected item or focusable control. Decorative consumers sharing this role do not justify waiving the control failures; alias duplicates share one palette fix. Temporary baseline expires with t192.",
-      "expires_with": "t192",
-      "measured_ratio": 1.797905293054602,
-      "evidence": [
-        {
-          "source": "web/src/dash.css",
-          "line": 102,
-          "selector": ".dash-nav-links a[aria-current=\"page\"]",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 163,
-          "selector": ".dash-root button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 183,
-          "selector": ".dash-chip",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 340,
-          "selector": ".dash-root .editor",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 352,
-          "selector": ".dash-root .older-marker button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 383,
-          "selector": ".dash-root .game-type input, .dash-root .game-saves input, .dash-root .game-saves select,\n.dash-root .game-chat-input textarea",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 385,
-          "selector": ".dash-root .game-chat-actions button:not(.primary)",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 388,
-          "selector": ".dash-root .game-actions button",
-          "context": []
-        },
-        {
-          "source": "web/src/dash.css",
-          "line": 491,
-          "selector": ".dash-root .settings-modal select",
-          "context": []
-        }
-      ],
-      "suggestion_for_this_pair_only": "#676978"
     },
     {
       "theme": "default",
@@ -2837,5 +2689,26 @@
       "web/src/themes/2001.css"
     ],
     "evidence": "docs/THEME_CONTRAST_GATE.md#t203-new-theme-remediation"
-  }
+  },
+  "baseline_retirements": [
+    {
+      "task": "t192",
+      "authorization": "VP i32556 within t126/t192",
+      "source_head": "0f871ae92539266f27a04b8ef853c35c9faa02e3",
+      "input_id": "default-crt",
+      "removed_keys": [
+        {
+          "theme": "default",
+          "pair": "border-strong/surface-raised"
+        },
+        {
+          "theme": "default",
+          "pair": "dash-border-2/surface-raised"
+        }
+      ],
+      "reason": "The Default strong-border role now measures 3.3580619107970655:1 on surface-raised against a 3:1 floor; focused rendered queue/Theme-select checks independently reproduced the computed colors.",
+      "evidence": "docs/THEME_CONTRAST_GATE.md#default-strong-border-baseline-retirement",
+      "limits": "Only these two fix entries are retired. Other entries, waivers, expiry tasks and floors are unchanged; no t192 or full accessibility completion."
+    }
+  ]
 }

@@ -338,4 +338,15 @@
 :root[data-theme="default"] {
   --icon-button-border: var(--border);
   --icon-button-panel-border: var(--muted);
+  /* Queue controls use the dark Default surfaces. The strong border also
+     identifies dashboard buttons and other controls that share that role. */
+  --border-strong: #6c7086;
+  --queue-help-ink: var(--warning);
+  --queue-help-border: var(--border-strong);
+  --queue-help-surface: var(--surface-raised);
+  --queue-help-ink-2: var(--warning);
+  --queue-help-surface-2: var(--surface-raised);
+  --queue-help-surface-3: var(--surface-raised);
+  --queue-help-border-2: var(--warning);
+  --queue-help-ink-3: var(--warning);
 }
