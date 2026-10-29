@@ -33,19 +33,40 @@ if [ -L "$REPO/resources" ]; then
   case "$media_target" in
     /) die "refusing the filesystem root as a media target" ;;
   esac
-  for _prot in "$HOME" /etc /root /proc /sys /dev /run /tmp /usr /var; do
+  # The home directory ITSELF is never a media target (an approved directory under it may be, e.g.
+  # $HOME/workspace/<media>), and protected SYSTEM trees must reject EQUAL, ANCESTOR and DESCENDANT
+  # targets: an ancestor-only check let /run/user/1000 through, because it is INSIDE /run.
+  case "$media_target" in
+    "$HOME") die "refusing the home directory itself as a media target" ;;
+  esac
+  # /tmp is scratch, not a system or credential tree: it is deliberately NOT blanket-protected, because
+  # the operator's explicit FREE_MEDIA_ALLOW entry is the trust boundary and synthetic fixtures live there.
+  for _prot in /etc /root /proc /sys /dev /run /usr /var /boot /srv /opt; do
+    case "$media_target" in
+      "$_prot") die "refusing media target $media_target: it IS protected $_prot" ;;
+      "$_prot"/*) die "refusing media target $media_target: it is inside protected $_prot" ;;
+    esac
     case "$_prot" in
       "$media_target"|"$media_target"/*)
-        die "refusing media target $media_target: it is an ancestor of $_prot" ;;
+        die "refusing media target $media_target: it contains protected $_prot" ;;
     esac
   done
   # Credential/state directories stay excluded even when an operator allowlists them. This is a
   # denylist of private state, NOT "$HOME in general": explicitly approved media under
   # $HOME/workspace (where the real Poolrad media lives) is permitted.
+  # The deny paths are canonicalized BEFORE comparison: ~/.config can itself be a symlink to an external
+  # directory, and an approved canonical target equal to that directory must still be refused (otherwise
+  # the sentinel inside it is readable inside the sandbox).
   for _priv in "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.pi" "$HOME/.config" "$HOME/.local" "$HOME/.aws" \
                "$HOME/.kube" "$HOME/.docker" "$HOME/.cache" "$HOME/.netrc" "$HOME/.password-store"; do
+    _canon_priv="$(readlink -f -- "$_priv" 2>/dev/null)" || _canon_priv=""
+    [ -n "$_canon_priv" ] || continue
     case "$media_target" in
-      "$_priv"|"$_priv"/*) die "refusing private state/credential path $media_target" ;;
+      "$_canon_priv"|"$_canon_priv"/*) die "refusing private state/credential path $media_target" ;;
+    esac
+    case "$_canon_priv" in
+      "$media_target"|"$media_target"/*)
+        die "refusing media target $media_target: it contains private state $_canon_priv" ;;
     esac
   done
   [ -n "${FREE_MEDIA_ALLOW:-}" ] || die "resources is a symlink to $media_target; set FREE_MEDIA_ALLOW to its canonical directory to approve it"
@@ -56,8 +77,13 @@ if [ -L "$REPO/resources" ]; then
     _canon="$(readlink -f -- "$_root" 2>/dev/null)" || continue
     [ -n "$_canon" ] || continue
     case "$_canon" in /) continue ;; esac           # the root is never an approved media root
-    for _prot in /etc /root /proc /sys /dev /run /tmp /usr /var; do
-      case "$_prot" in "$_canon"|"$_canon"/*) _canon="" ;; esac
+    # $HOME is not a blanket-protected root (approved media lives under $HOME/workspace), but an
+    # allowlist entry that IS $HOME or CONTAINS it is not an acceptable media root.
+    case "$_canon" in "$HOME") _canon="" ;; esac
+    case "$HOME" in "$_canon"|"$_canon"/*) _canon="" ;; esac
+    for _prot in /etc /root /proc /sys /dev /run /usr /var /boot /srv /opt; do
+      case "$_canon" in "$_prot"|"$_prot"/*) _canon="" ;; esac      # inside a protected tree
+      case "$_prot" in "$_canon"|"$_canon"/*) _canon="" ;; esac     # contains a protected tree
     done
     [ -n "$_canon" ] || continue
     case "$media_target" in "$_canon"|"$_canon"/*) allowed=1; break ;; esac
