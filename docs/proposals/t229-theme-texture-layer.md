@@ -74,9 +74,26 @@ I reported 12.68:1 → 12.06:1 ("costs 0.62, about 5%") by taking a percentile o
 |---|---|---|---|
 | body | 12.676142:1 | 10.240514:1 | −2.44 |
 | muted | 8.067765:1 | 6.589384:1 | −1.48 |
-| panel (translucent) | 13.933882:1 | 11.990405:1 | −1.94 |
+| panel (then translucent; now opaque) | 13.933882:1 | 11.990405:1 | −1.94 |
 
 All three pass 4.5:1 **for this illustrative standalone sample**. So the sand costs roughly 19% on body text, not the 5% I claimed, and the muted line loses the most headroom proportionally. Any future number must come from spatially paired ink/background sampling (or a worst-background bound excluding glyph edges) and must cover body, muted and panel separately, as this table does.
+
+### 5a. Contrast-preserving revision — the texture never sits behind text (this head)
+
+The owner's requirement is **no degradation relative to the paired no-texture baseline**, and passing 4.5:1 does not satisfy it. The prototype is therefore built so the texture cannot sit behind a glyph: every text surface gets a **solid plate of the flat background colour** (`.plate`), and the panel uses an **opaque** surface instead of the earlier translucent one. The sand remains visible in the margins, gaps and page background around them.
+
+Measured on this head, both widths, DPR 1.8, dialog closed — background = the **modal** colour of each text element's crop (glyph pixels are a minority), ink = the lightest 0.2% of its pixels, WCAG relative luminance:
+
+| surface | flag | background | ratio |
+|---|---|---|---|
+| body | off | `[42,33,24]` | 12.676 |
+| body | on | `[42,33,24]` | **12.676** |
+| muted | off | `[42,33,24]` | 8.068 |
+| muted | on | `[42,33,24]` | **8.068** |
+| panel | off | `[34,26,19]` | 13.752 |
+| panel | on | `[34,26,19]` | **13.752** |
+
+On = off, exactly, at both widths and on all three surfaces: the paired contrast does not move because the background behind every glyph is the flat colour by construction, not by tuning. **Limits:** this is the *design* answer (texture outside text areas) rather than a texture engineered to be contrast-neutral behind text; the method reads the modal background, so a narrow bright streak that never becomes the modal colour would not be caught — the sound general method remains the spatially paired sampling %36 specified, and this table is evidence for *this* design, not a substitute for it.
 
 ### Palette status, corrected
 

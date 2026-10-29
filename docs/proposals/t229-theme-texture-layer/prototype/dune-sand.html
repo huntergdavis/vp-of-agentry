@@ -1,7 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Dune sand texture prototype (t229)</title>
 <style>
 /* Named slots, default none. This page sets ONE: --surface-texture. */
-:root{--surface-texture:none;--overlay-grain:none;--overlay-scanline:none;--edge-wear:none;--glow:none;
+:root{--dune-panel:#221a13;--surface-texture:none;--overlay-grain:none;--overlay-scanline:none;--edge-wear:none;--glow:none;
   --dune-bg:#2a2118;--dune-ink:#f1e5cf;--dune-muted:#c9b79a;--dune-accent:#d9a441;
   --font-body:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 /* Inline SVG turbulence: no network request, no shipped binary. */
@@ -11,13 +11,14 @@ body{margin:0;font-family:var(--font-body);background-color:var(--dune-bg);backg
 h1{font-size:28px;margin:0 0 8px}
 p{font-size:16px;line-height:1.55;margin:0 0 14px}
 .muted{color:var(--dune-muted)}
-.panel{background:rgba(0,0,0,.22);border:1px solid rgba(241,229,207,.16);border-radius:10px;padding:16px 18px;margin-top:22px}
+.plate{background-color:var(--dune-bg)}          /* text never sits on the texture */
+.panel{background-color:var(--dune-panel);border:1px solid rgba(241,229,207,.16);border-radius:10px;padding:16px 18px;margin-top:22px}
 </style></head>
 <body><div class="wrap">
-<h1>Dune — static sand</h1>
-<p id="bodytext">Body text on the textured surface. Contrast is measured here, not assumed: a texture behind body text is the highest-risk change in the desk.</p>
-<p class="muted" id="mutedtext">Secondary line, muted ink, same textured background.</p>
-<div class="panel"><p id="paneltext">Panel text sits on a TRANSLUCENT panel (rgba(0,0,0,.22)) over the textured page, so the sand shows through it and this panel's contrast is NOT unchanged by the texture - measured 13.933882:1 flat to 11.990405:1 textured at DPR 1.8 - that figure is HISTORICAL: it was taken on the earlier render (b5a5f12) before this sentence changed, and the text on this panel has NOT been re-measured since.</p></div>
+<h1 class="plate">Dune — static sand</h1>
+<p class="plate" id="bodytext">Body text on the textured surface. Contrast is measured here, not assumed: a texture behind body text is the highest-risk change in the desk.</p>
+<p class="plate muted" id="mutedtext">Secondary line, muted ink, same textured background.</p>
+<div class="panel"><p id="paneltext">Panel text sits on an OPAQUE panel (so the sand never sits behind it) and this line is HISTORICAL: the panel used to be translucent (rgba(0,0,0,.22)) over the textured page, so the sand shows through it and this panel's contrast is NOT unchanged by the texture - measured 13.933882:1 flat to 11.990405:1 textured at DPR 1.8 - that figure is HISTORICAL: it was taken on the earlier render (b5a5f12) before this sentence changed, and the text on this panel has NOT been re-measured since.</p></div>
 </div>
 <!-- OFF BY DEFAULT: nothing is textured unless the flag is present. -->
 <script>
