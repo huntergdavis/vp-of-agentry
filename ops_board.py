@@ -88,9 +88,18 @@ def _unavailable(error: str) -> dict:
     return {"state": "unavailable", "error": error}
 
 
+TASK_LIST_LIMIT = 1000
+
+
 def _task_board(client, now: datetime) -> dict:
+    # The reference list is fetched with an explicit completeness contract:
+    # TASK_LIST_LIMIT is well above anything the desk has ever queued, and if
+    # the daemon still returns a full page, the projection below is known to
+    # be truncated and the leader-held aggregate is reported unavailable
+    # rather than a definitive-looking number derived from a truncated list
+    # (t407/t408 F3).
     try:
-        listing = client.call("task_list", include_done=False, limit=200)
+        listing = client.call("task_list", include_done=False, limit=TASK_LIST_LIMIT)
     except Exception as exc:  # noqa: BLE001 - a missing source is reported, not raised
         return _unavailable(type(exc).__name__)
     tasks = listing.get("tasks") if isinstance(listing, dict) else listing
@@ -133,9 +142,17 @@ def _task_board(client, now: datetime) -> dict:
             if row["status"] in ACTIVE_STATUSES and row["scope"] == "global"
             and (not row["assignees"]
                  or (leader_pane and leader_pane in row["assignees"]))]
-    leader_held = {"count": len(held),
-                   "oldest_age_s": max((row["age_s"] or 0) for row in held)
-                                  if held else None}
+    if len(items) >= TASK_LIST_LIMIT:
+        # t408 F3: a truncated reference list must not back a definitive
+        # leader count; the daemon aggregate is the honest source here.
+        leader_held = {"count": None, "oldest_age_s": None, "complete": False}
+    else:
+        # t408 F2: an unknown created_at must not read as a known zero age;
+        # zero is only valid for a known age of zero.
+        known_ages = [row["age_s"] for row in held if row["age_s"] is not None]
+        leader_held = {"count": len(held), "oldest_age_s": max(known_ages)
+                                                        if known_ages else None,
+                       "complete": True}
     depth = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
     return {
         "state": "ok",

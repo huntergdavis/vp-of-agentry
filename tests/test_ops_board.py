@@ -172,7 +172,7 @@ class OpsBoardTests(unittest.TestCase):
                       "lease_expires_at": None, "blocked_by": [], "eligible": True,
                       "claimable": True, "attempts": 0})
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 1, "oldest_age_s": 7200},
+        self.assertEqual({"count": 1, "oldest_age_s": 7200, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
         self.assertEqual(1, board["brief"]["tasks"]["leader_held"])
         self.assertEqual(7200, board["brief"]["tasks"]["leader_held_oldest_age_s"])
@@ -189,7 +189,7 @@ class OpsBoardTests(unittest.TestCase):
                       "claimable": False, "attempts": 0})
         with patch.dict(os.environ, {"DUNKINGSHEEP_VP_PANE": "%15"}):
             board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 2, "oldest_age_s": 7200},
+        self.assertEqual({"count": 2, "oldest_age_s": 7200, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
         self.assertEqual(2, board["brief"]["tasks"]["leader_held"])
 
@@ -204,7 +204,7 @@ class OpsBoardTests(unittest.TestCase):
              "lease_expires_at": None, "blocked_by": [], "eligible": False,
              "claimable": False, "attempts": 0})
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 1, "oldest_age_s": 7200},
+        self.assertEqual({"count": 1, "oldest_age_s": 7200, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
 
     def test_leader_held_is_zero_with_none_ages_when_nothing_is_unowned(self):
@@ -212,8 +212,42 @@ class OpsBoardTests(unittest.TestCase):
         tasks = client.responses["task_list"]["tasks"]
         tasks[1]["assignees"] = ["a-reviewer"]
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 0, "oldest_age_s": None},
+        self.assertEqual({"count": 0, "oldest_age_s": None, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
+
+    def test_leader_held_unknown_created_at_stays_unknown_not_zero(self):
+        # t408 F2: a held task with a missing/invalid created_at must not be
+        # coerced into a known zero age; zero only means a known age of zero.
+        client = sample_client()
+        tasks = client.responses["task_list"]["tasks"]
+        tasks.append({"id": "t21", "title": "No timestamp", "status": "open",
+                      "priority": "high", "scope": "global", "assignees": [],
+                      "created_at": None, "updated_at": NOW.timestamp(),
+                      "lease_expires_at": None, "blocked_by": [], "eligible": True,
+                      "claimable": True, "attempts": 0})
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual(2, board["reference"]["tasks"]["leader_held"]["count"])
+        self.assertEqual(7200, board["reference"]["tasks"]["leader_held"]["oldest_age_s"])
+        # The no-timestamp row contributes no known age; the known 7200s row
+        # stays the honest oldest.
+        no_age = [row for row in board["reference"]["tasks"]["items"]
+                  if row["id"] == "t21"][0]
+        self.assertIsNone(no_age["age_s"])
+
+    def test_truncated_task_list_reports_leader_held_unavailable_not_zero(self):
+        # t408 F3: a full page means the reference list is truncated, so the
+        # leader aggregate must be unavailable (complete=False), not a
+        # definitive number derived from the truncated rows.
+        client = sample_client()
+        base = client.responses["task_list"]["tasks"]
+        filler = [dict(base[1], id="x%d" % i, blocked_by=[], assignees=["w1:p%d" % i])
+                  for i in range(ops_board.TASK_LIST_LIMIT - len(base))]
+        client.responses["task_list"]["tasks"] = base + filler
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual(board["reference"]["tasks"]["leader_held"],
+                         {"count": None, "oldest_age_s": None, "complete": False})
+        self.assertIsNone(board["brief"]["tasks"]["leader_held"])
+        self.assertIsNone(board["brief"]["tasks"]["leader_held_oldest_age_s"])
 
     def test_task_reference_keeps_ages_and_dependencies(self):
         board = ops_board.build(sample_client(), self.conn, now=NOW)
