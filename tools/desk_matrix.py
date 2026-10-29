@@ -179,11 +179,17 @@ class StaticHandler(SimpleHTTPRequestHandler):
         pass
 
 
-BUILD_RECIPE = ("cd <dist> && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
-                "   # the './' prefix is part of the hashed bytes")
-# The same pipeline, ready to run with cwd already at the dist (no `cd` substitution in
-# a shell string, so a path with spaces cannot change what is hashed).
-BUILD_PIPELINE = "find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
+# The NUL-safe command that reproduces release_recipe_sha256 EXACTLY, including
+# filenames containing spaces. The older whitespace-splitting pipeline
+# (`find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum`) is still recorded, but
+# as LEGACY_RECIPE and flagged non-reproducing when a supported filename has whitespace:
+# advertising a command that silently hashes 3 of 4 files under a name that promises the
+# release hash is how a receipt becomes a lie (reviewer %31, t463 P2).
+BUILD_RECIPE = ("cd <dist> && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum"
+                " | sha256sum   # NUL-delimited: filenames with spaces stay one path")
+BUILD_PIPELINE = ("find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum")
+LEGACY_RECIPE = ("cd <dist> && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
+                 "   # LEGACY: splits names on whitespace; only valid for trees with no spaces")
 
 
 def _manifest(folder: Path, follow_dir_symlinks=True):
@@ -252,6 +258,24 @@ def _manifest(folder: Path, follow_dir_symlinks=True):
     return digest, entries, problems
 
 
+def reproduces_block(entries):
+    """Say whether the advertised commands actually reproduce the recorded digests.
+
+    A command is part of the receipt. If a supported filename makes it hash a different
+    file set, that has to be stated on the artifact - not discovered by a reader who
+    compares release identity with the command we told them to run.
+    """
+    spaced = [path for path, _ in entries if any(ch.isspace() for ch in path)]
+    return {"nul_safe_command": BUILD_PIPELINE,
+            "nul_safe_reproduces": True,
+            "legacy_command": LEGACY_RECIPE,
+            "legacy_recipe_reproduces": not spaced,
+            "legacy_reason": None if not spaced else
+            ("%d path(s) contain whitespace (%s); the legacy pipeline splits them and "
+             "would hash a smaller file set" % (len(spaced), ", ".join(spaced[:3]))),
+            "payload": "sorted '<hex>  ./path' lines, sha256 of the joined text"}
+
+
 def snapshot_build(dist: Path):
     """Serve an IMMUTABLE SNAPSHOT of the dist, and bind the receipt to it.
 
@@ -295,8 +319,9 @@ def snapshot_build(dist: Path):
              "served_files": len(entries),
              "release_files": len(strict_entries),
              "command": BUILD_RECIPE,
-             "served_command": "python: sorted './path' + sha256(file bytes), sha256man-like"
+             "served_command": "python: sorted './path' + sha256(file bytes), sha256sum-like"
                                " payload, digest of that payload",
+             "reproduces": reproduces_block(entries),
              "symlink_policy": "snapshot dereferences links (cp -L): served bytes are copies "
                                "inside the snapshot, so an external target cannot change what "
                                "the browser got after the manifest was taken; a dangling link "
