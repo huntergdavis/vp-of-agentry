@@ -204,7 +204,21 @@ def _manifest(folder: Path, follow_dir_symlinks=True):
     """
     root = str(folder)
     entries, problems, seen = [], [], set()
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_dir_symlinks):
+
+    def _onerror(error):
+        # os.walk SKIPS a directory it cannot scan and says nothing. Without this the
+        # files inside it are invisible, the digest is a partial digest and problems
+        # stays empty - a passing matrix for a tree that was never fully hashable
+        # (reviewer %31, t460 P2#2, measured with a real chmod 000 directory).
+        try:
+            where = os.path.relpath(getattr(error, "filename", None) or root, root)
+        except Exception:                              # noqa: BLE001 - never fail the report
+            where = "<unknown>"
+        problems.append({"path": "./" + where,
+                         "problem": "%s: %s" % (type(error).__name__, error)})
+
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_dir_symlinks,
+                                                onerror=_onerror):
         real = os.path.realpath(dirpath)
         if real in seen:
             problems.append({"path": "./" + os.path.relpath(dirpath, root),
@@ -216,6 +230,11 @@ def _manifest(folder: Path, follow_dir_symlinks=True):
             full = os.path.join(dirpath, name)
             rel = "./" + os.path.relpath(full, root)
             if os.path.isdir(full) and not os.path.islink(full):
+                continue
+            if not follow_dir_symlinks and os.path.islink(full):
+                # `find . -type f` does NOT list a symlink, so the recipe-side digest must
+                # not include one either - otherwise the field named after that recipe is
+                # a different number under a familiar name (reviewer %31, t460 P2#3).
                 continue
             try:
                 with open(full, "rb") as handle:
