@@ -5,6 +5,9 @@ button,input { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .52; }
 h1,h2,p { margin-top: 0; }
+:root[data-theme="tron"] :is(h1, h2, .dash-nav-brand) {
+  font-family: var(--font-display);
+}
 .shell { display: grid; grid-template-columns: 258px minmax(480px,1fr) 330px; height: 100vh; height: 100dvh; overflow: hidden; }
 .sidebar { background: var(--sidebar-surface); color: var(--sidebar-ink); display: flex; flex-direction: column; padding: 26px 14px 18px; border-right: 1px solid var(--sidebar-border); }
 .identity { display: flex; gap: 11px; align-items: center; padding: 0 11px 34px; }
