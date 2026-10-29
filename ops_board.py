@@ -88,9 +88,18 @@ def _unavailable(error: str) -> dict:
     return {"state": "unavailable", "error": error}
 
 
+TASK_LIST_LIMIT = 1000
+
+
 def _task_board(client, now: datetime) -> dict:
+    # The reference list is fetched with an explicit completeness contract:
+    # TASK_LIST_LIMIT is well above anything the desk has ever queued, and if
+    # the daemon still returns a full page, the projection below is known to
+    # be truncated and the leader-held aggregate is reported unavailable
+    # rather than a definitive-looking number derived from a truncated list
+    # (t407/t408 F3).
     try:
-        listing = client.call("task_list", include_done=False, limit=200)
+        listing = client.call("task_list", include_done=False, limit=TASK_LIST_LIMIT)
     except Exception as exc:  # noqa: BLE001 - a missing source is reported, not raised
         return _unavailable(type(exc).__name__)
     tasks = listing.get("tasks") if isinstance(listing, dict) else listing
@@ -124,6 +133,34 @@ def _task_board(client, now: datetime) -> dict:
     for task in items:
         for assignee in task["assignees"]:
             load[assignee] = load.get(assignee, 0) + 1
+    # Owner #1708: unowned means leader-owned. Active global tasks with no
+    # assignee are the leader's carried work (t407 F1), and so is a task
+    # explicitly assigned to the leader pane; the worker lanes' assigned
+    # tasks are not.
+    # Same leader resolution as the corrected DS66 counterpart (t408 F2):
+    # the configured VP pane, falling back to the product default so the two
+    # halves of the metric cannot disagree when the env is absent.
+    from dunk_pm import DEFAULT_VP_PANE as _product_default_vp_pane
+    leader_pane = os.environ.get("DUNKINGSHEEP_VP_PANE", _product_default_vp_pane)
+    held = [row for row in items
+            if row["status"] in ACTIVE_STATUSES and row["scope"] == "global"
+            and (not row["assignees"]
+                 or (leader_pane and leader_pane in row["assignees"]))]
+    if len(items) >= TASK_LIST_LIMIT:
+        # t408 F3: a truncated reference list must not back a definitive
+        # leader count; the daemon aggregate is the honest source here.
+        leader_held = {"count": None, "oldest_age_s": None, "ages_unknown": None,
+                       "complete": False}
+    else:
+        # t408 F2: an unknown created_at must not read as a known zero age;
+        # zero is only valid for a known age of zero. t118 F1: when any held
+        # timestamp is unknown, the max known age is a lower bound, so the
+        # payload exposes the coverage instead of implying a definitive oldest.
+        known_ages = [row["age_s"] for row in held if row["age_s"] is not None]
+        unknown = len(held) - len(known_ages)
+        leader_held = {"count": len(held), "oldest_age_s": max(known_ages)
+                                                        if known_ages else None,
+                       "ages_unknown": unknown, "complete": True}
     depth = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
     return {
         "state": "ok",
@@ -132,6 +169,7 @@ def _task_board(client, now: datetime) -> dict:
         "items": items,
         "by_assignee": [{"assignee": name, "count": count}
                          for name, count in sorted(load.items(), key=lambda row: (-row[1], row[0]))],
+        "leader_held": leader_held,
     }
 
 
@@ -268,7 +306,10 @@ def compact(readings: dict, generated_at: str) -> dict:
         "generated_at": generated_at, "interval_s": REFRESH_INTERVAL_S, "no_model": True,
         "brief": {
             "tasks": count(tasks, open=(tasks.get("counts") or {}).get("open", 0),
-                           owner=len(owner)),
+                           owner=len(owner),
+                           leader_held=(tasks.get("leader_held") or {}).get("count"),
+                           leader_held_oldest_age_s=(tasks.get("leader_held") or {}).get("oldest_age_s"),
+                           leader_held_ages_unknown=(tasks.get("leader_held") or {}).get("ages_unknown")),
             "lanes": count(panes, working=panes.get("working"), idle=panes.get("idle"),
                            unknown=panes.get("unknown")),
         },

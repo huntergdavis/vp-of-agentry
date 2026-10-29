@@ -16,6 +16,7 @@ import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry, groupThemes } from './theme-registry.js';
+import { leaderLine } from './leader-line.js';
 import { laneStatus } from './lane-status.js';
 import { channelDeliveryLabel, messageDeliveryLabel } from './delivery-label.js';
 import CharacterEditor from './CharacterEditor';
@@ -723,6 +724,7 @@ function OpsBoard({ standalone = false }) {
         <section className="ops-brief" data-ops-section="brief">
           <strong>{alarms.length ? `${alarms.length} alarms` : 'Alarms: none'}</strong>
           <p title={evidence(tasks)}>{number(tasks, 'open')} open tasks · {number(tasks, 'owner')} assigned to you</p>
+          <p title={evidence(tasks)}>{leaderLine(tasks, taskAge)} · the leader's carried global work (unowned or assigned to the leader)</p>
           <p title={evidence(lanes)}>{number(lanes, 'working')} lanes working · {number(lanes, 'idle')} idle{lanes?.unknown ? ` · ${lanes.unknown} not reporting` : ''}</p>
         </section>
         <p id="poolrad" className="ops-poolrad">
