@@ -1,6 +1,6 @@
 # Theme texture layer — proposal (owner #1980)
 
-Status: **proposal only, no implementation.** One worked example is specified at the end and is **not yet prototyped**; nothing in `web/src` is touched by this document.
+Status: **proposal plus one prototype, no implementation across the theme set.** Section 5 carries a standalone Dune sand prototype behind an off-by-default flag, with measured contrast; nothing in `web/src` is touched, no theme is changed, and the other eleven themes remain untextured until the owner approves pieces.
 
 Today the themes are colour schemes. This proposes a *surface character* layer: named effect slots a theme may set, defaulting to none, so a theme that does not care stays exactly as flat as it is now.
 
@@ -68,7 +68,15 @@ Page: `prototype/dune-sand.html`. **Off by default** — applies only with `?tex
 
 I reported 12.68:1 → 12.06:1 ("costs 0.62, about 5%") by taking a percentile of all pixels in the text box. Reviewer %36 (t484) showed that method **falsely passes a bright local background patch**: a percentile of the whole box hides a bright region behind a glyph. My own follow-up attempt to make it conservative by pairing the lightest glyph core with the brightest non-ink pixel instead measured glyph **anti-aliasing** — ratios of ~1.2 across the board — which is not a background measurement either. Both numbers are withdrawn rather than re-labelled.
 
-**The measurement to use is the independent one**, from the t484 review of this head: the body-text minimum is **12.676:1 flat → 10.241:1 textured** on the current build. So the sand costs ~2.4 of contrast (roughly 19%), not 5%, and still passes the 4.5:1 gate. Any future number here must come from spatially paired ink/background sampling (or a worst-background bound that excludes glyph edges and antialiasing) and must cover **body, muted and panel** text separately.
+**The measurement to use is the independent one**, taken by %36 at measured head `b5a5f12` (the HTML is byte-identical since; only text changed). Both widths, DPR 1.8, minimum over each surface:
+
+| surface | flat | textured | loss |
+|---|---|---|---|
+| body | 12.676142:1 | 10.240514:1 | −2.44 |
+| muted | 8.067765:1 | 6.589384:1 | −1.48 |
+| panel (translucent) | 13.933882:1 | 11.990405:1 | −1.94 |
+
+All three pass 4.5:1 **for this illustrative standalone sample**. So the sand costs roughly 19% on body text, not the 5% I claimed, and the muted line loses the most headroom proportionally. Any future number must come from spatially paired ink/background sampling (or a worst-background bound excluding glyph edges) and must cover body, muted and panel separately, as this table does.
 
 ### Palette status, corrected
 
@@ -78,7 +86,9 @@ The prototype page uses **illustrative** Dune-like values (`--dune-bg:#2a2118` e
 
 The panel in the prototype uses `rgba(0,0,0,.22)` over the page — **translucent**, so the page texture shows through it and its contrast is *not* unchanged by the texture as an earlier draft claimed. A real panel surface must be measured on its own, not inferred from the page.
 
-### Cost, reduced motion and DPR for this effect — assumptions, not measurements
+### Cost, reduced motion and DPR for this effect — ASSUMPTIONS, not measurements
+
+Section 4's per-effect cost/motion/DPR lines are likewise **unmeasured recipes** for the themes that do not exist yet; they are design intent, and only the Dune static case below has been touched at all.
 
 * static image, one paint: **assumed** cheap; I did not measure first-paint cost or a frame budget (nothing animates, so there is no frame cost to measure).
 * `prefers-reduced-motion`: a no-op here **because the effect is static** — this is reasoning from the design, not a measurement.
