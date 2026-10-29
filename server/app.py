@@ -947,6 +947,104 @@ def _send_saved(row, client, pane, force=False):
     return result
 
 
+def _reconcile_direct_guarded(channel: str, client=None):
+    """Reconcile guarded direct sends against the daemon's durable outbox.
+
+    A direct send that was QUEUED at post time (held behind a human typing in
+    a guarded lane) keeps that state until something proves otherwise. The
+    daemon owns that proof: the durable record for the message id bound at
+    send time. Reconciliation here is read-only against the daemon - it never
+    replays an ambiguous attempt - and it moves a row only when the record
+    matches the row's own identity: the bound message id, the bound pane, and
+    the creation marker the desk wrote into the prompt.
+    """
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE channel=? AND role='owner' AND "
+            "delivery IN ('pending','queued','failed','uncertain') AND "
+            "direct_transport IS NOT NULL ORDER BY id", (channel,)).fetchall()
+    pending = []
+    for row in rows:
+        try:
+            transport = json.loads(row["direct_transport"])
+            # A corrupt stored receipt (list, null, string) describes only its
+            # own row: reject it and keep going, so one bad receipt cannot
+            # abort the pass and strand unrelated or legacy rows.
+            if not isinstance(transport, dict):
+                continue
+            if transport.get("route") != "guarded":
+                continue  # owner_push sends reconcile through pickup receipts.
+            bound = str(transport.get("message_id") or "")
+            if not bound or bound != (row["transport_id"] or ""):
+                continue  # receipt is not identity-bound to this row: leave it.
+        except (ValueError, TypeError, AttributeError):
+            continue
+        pending.append((row, transport, bound))
+    if not pending:
+        return
+    if client is None:
+        try:
+            client = _flock()
+        except Exception:
+            # An outage never discards the durable owner message and never
+            # invents an outcome from failing to ask.
+            return
+    for row, transport, bound in pending:
+        try:
+            record = client.call("get_message", message_id=bound)
+        except Exception as exc:
+            if "no message with id" in str(exc):
+                # The daemon outbox no longer holds the record: in-memory
+                # state was lost or the attempt never got bound. Keep the
+                # durable row and mark the outcome unknown - never resend.
+                with _db() as conn:
+                    conn.execute(
+                        "UPDATE messages SET delivery='uncertain',delivery_detail=? "
+                        "WHERE id=? AND delivery IN ('pending','queued','failed','uncertain')",
+                        ("Delivery unconfirmed; the transport record for this send is "
+                         "unavailable. Check agent activity before sending again.", row["id"]))
+            continue  # outage or another daemon error: retain last known state
+        if not isinstance(record, dict) or record.get("message_id") != bound:
+            continue
+        if record.get("pane_id") != transport.get("pane"):
+            continue  # a receipt must belong to the pane bound at send time
+        text = str(record.get("text") or "")
+        if f"[VP web message #{row['id']};" not in text:
+            continue  # creation marker does not match: not this message
+        state = record.get("status")
+        if state not in ("queued", "sent", "cancelled"):
+            continue  # an unrecognised state is unknown: retain last known
+        detail = str(record.get("message") or state)
+        # Confirmation (sent/cancelled) is terminal evidence: it may resolve a
+        # row that reconciliation had marked uncertain. A still-queued record
+        # is not terminal: it never overrides an unfortunate-uncertain mark.
+        moving_states = ["pending", "queued", "failed"]
+        if state != "queued":
+            moving_states.append("uncertain")
+        delivered_at = None
+        if state == "sent":
+            finished = record.get("finished_at")
+            # Malformed daemon values stay absent; zero/negative/Infinity are
+            # not timestamps (the owner_push path already validates the same
+            # way). The sent status stands; the timestamp stays unknown.
+            delivered_at = (finished if type(finished) in (int, float)
+                            and math.isfinite(finished) and finished > 0 else None)
+        with _db() as conn:
+            cursor = conn.execute(
+                "UPDATE messages SET delivery=?,delivery_detail=?,transport_id=? "
+                "WHERE id=? AND delivery IN (%s)" % ",".join("?" for _ in moving_states),
+                (state, detail, bound, row["id"], *moving_states))
+            if cursor.rowcount and state == "sent":
+                conn.execute(
+                    "UPDATE messages SET delivered_at=?,delivery_latency_s=? "
+                    "WHERE id=? AND delivery='sent' AND delivered_at IS NULL",
+                    (delivered_at, None, row["id"]))
+    # An error here belongs to the daemon pass as a whole (client creation);
+    # per-row errors were handled above, so an outage simply leaves every row's
+    # last known state intact and never invents an outcome from failing to ask.
+    # No resend happens in any path of this function.
+
+
 def _reconcile_owner_pushes(channel: str):
     """Match durable harness pickup receipts; an absent receipt proves nothing."""
     with _db() as conn:
@@ -1018,6 +1116,7 @@ def _reconcile(channel: str):
         return
     try:
         _reconcile_owner_pushes(channel)
+        _reconcile_direct_guarded(channel)
         read_cutoff = time.time() - READ_STATUS_WINDOW_S
         with _db() as conn:
             queued = conn.execute("SELECT * FROM messages WHERE channel=? AND "
