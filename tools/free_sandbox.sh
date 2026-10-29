@@ -28,16 +28,37 @@ MEDIA_BIND=()
 if [ -L "$REPO/resources" ]; then
   media_target="$(readlink -f -- "$REPO/resources")" || die "resources symlink cannot be resolved"
   [ -d "$media_target" ] || die "resources -> $media_target is not a directory"
+  # Refuse the filesystem root and any directory that is an ANCESTOR of the home or of a protected
+  # tree: binding such a target would hand the sandbox /, /home or the whole workspace root.
   case "$media_target" in
-    /etc|/etc/*|/root|/root/*|/proc|/proc/*|/sys|/sys/*|/dev|/dev/*|"$HOME"|"$HOME"/*)
-      die "refusing privileged/private media target $media_target" ;;
+    /) die "refusing the filesystem root as a media target" ;;
   esac
+  for _prot in "$HOME" /etc /root /proc /sys /dev /run /tmp /usr /var; do
+    case "$_prot" in
+      "$media_target"|"$media_target"/*)
+        die "refusing media target $media_target: it is an ancestor of $_prot" ;;
+    esac
+  done
+  # Credential/state directories stay excluded even when an operator allowlists them. This is a
+  # denylist of private state, NOT "$HOME in general": explicitly approved media under
+  # $HOME/workspace (where the real Poolrad media lives) is permitted.
+  for _priv in "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.pi" "$HOME/.config" "$HOME/.local" "$HOME/.aws" \
+               "$HOME/.kube" "$HOME/.docker" "$HOME/.cache" "$HOME/.netrc" "$HOME/.password-store"; do
+    case "$media_target" in
+      "$_priv"|"$_priv"/*) die "refusing private state/credential path $media_target" ;;
+    esac
+  done
   [ -n "${FREE_MEDIA_ALLOW:-}" ] || die "resources is a symlink to $media_target; set FREE_MEDIA_ALLOW to its canonical directory to approve it"
   allowed=0
   IFS=':' read -r -a _roots <<< "${FREE_MEDIA_ALLOW}"
   for _root in "${_roots[@]}"; do
     [ -n "$_root" ] || continue
     _canon="$(readlink -f -- "$_root" 2>/dev/null)" || continue
+    [ -n "$_canon" ] || continue
+    case "$_canon" in /) continue ;; esac           # the root is never an approved media root
+    for _prot in /etc /root /proc /sys /dev /run /tmp /usr /var; do
+      case "$_prot" in "$_canon"|"$_canon"/*) _canon="" ;; esac
+    done
     [ -n "$_canon" ] || continue
     case "$media_target" in "$_canon"|"$_canon"/*) allowed=1; break ;; esac
   done

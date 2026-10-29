@@ -75,6 +75,9 @@ run_one() {
     verdict="TIMEOUT (rc=124, attempts=$attempt, not judged)"
   elif is_rate_limit "$dir/$body.err"; then
     verdict="RATE_LIMITED (delivery failure, attempts=$attempt, not judged)"
+  elif [ "$rc" -ne 0 ]; then
+    # A non-zero exit is a failed delivery even when it printed something: only success may be judged.
+    verdict="FAILED (rc=$rc, attempts=$attempt, not judged)"
   elif [ -s "$rep" ]; then
     local bv gate gate_rc
     gate=$(cd "$REPO" && python3 "$HERE/tools/free_body_check.py" "$rep" --expect-offset "$off" --expect-length "$length" 2>&1)
