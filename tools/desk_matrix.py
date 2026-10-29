@@ -9,9 +9,11 @@ prints and records, for each failure, WHICH assertion tripped and against what
 
     python3 tools/desk_matrix.py --dist web/dist --artifacts /tmp/desk-matrix
 
-It never writes to the desk: every request that is not GET is aborted and counted as a
-failure (`no-writes`), the app is served from a local static copy, and every API answer
-is a synthetic fixture from this file.
+It never writes to the desk: every request that is not GET is RECORDED and fails
+(`no-writes`), and aborted as well wherever a route can match it (requests under
+/api/**); a non-API write under --url is recorded but cannot be blocked, so the rule
+fails on the attempt rather than pretending it was stopped. The app is served from a
+local static copy, and every API answer is a synthetic fixture from this file.
 
 What this first version covers, and what it does NOT (the matrix is grown rule by rule,
 each with a negative control):
@@ -38,6 +40,7 @@ the tool FAILS on it. A rule that cannot fail is not evidence.
 import argparse
 import json
 import os
+import subprocess
 import threading
 import time
 from functools import partial
@@ -174,6 +177,42 @@ class StaticHandler(SimpleHTTPRequestHandler):
         pass
 
 
+BUILD_RECIPE = ("cd <dist> && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
+                "   # the './' prefix is part of the hashed bytes")
+# The same pipeline, ready to run with cwd already at the dist (no `cd` substitution in
+# a shell string, so a path with spaces cannot change what is hashed).
+BUILD_PIPELINE = "find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
+
+
+def build_binding(dist: Path):
+    """Bind the run to the exact bytes that were served.
+
+    A matrix result that does not name its build is a report, not evidence: two runs can
+    both say "0 failures" about different trees. This hashes the served dist with the
+    SAME recipe the desk's own releases use, records the command that produced the
+    number, and says plainly when no dist was hashed (a --url run) instead of leaving
+    the field absent, which reads like a pass.
+    """
+    if dist is None:
+        return {"manifest_sha256": None, "command": BUILD_RECIPE,
+                "reason": "no --dist given: a --url run is NOT bound to immutable bytes",
+                "file_count": None}
+    if not dist.is_dir():
+        return {"manifest_sha256": None, "command": BUILD_RECIPE,
+                "reason": "dist path is not a directory: %s" % dist, "file_count": None}
+    result = subprocess.run(BUILD_PIPELINE, shell=True, cwd=str(dist),
+                            capture_output=True, text=True)
+    digest = (result.stdout or "").split()
+    files = subprocess.run("find . -type f | LC_ALL=C sort", shell=True, cwd=str(dist),
+                           capture_output=True, text=True).stdout.splitlines()
+    return {"manifest_sha256": digest[0] if digest else None,
+            "command": BUILD_RECIPE,
+            "recipe_note": "the './' prefix is part of the hashed bytes",
+            "file_count": len(files),
+            "returncode": result.returncode,
+            "stderr": (result.stderr or "").strip()[:200] or None}
+
+
 def serve_dist(dist: Path):
     handler = partial(StaticHandler, directory=str(dist))
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -234,6 +273,8 @@ def run(argv=None):
                      % (", ".join(repr(t) for t in unknown), ", ".join(registered)))
     report = {"artifact": "desk_matrix", "schema": 1, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
               "input": {"dist": str(args.dist) if args.dist else None, "url": base},
+              # The run is bound to bytes here, before any rule claims anything.
+              "build": build_binding(args.dist),
               "emulation": "viewport size + deviceScaleFactor only; NOT browser zoom",
               "widths": [w[0] for w in widths], "themes": themes,
               "rules": ["renders", "no-descendant-overflow", "no-page-scrollbar",
