@@ -1,5 +1,6 @@
 """Editor adapter contract tests. All records/profiles here are synthetic."""
 import asyncio
+import copy
 import hashlib
 import io
 import json
@@ -187,6 +188,73 @@ class CharacterEditorTests(unittest.TestCase):
         self.assertEqual(16, result['inspection']['characters'][0]['current_values']['strength'])
         self.assertEqual(2, result['inspection']['characters'][0]['reference_fighter_level'])
         self.assertEqual(source['expected_source_hashes'], self.store.inspect(source['id'])['expected_source_hashes'])
+
+    def test_unknown_receipt_fields_never_reach_api_or_zip(self):
+        # Extend the synthetic CLI output at each receipt level separately.
+        # The supported fields mirror the accepted schema-1 CLI contract.
+        run = self.store._run
+        for level in ('top', 'file', 'byte_change', 'applied_change', 'rejected_change'):
+            with self.subTest(level=level):
+                source = self.imported()
+                expected = {}
+                marker = str(self.root / ('private-' + level))
+
+                def extended_receipt(payload, *, noop=False):
+                    report = run(payload, noop=noop)
+                    if payload['operation'] == 'inspect':
+                        return report
+                    path = Path(payload['destination']) / 'write-receipts.json'
+                    receipt = json.loads(path.read_text())
+                    row = receipt['files'][0]
+                    row.update(operation='edit_copy', size=len(synthetic_save()))
+                    row['before_after_bytes'][0]['reason'] = 'Synthetic reference edit'
+                    applied = dict(payload['changes'][0], index=0, offset=16,
+                                   before_sha256=row['before_sha256'], after_sha256=row['after_sha256'],
+                                   historical_evidence='docs/synthetic-reference.md',
+                                   proof_scope='Synthetic receipt contract, not game evidence.')
+                    receipt.update(schema_version=1, operation='edit_copy',
+                                   applied_changes=[applied], rejected_changes=[],
+                                   historical_reference_only=True, limits='Reference transitions only.')
+                    if level == 'rejected_change':
+                        # The pinned CLI emits an empty list. Exercise a future
+                        # change row without permitting its unknown metadata.
+                        receipt['rejected_changes'] = [dict(file='OTHER.SAV', field='strength')]
+                    public = copy.deepcopy(receipt)
+                    public.update(game_validation='UNVERIFIED', game_build_loaded=None)
+                    public['files'][0]['file'] = public['files'][0]['source'] = 'CHRDATA1.SAV'
+                    expected['receipt'] = public
+                    targets = {'top': receipt, 'file': row,
+                               'byte_change': row['before_after_bytes'][0],
+                               'applied_change': applied}
+                    target = receipt['rejected_changes'][0] if level == 'rejected_change' else targets[level]
+                    target.update(private_path=marker, future_metadata={'nested_path': marker})
+                    # A CLI extension must not promote a newly written copy.
+                    receipt.update(game_validation='VERIFIED', game_build_loaded=marker)
+                    row.update(game_validation='VERIFIED', game_build_loaded=marker)
+                    path.write_text(json.dumps(receipt))
+                    return report
+
+                with patch.object(self.store, '_run', side_effect=extended_receipt):
+                    copied = self.client.post('/api/character-editor/copies', json=self.request(
+                        source, ['reference_strength_17_to_16']))
+                self.assertEqual(200, copied.status_code, copied.text)
+                result = copied.json()
+                self.assertNotIn(marker, copied.text)
+                self.assertEqual(expected['receipt'], result['receipt'])
+                self.assertEqual([16], result['receipt']['files'][0]['changed_offsets'])
+                self.assertEqual([{'offset': 16, 'before': 17, 'after': 16,
+                                   'reason': 'Synthetic reference edit'}],
+                                 result['receipt']['files'][0]['before_after_bytes'])
+                downloaded = self.client.get(result['download_url'])
+                self.assertEqual(200, downloaded.status_code)
+                with zipfile.ZipFile(io.BytesIO(downloaded.content)) as archive:
+                    public_bytes = archive.read('write-receipts.json')
+                    self.assertNotIn(marker, public_bytes.decode())
+                    self.assertEqual(expected['receipt'], json.loads(public_bytes))
+                    edited = bytearray(synthetic_save())
+                    edited[16] = 16
+                    self.assertEqual(bytes(edited), archive.read('CHRDATA1.SAV'))
+                self.assertEqual(source['expected_source_hashes'], self.store.inspect(source['id'])['expected_source_hashes'])
 
     def test_invalid_names_duplicate_files_and_bad_records_leave_no_registered_import(self):
         for files in [[('../CHRDATA1.SAV', synthetic_save())],

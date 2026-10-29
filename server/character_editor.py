@@ -180,12 +180,33 @@ class EditorStore:
 
     @staticmethod
     def _public_receipt(receipt):
-        result = {key: value for key, value in receipt.items() if key != 'files'}
+        """Expose the schema-1 receipt contract, not future private CLI fields."""
+        def fields(value, allowed):
+            return {key: value[key] for key in allowed if key in value}
+
+        def public_change(change):
+            row = fields(change, ('file', 'field', 'expected_before', 'value',
+                                 'validation_profile', 'index', 'offset',
+                                 'before_sha256', 'after_sha256',
+                                 'historical_evidence', 'proof_scope'))
+            if 'file' in row:
+                row['file'] = Path(row['file']).name
+            return row
+
+        result = fields(receipt, ('schema_version', 'operation',
+                                  'historical_reference_only', 'limits'))
         result.update(UNVERIFIED)
+        for key in ('applied_changes', 'rejected_changes'):
+            if key in receipt:
+                result[key] = [public_change(change) for change in receipt[key]]
         result['files'] = []
         for item in receipt.get('files', []):
-            row = dict(item)
-            row['file'], row['source'] = Path(row['file']).name, Path(row['source']).name
+            row = fields(item, ('operation', 'size', 'before_sha256', 'after_sha256',
+                                'changed_offsets', 'byte_identical'))
+            row['file'], row['source'] = Path(item['file']).name, Path(item['source']).name
+            if 'before_after_bytes' in item:
+                row['before_after_bytes'] = [fields(change, ('offset', 'before', 'after', 'reason'))
+                                             for change in item['before_after_bytes']]
             row.update(UNVERIFIED)
             result['files'].append(row)
         return result
