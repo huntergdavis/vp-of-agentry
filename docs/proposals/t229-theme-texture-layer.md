@@ -60,13 +60,23 @@ A proposal that textures all twelve is a proposal that has not looked at the the
 
 Hard constraints restated, because each has already been violated somewhere in this fleet once: no network requests (CSS/SVG data URIs or locally shipped licensed files, same rule as fonts); text contrast must be measured with the **pixel-contrast layer**, not the token gate, on every textured surface; animation opt-in and off by default; performance measured via transform/opacity only; DPR behaviour stated per effect rather than discovered later; effects set through named slots only.
 
-## 5. Worked example (specified, NOT yet prototyped)
+## 5. Worked example — Dune + static sand (PROTOTYPED, measured)
 
-One theme, one effect, behind an off-by-default flag: **Dune + `--surface-texture` (static sand, no animation)**.
+Page: `prototype/dune-sand.html`. **Off by default** — the texture applies only with `?texture=dune-sand`; with no flag the page is the flat palette. One slot is used (`--surface-texture`) as an inline SVG `feTurbulence` data URI: **no network request**, no shipped binary, no component CSS touched.
 
-* Flag: `?texture=dune-sand` (query carrier, off unless present) so nothing changes for anyone who does not ask.
-* Apply `--surface-texture` on the page layer only; panels keep their existing surface so body text sits on the same background as today.
-* Capture with a dialog closed at **1067** and **390** CSS px, and run the existing pixel-contrast measurement over body text on the textured surface, reporting the before/after ratio per sample.
-* Acceptance for the prototype: contrast ratio unchanged or better at both widths, zero network requests in the capture log, and a recorded first-paint delta.
+Captures (dialog closed, DPR 1.8, one heavy-queue job): `dune-off-1067.png`, `dune-on-1067.png`, `dune-off-390.png`, `dune-on-390.png`.
 
-**Not done in this delivery:** the prototype itself, its two captures and its contrast measurement. This document is the proposal the owner asked to read and approve piece by piece; the prototype is the follow-up that shows him one before he approves eleven.
+**Rendered pixel contrast** on the painted pixels of the body-text element (element screenshot → canvas `getImageData` → WCAG relative luminance; darkest 2% = background, lightest 2% = ink):
+
+| width | texture | background (darkest 2%) | ink (lightest 2%) | ratio |
+|---|---|---|---|---|
+| 1067 | off | `[42,33,24]` | `[241,229,207]` | **12.68:1** |
+| 1067 | on | `[46,37,28]` | `[241,229,207]` | **12.06:1** |
+| 390 | off | `[42,33,24]` | `[241,229,207]` | **12.68:1** |
+| 390 | on | `[46,37,28]` | `[241,229,207]` | **12.06:1** |
+
+The sand costs **0.62 of contrast** (12.68 → 12.06, ~5%): it lifts the background's darkest pixels from `[42,33,24]` to `[46,37,28]` while the ink is unchanged, and both widths stay far above the 4.5:1 body-text gate. That is the number to watch per theme — **a texture that lightens a dark ground eats contrast**.
+
+Effect notes for this one: static image, one paint, **no animation** (reduced-motion is a no-op here); DPR behaviour is per-CSS-pixel rasterisation, so it does not double the way scanlines do; no frame cost because nothing animates.
+
+**Limits**: the page mirrors the Dune palette and the slot mechanism, not the desk bundle — it proves the effect and the measurement, not the integration. The percentile method reports extreme pixels (a mean-based measure would be slightly lower), and the measurement is DPR 1.8 only.
