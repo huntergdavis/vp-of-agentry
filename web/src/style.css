@@ -1,4 +1,26 @@
 :root { font-family: var(--font-body); color: var(--root-ink); background: var(--root-surface); font-synthesis: none; }
+/* Token-only themes share effect and font consumers. Default and legacy CRT
+ * retain their original cascade; existing theme-specific rules take priority.
+ * A theme opts into scanlines through --overlay, whose gradient can use
+ * --scanline-strength. The strength token alone never enables an overlay. */
+:root { --scanline-strength: 0; }
+:root:where([data-theme]:not([data-theme="default"]):not([data-theme="crt"])) body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background-image: var(--overlay, none);
+}
+:root:where([data-theme]:not([data-theme="default"]):not([data-theme="crt"])) :is(h1, h2, .dash-nav-brand) {
+  font-family: var(--font-display);
+}
+:root:where([data-theme]:not([data-theme="default"]):not([data-theme="crt"])) :is(.cs-message, .cs-message__content) {
+  font-family: var(--font-body);
+}
+@media print, (forced-colors: active) {
+  :root:where([data-theme]:not([data-theme="default"]):not([data-theme="crt"])) body::after { display: none; }
+}
 * { box-sizing: border-box; }
 body { margin: 0; }
 button,input { font: inherit; }
