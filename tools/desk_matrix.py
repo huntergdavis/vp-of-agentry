@@ -41,6 +41,7 @@ import argparse
 import json
 import os
 import subprocess
+import tempfile
 import threading
 import time
 from functools import partial
@@ -184,33 +185,64 @@ BUILD_RECIPE = ("cd <dist> && find . -type f | LC_ALL=C sort | xargs sha256sum |
 BUILD_PIPELINE = "find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum"
 
 
-def build_binding(dist: Path):
-    """Bind the run to the exact bytes that were served.
+def _digest(folder: Path, follow_links: bool):
+    """sha256 over a folder's files, the way the recipe does it (sorted, './' prefix)."""
+    pattern = "find . \\( -type f -o -type l \\) | LC_ALL=C sort" if follow_links else \
+              "find . -type f | LC_ALL=C sort"
+    listed = subprocess.run(pattern, shell=True, cwd=str(folder),
+                            capture_output=True, text=True)
+    lines = [line for line in listed.stdout.splitlines() if line.strip()]
+    hashed = subprocess.run("xargs sha256sum | sha256sum", shell=True, cwd=str(folder),
+                            input="\n".join(lines) + "\n", capture_output=True, text=True)
+    return (hashed.stdout.split() or [None])[0], lines
 
-    A matrix result that does not name its build is a report, not evidence: two runs can
-    both say "0 failures" about different trees. This hashes the served dist with the
-    SAME recipe the desk's own releases use, records the command that produced the
-    number, and says plainly when no dist was hashed (a --url run) instead of leaving
-    the field absent, which reads like a pass.
+
+def snapshot_build(dist: Path):
+    """Serve an IMMUTABLE SNAPSHOT of the dist, and bind the receipt to it.
+
+    Reviewer %31 (t455, P2): the first version hashed the input tree once and then kept
+    serving that same writable directory, so a rebuild during the run produced a passing
+    report whose digest named an older tree. Hashing twice would only have detected it
+    after the fact; serving a copy removes the window.
+
+    Two digests are recorded, on purpose:
+      * release_recipe_sha256 - the desk's own recipe (find . -type f ...). It is what a
+        release manifest uses, so it stays for identity with releases.
+      * served_sha256 - the same walk INCLUDING symlinks, because SimpleHTTPRequestHandler
+        serves a symlinked file's target content while `find -type f` skips it (also
+        reviewer %31, t455 P2). This is the number that binds what the browser saw.
+    Both are recomputed after the run; a change is a failure, not a footnote.
     """
     if dist is None:
-        return {"manifest_sha256": None, "command": BUILD_RECIPE,
-                "reason": "no --dist given: a --url run is NOT bound to immutable bytes",
-                "file_count": None}
+        return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
+                      "reason": "no --dist given: a --url run is NOT bound to immutable bytes",
+                      "file_count": None}
     if not dist.is_dir():
-        return {"manifest_sha256": None, "command": BUILD_RECIPE,
-                "reason": "dist path is not a directory: %s" % dist, "file_count": None}
-    result = subprocess.run(BUILD_PIPELINE, shell=True, cwd=str(dist),
-                            capture_output=True, text=True)
-    digest = (result.stdout or "").split()
-    files = subprocess.run("find . -type f | LC_ALL=C sort", shell=True, cwd=str(dist),
-                           capture_output=True, text=True).stdout.splitlines()
-    return {"manifest_sha256": digest[0] if digest else None,
-            "command": BUILD_RECIPE,
-            "recipe_note": "the './' prefix is part of the hashed bytes",
-            "file_count": len(files),
-            "returncode": result.returncode,
-            "stderr": (result.stderr or "").strip()[:200] or None}
+        return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
+                      "reason": "dist path is not a directory: %s" % dist, "file_count": None}
+    snapshot = Path(tempfile.mkdtemp(prefix="desk-matrix-snapshot-"))
+    copy = subprocess.run(["cp", "-a", str(dist) + "/.", str(snapshot)],
+                          capture_output=True, text=True)
+    if copy.returncode != 0:
+        return None, {"manifest_sha256": None, "command": BUILD_PIPELINE,
+                      "reason": "snapshot copy failed: %s" % (copy.stderr or "")[:120],
+                      "file_count": None}
+    release, release_files = _digest(snapshot, follow_links=False)
+    served, served_files = _digest(snapshot, follow_links=True)
+    return snapshot, {"manifest_sha256": served,
+                      "served_sha256": served,
+                      "release_recipe_sha256": release,
+                      "served_files": len(served_files),
+                      "release_files": len(release_files),
+                      "command": BUILD_RECIPE,
+                      "served_command": "find . \\( -type f -o -type l \\) | LC_ALL=C sort"
+                                        " | xargs sha256sum | sha256sum",
+                      "recipe_note": "the './' prefix is part of the hashed bytes; the "
+                                     "served digest follows symlinks because the static "
+                                     "server serves their targets",
+                      "input_tree": str(dist),
+                      "served_snapshot": str(snapshot),
+                      "reason": None}
 
 
 def serve_dist(dist: Path):
@@ -249,8 +281,13 @@ def run(argv=None):
 
     args.artifacts.mkdir(parents=True, exist_ok=True)
     server = None
+    served_dir = None
+    build_block = {"manifest_sha256": None, "reason": "not computed"}
     if args.dist:
-        server, base = serve_dist(args.dist)
+        served_dir, build_block = snapshot_build(args.dist)
+        if served_dir is None:
+            parser.error("could not snapshot the dist: %s" % build_block.get("reason"))
+        server, base = serve_dist(served_dir)
     elif args.url:
         base = args.url.rstrip("/") + "/"
     elif args.self_check:
@@ -274,7 +311,7 @@ def run(argv=None):
     report = {"artifact": "desk_matrix", "schema": 1, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
               "input": {"dist": str(args.dist) if args.dist else None, "url": base},
               # The run is bound to bytes here, before any rule claims anything.
-              "build": build_binding(args.dist),
+              "build": build_block,
               "emulation": "viewport size + deviceScaleFactor only; NOT browser zoom",
               "widths": [w[0] for w in widths], "themes": themes,
               "rules": ["renders", "no-descendant-overflow", "no-page-scrollbar",
@@ -388,6 +425,15 @@ def run(argv=None):
                 if s is not None:
                     s.shutdown()
 
+    if served_dir is not None:
+        after, _ = _digest(served_dir, follow_links=True)
+        report["build"]["served_sha256_after"] = after
+        report["build"]["stable"] = (after == report["build"]["served_sha256"])
+        if not report["build"]["stable"]:
+            report["failures"].append({"theme": "*", "width": "*", "rule": "build-stable",
+                                       "assertion": "the served tree is unchanged for the whole run",
+                                       "expected": report["build"]["served_sha256"],
+                                       "got": after})
     report["passed"] = not report["failures"]
     report["summary"] = {"cases": len(report["results"]), "failures": len(report["failures"]),
                          "by_rule": {}}
