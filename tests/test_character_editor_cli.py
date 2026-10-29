@@ -47,12 +47,25 @@ class RealCLIIntegration(unittest.TestCase):
                 self.assertEqual(4, result['byte_identical_files'])
                 self.assertEqual('UNVERIFIED', result['game_validation'])
                 self.assertIsNone(result['game_build_loaded'])
+                self.assertEqual(1, result['receipt']['schema_version'])
+                self.assertEqual(4, len(result['receipt']['files']))
+                for row in result['receipt']['files']:
+                    self.assertEqual(row['file'], row['source'])
+                    self.assertEqual(original_hashes[row['file']], row['before_sha256'])
+                    self.assertEqual(original_hashes[row['file']], row['after_sha256'])
+                    self.assertEqual(len(files[row['file']]), row['size'])
+                    self.assertEqual([], row['changed_offsets'])
+                    self.assertEqual([], row['before_after_bytes'])
+                    self.assertTrue(row['byte_identical'])
+                    self.assertEqual('UNVERIFIED', row['game_validation'])
+                    self.assertIsNone(row['game_build_loaded'])
                 self.assertNotIn(temp, json.dumps(result))
                 _, data = store.download(result['id'])
                 with zipfile.ZipFile(io.BytesIO(data)) as archive:
                     for name, expected in files.items():
                         self.assertEqual(expected, archive.read(name))
                     self.assertNotIn(temp, archive.read('write-receipts.json').decode())
+                    self.assertEqual(result['receipt'], json.loads(archive.read('write-receipts.json')))
                 self.assertEqual(original_hashes, store.inspect(source['id'])['expected_source_hashes'])
                 request['source_id'] = result['id']  # An exported copy can itself round-trip.
 
