@@ -94,6 +94,47 @@
   --update-banner-border: var(--border-strong);
 }
 
+/* t203: new-theme contrast remediation. Component surfaces, borders and inks
+   resolve inside the 2001 palette instead of inheriting Default's tokens. */
+:root[data-theme="2001"] {
+  --channel-surface-2: var(--surface-raised);
+  --game-chat-actions-surface: var(--surface-raised);
+  --game-error-surface: var(--surface-raised);
+
+  --topbar-border: var(--border);
+  --composer-border: var(--border);
+  --older-marker-border: var(--border);
+  --activity-border: var(--border);
+  --activity-toggle-border: var(--border);
+  --jump-banner-border: var(--border);
+  --jump-latest-border: var(--border);
+  --queue-help-border: var(--border);
+  --queue-help-border-2: var(--border);
+  --search-head-border-2: var(--border);
+  --search-more-border: var(--border);
+  --login-card-border: var(--border-strong);
+  --game-type-border: var(--border);
+  --game-type-border-2: var(--border);
+  --game-type-border-3: var(--surface);
+  --ops-credit-chart-border: var(--border);
+  --ops-executive-border: var(--border);
+  --ops-executive-head-border: var(--border);
+  --ops-kpis-border: var(--border);
+  --ops-lab-panel-border: var(--border);
+  --ops-metrics-border: var(--border);
+  --ops-panel-border: var(--border);
+  --ops-source-border: var(--border);
+  --ops-source-border-2: var(--border);
+  --ops-mission-head-border: var(--surface);
+  --poolrad-stat-border: var(--border);
+  --sidebar-border: var(--border);
+
+  --game-chat-actions-ink: var(--ink);
+  --search-head-ink: var(--muted);
+  --status-badge-ink: var(--muted);
+  --status-badge-ink-3: var(--warning);
+}
+
 /* interim effect consumers: t177 generalises into token hooks */
 :root[data-theme="2001"] body::after {
   content: none;
