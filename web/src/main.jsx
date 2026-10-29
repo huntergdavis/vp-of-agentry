@@ -15,7 +15,7 @@ import './dash.css';
 import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
-import { buildThemeRegistry } from './theme-registry.js';
+import { buildThemeRegistry, groupThemes } from './theme-registry.js';
 import { laneStatus } from './lane-status.js';
 import { channelDeliveryLabel, messageDeliveryLabel } from './delivery-label.js';
 import CharacterEditor from './CharacterEditor';
@@ -28,13 +28,7 @@ function LaneStatus({ row }) {
 const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 const themeManifests = import.meta.glob('./themes/*.json', { eager: true, import: 'default' });
 const THEMES = buildThemeRegistry(themeManifests, themeStyles);
-const THEME_GROUPS = THEMES.reduce((groups, option) => {
-  const label = option.group || 'Other';
-  const last = groups.at(-1);
-  if (last && last.label === label) last.options.push(option);
-  else groups.push({ label, options: [option] });
-  return groups;
-}, []);
+const THEME_GROUPS = groupThemes(THEMES);
 const ThemeContext = createContext(null);
 const validTheme = value => THEMES.some(theme => theme.id === value) ? value : 'default';
 function storedTheme() {
