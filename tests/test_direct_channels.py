@@ -252,7 +252,8 @@ class DirectReconcileTests(unittest.TestCase):
             calls = client.calls
             def call(self, command, **args):
                 calls.append((command, args))
-                assert command == "get_message", command
+                if command != "get_message":
+                    raise AssertionError("unexpected " + command)
                 if client.error is not None:
                     raise client.error
                 if client.durable is None:
@@ -329,6 +330,97 @@ class DirectReconcileTests(unittest.TestCase):
             with patch.object(server, "_flock", return_value=client):
                 server._reconcile("vp")
             self.assertEqual("queued", self.row()["delivery"])
+
+    def test_sent_record_resolves_an_uncertain_row(self):
+        # t434 P1: a lost record marks the row uncertain; a later terminal
+        # record with the row's full identity resolves the uncertainty to
+        # sent - without any دوم replay.
+        sent = self.post(dict(outcome="queued", message_id="m8365", route="guarded",
+                              detail="held by the typing guard", pane="%2"))
+        client = self.daemon(record=None, error=RuntimeError("no message with id 'm8365'"))
+        with patch.object(server, "_flock", return_value=client):
+            server._reconcile("vp")
+        self.assertEqual("uncertain", self.row()["delivery"])
+        client = self.daemon(record=self.durable_record())
+        with patch.object(server, "_flock", return_value=client):
+            server._reconcile("vp")
+        row = self.row()
+        self.assertEqual("sent", row["delivery"])
+        self.assertEqual(102.5, row["delivered_at"])
+        self.assertIn("get_message", [c for c, _ in client.calls])
+        self.assertNotIn("send_text", [c for c, _ in client.calls])
+
+    def test_non_object_direct_receipt_is_rejected_per_row(self):
+        # t434 P2: a corrupt stored receipt (list) is rejected on its own row;
+        # unrelated legacy rows on the same channel still reconcile, and a
+        # healthy guarded row later in the list still reaches the daemon.
+        with patch.object(server, "_send_to_pane", side_effect=[
+                dict(outcome="queued", message_id="m9001", route="guarded",
+                     detail="held by the typing guard", pane="%2"),
+                dict(outcome="queued", message_id="m9002", route="guarded",
+                     detail="held by the typing guard", pane="%2")]):
+            self.post(dict(outcome="queued", message_id="m9001", route="guarded",
+                           detail="held by the typing guard", pane="%2"))
+            self.post(dict(outcome="queued", message_id="m9002", route="guarded",
+                           detail="held by the typing guard", pane="%2"))
+        legacy_id = None
+        with server._db() as conn:
+            conn.execute("UPDATE messages SET direct_transport='[]' WHERE transport_id='m9001'")
+            legacy_id = conn.execute(
+                "INSERT INTO messages(channel,role,body,delivery,transport_id) "
+                "VALUES('vp','owner','legacy text','queued','lost1')").fetchone()
+            legacy_id = legacy_id if isinstance(legacy_id, int) else conn.execute(
+                "SELECT last_insert_rowid()").fetchone()[0]
+        # direct row gets a sent record; legacy row is missing from the daemon
+        with server._db() as conn:
+            row_ids = dict(conn.execute(
+                "SELECT transport_id, id FROM messages WHERE transport_id IS NOT NULL").fetchall())
+        row_ids["lost1"] = legacy_id
+        calls = []
+        class _Client:
+            def call(self, command, **args):
+                calls.append((command, args))
+                if command == "list_messages":
+                    return {"queued": [], "recent": []}
+                assert command == "get_message", command
+                if args["message_id"] == "lost1":
+                    return {"message_id": "lost1", "status": "sent", "pane_id": "%2",
+                            "text": "legacy text",
+                            "message": "submitted", "created_at": 1.0,
+                            "finished_at": 103.0}
+                marker_id = row_ids[args["message_id"]]
+                return {"message_id": args["message_id"], "status": "sent", "pane_id": "%2",
+                        "text": "[VP web message #%d;\nreply through vpctl] Direct browser message" % marker_id,
+                        "message": "submitted", "created_at": 100.0,
+                        "finished_at": 101.0}
+        with patch.object(server, "_flock", return_value=_Client()):
+            server._reconcile("vp")
+        with server._db() as conn:
+            corrupt = conn.execute("SELECT delivery FROM messages WHERE transport_id='m9001'").fetchone()
+            healthy = conn.execute("SELECT delivery FROM messages WHERE transport_id='m9002'").fetchone()
+            legacy = conn.execute("SELECT delivery FROM messages WHERE id=?", (legacy_id,)).fetchone()
+        self.assertEqual("queued", corrupt[0])  # corrupt receipt: rejected per row
+        self.assertEqual("sent", healthy[0])    # healthy guarded row still reconciled
+        self.assertEqual("sent", legacy[0])  # legacy row reconciled on its own path
+        # healthy guarded row first, then the legacy pass (list_messages) and
+        # the legacy row's own get_message - in that order, never a resend.
+        self.assertEqual(["get_message", "list_messages", "get_message"],
+                         [c for c, _ in calls])
+
+    def test_malformed_timestamps_stay_absent_with_sent_status(self):
+        self.post(dict(outcome="queued", message_id="m8365", route="guarded",
+                       detail="held by the typing guard", pane="%2"))
+        for finished in (-1, float("inf")):
+            with self.subTest(finished=finished):
+                with server._db() as conn:
+                    conn.execute("UPDATE messages SET delivery='queued',delivered_at=NULL")
+                client = self.daemon(record=self.durable_record(finished_at=finished))
+                with patch.object(server, "_flock", return_value=client):
+                    server._reconcile("vp")
+                row = self.row()
+                self.assertEqual("sent", row["delivery"])
+                self.assertIsNone(row["delivered_at"])
+                self.assertIsNone(row["delivery_latency_s"])
 
     def test_vanished_record_becomes_uncertain_and_is_never_resent(self):
         self.post(dict(outcome="queued", message_id="m8365", route="guarded",
