@@ -60,23 +60,28 @@ A proposal that textures all twelve is a proposal that has not looked at the the
 
 Hard constraints restated, because each has already been violated somewhere in this fleet once: no network requests (CSS/SVG data URIs or locally shipped licensed files, same rule as fonts); text contrast must be measured with the **pixel-contrast layer**, not the token gate, on every textured surface; animation opt-in and off by default; performance measured via transform/opacity only; DPR behaviour stated per effect rather than discovered later; effects set through named slots only.
 
-## 5. Worked example — Dune + static sand (PROTOTYPED, measured)
+## 5. Worked example — Dune + static sand (prototype; contrast measured by review, my own numbers withdrawn)
 
-Page: `prototype/dune-sand.html`. **Off by default** — the texture applies only with `?texture=dune-sand`; with no flag the page is the flat palette. One slot is used (`--surface-texture`) as an inline SVG `feTurbulence` data URI: **no network request**, no shipped binary, no component CSS touched.
+Page: `prototype/dune-sand.html`. **Off by default** — applies only with `?texture=dune-sand`; with no flag the page is the flat palette. One slot (`--surface-texture`), texture as an inline SVG `feTurbulence` data URI: **no network request**, no shipped binary, no component CSS touched. Captures at 1067 and 390, DPR 1.8, dialog closed.
 
-Captures (dialog closed, DPR 1.8, one heavy-queue job): `dune-off-1067.png`, `dune-on-1067.png`, `dune-off-390.png`, `dune-on-390.png`.
+### Contrast: my percentile method was unsound and is withdrawn
 
-**Rendered pixel contrast** on the painted pixels of the body-text element (element screenshot → canvas `getImageData` → WCAG relative luminance; darkest 2% = background, lightest 2% = ink):
+I reported 12.68:1 → 12.06:1 ("costs 0.62, about 5%") by taking a percentile of all pixels in the text box. Reviewer %36 (t484) showed that method **falsely passes a bright local background patch**: a percentile of the whole box hides a bright region behind a glyph. My own follow-up attempt to make it conservative by pairing the lightest glyph core with the brightest non-ink pixel instead measured glyph **anti-aliasing** — ratios of ~1.2 across the board — which is not a background measurement either. Both numbers are withdrawn rather than re-labelled.
 
-| width | texture | background (darkest 2%) | ink (lightest 2%) | ratio |
-|---|---|---|---|---|
-| 1067 | off | `[42,33,24]` | `[241,229,207]` | **12.68:1** |
-| 1067 | on | `[46,37,28]` | `[241,229,207]` | **12.06:1** |
-| 390 | off | `[42,33,24]` | `[241,229,207]` | **12.68:1** |
-| 390 | on | `[46,37,28]` | `[241,229,207]` | **12.06:1** |
+**The measurement to use is the independent one**, from the t484 review of this head: the body-text minimum is **12.676:1 flat → 10.241:1 textured** on the current build. So the sand costs ~2.4 of contrast (roughly 19%), not 5%, and still passes the 4.5:1 gate. Any future number here must come from spatially paired ink/background sampling (or a worst-background bound that excludes glyph edges and antialiasing) and must cover **body, muted and panel** text separately.
 
-The sand costs **0.62 of contrast** (12.68 → 12.06, ~5%): it lifts the background's darkest pixels from `[42,33,24]` to `[46,37,28]` while the ink is unchanged, and both widths stay far above the 4.5:1 body-text gate. That is the number to watch per theme — **a texture that lightens a dark ground eats contrast**.
+### Palette status, corrected
 
-Effect notes for this one: static image, one paint, **no animation** (reduced-motion is a no-op here); DPR behaviour is per-CSS-pixel rasterisation, so it does not double the way scanlines do; no frame cost because nothing animates.
+The prototype page uses **illustrative** Dune-like values (`--dune-bg:#2a2118` etc.); it does **not** mirror the pinned Dune theme palette in `web/src/themes/dune.css`. It demonstrates the slot mechanism and the measurement, not the shipped colours.
 
-**Limits**: the page mirrors the Dune palette and the slot mechanism, not the desk bundle — it proves the effect and the measurement, not the integration. The percentile method reports extreme pixels (a mean-based measure would be slightly lower), and the measurement is DPR 1.8 only.
+### Panel claim, corrected
+
+The panel in the prototype uses `rgba(0,0,0,.22)` over the page — **translucent**, so the page texture shows through it and its contrast is *not* unchanged by the texture as an earlier draft claimed. A real panel surface must be measured on its own, not inferred from the page.
+
+### Cost, reduced motion and DPR for this effect — assumptions, not measurements
+
+* static image, one paint: **assumed** cheap; I did not measure first-paint cost or a frame budget (nothing animates, so there is no frame cost to measure).
+* `prefers-reduced-motion`: a no-op here **because the effect is static** — this is reasoning from the design, not a measurement.
+* DPR: **assumed** that SVG turbulence rasterises per CSS pixel and therefore does not double the way scanlines do. Not measured at DPR1 vs DPR2.
+
+These are labelled assumptions so nobody quotes them as findings. The one measured property in this section is the contrast figure attributed to %36 above.
