@@ -717,19 +717,6 @@ function OpsBoard({ standalone = false }) {
   const owner = board?.attention.owner;
   const evidence = source => source ? `${source.source}: ${source.state} · generated ${source.generated_at}` : '';
   const number = (source, key) => source?.state === 'ok' ? source[key] ?? 'unknown' : 'unavailable';
-  const leaderLine = (tasks, ageText) => {
-    if (tasks?.state !== 'ok') return 'unavailable leader-held';
-    const head = `${tasks.leader_held ?? 'unknown'} leader-held`;
-    const unknown = tasks.leader_held_ages_unknown;
-    if (unknown > 0) {
-      const oldest = tasks.leader_held_oldest_age_s;
-      return `${head} (oldest known${oldest != null ? ` ≥ ${ageText(oldest)}` : ' unknown'}; ${unknown} without timestamps)`;
-    }
-    if (tasks.leader_held > 0) {
-      return `${head}${tasks.leader_held_oldest_age_s != null ? ` · oldest ${ageText(tasks.leader_held_oldest_age_s)}` : ' · oldest unknown'}`;
-    }
-    return `${head} · none`;
-  };
   return <DashShell standalone={standalone} view="operations">
     <DashHeader title="Operations" view="operations" standalone={standalone} side={<>
       <span className="dash-meta">{board ? `generated ${new Date(board.generated_at).toLocaleString()}` : 'Loading…'}</span>
