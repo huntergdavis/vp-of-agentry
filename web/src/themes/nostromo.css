@@ -103,6 +103,7 @@
   --jump-banner-surface: var(--surface-raised);
   --jump-latest-surface: var(--surface-raised);
   --queue-help-surface: var(--surface-raised);
+  --queue-help-surface-2: var(--surface-raised);
   --queue-help-surface-3: var(--surface-raised);
   --brand-mark-surface: var(--surface-raised);
   --search-head-surface: var(--surface);
@@ -147,6 +148,7 @@
   --jump-banner-ink: var(--success);
   --jump-latest-ink: var(--success);
   --settings-success-ink: var(--success);
+  --queue-help-ink: var(--warning);
   --queue-help-ink-2: var(--warning);
   --queue-help-ink-3: var(--warning);
   --status-badge-ink: var(--muted);
