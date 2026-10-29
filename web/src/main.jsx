@@ -16,6 +16,7 @@ import './scrollbars.css';
 import { coverageEconomics, milestoneScenarios } from './coverage-economics.js';
 import { CodewheelPicker } from './codewheel-picker.jsx';
 import { buildThemeRegistry } from './theme-registry.js';
+import { leaderLine } from './leader-line.js';
 import { laneStatus } from './lane-status.js';
 import { channelDeliveryLabel, messageDeliveryLabel } from './delivery-label.js';
 import CharacterEditor from './CharacterEditor';
