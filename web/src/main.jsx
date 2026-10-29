@@ -729,7 +729,7 @@ function OpsBoard({ standalone = false }) {
         <section className="ops-brief" data-ops-section="brief">
           <strong>{alarms.length ? `${alarms.length} alarms` : 'Alarms: none'}</strong>
           <p title={evidence(tasks)}>{number(tasks, 'open')} open tasks · {number(tasks, 'owner')} assigned to you</p>
-          <p title={evidence(tasks)}>{number(tasks, 'leader_held')} leader-held{tasks?.state === 'ok' && tasks.leader_held_oldest_age_s != null ? ` · oldest ${taskAge(tasks.leader_held_oldest_age_s)}` : ''} · unowned global work the leader carries</p>
+          <p title={evidence(tasks)}>{number(tasks, 'leader_held')} leader-held{tasks?.state === 'ok' && tasks.leader_held_oldest_age_s != null ? ` · oldest ${taskAge(tasks.leader_held_oldest_age_s)}` : ''} · the leader's carried global work (unowned or assigned to the leader)</p>
           <p title={evidence(lanes)}>{number(lanes, 'working')} lanes working · {number(lanes, 'idle')} idle{lanes?.unknown ? ` · ${lanes.unknown} not reporting` : ''}</p>
         </section>
         <p id="poolrad" className="ops-poolrad">
