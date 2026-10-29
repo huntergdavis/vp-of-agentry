@@ -137,7 +137,11 @@ def _task_board(client, now: datetime) -> dict:
     # assignee are the leader's carried work (t407 F1), and so is a task
     # explicitly assigned to the leader pane; the worker lanes' assigned
     # tasks are not.
-    leader_pane = os.environ.get("DUNKINGSHEEP_VP_PANE", "")
+    # Same leader resolution as the corrected DS66 counterpart (t408 F2):
+    # the configured VP pane, falling back to the product default so the two
+    # halves of the metric cannot disagree when the env is absent.
+    from dunk_pm import DEFAULT_VP_PANE as _product_default_vp_pane
+    leader_pane = os.environ.get("DUNKINGSHEEP_VP_PANE", _product_default_vp_pane)
     held = [row for row in items
             if row["status"] in ACTIVE_STATUSES and row["scope"] == "global"
             and (not row["assignees"]
@@ -145,14 +149,18 @@ def _task_board(client, now: datetime) -> dict:
     if len(items) >= TASK_LIST_LIMIT:
         # t408 F3: a truncated reference list must not back a definitive
         # leader count; the daemon aggregate is the honest source here.
-        leader_held = {"count": None, "oldest_age_s": None, "complete": False}
+        leader_held = {"count": None, "oldest_age_s": None, "ages_unknown": None,
+                       "complete": False}
     else:
         # t408 F2: an unknown created_at must not read as a known zero age;
-        # zero is only valid for a known age of zero.
+        # zero is only valid for a known age of zero. t118 F1: when any held
+        # timestamp is unknown, the max known age is a lower bound, so the
+        # payload exposes the coverage instead of implying a definitive oldest.
         known_ages = [row["age_s"] for row in held if row["age_s"] is not None]
+        unknown = len(held) - len(known_ages)
         leader_held = {"count": len(held), "oldest_age_s": max(known_ages)
                                                         if known_ages else None,
-                       "complete": True}
+                       "ages_unknown": unknown, "complete": True}
     depth = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
     return {
         "state": "ok",
@@ -300,7 +308,8 @@ def compact(readings: dict, generated_at: str) -> dict:
             "tasks": count(tasks, open=(tasks.get("counts") or {}).get("open", 0),
                            owner=len(owner),
                            leader_held=(tasks.get("leader_held") or {}).get("count"),
-                           leader_held_oldest_age_s=(tasks.get("leader_held") or {}).get("oldest_age_s")),
+                           leader_held_oldest_age_s=(tasks.get("leader_held") or {}).get("oldest_age_s"),
+                           leader_held_ages_unknown=(tasks.get("leader_held") or {}).get("ages_unknown")),
             "lanes": count(panes, working=panes.get("working"), idle=panes.get("idle"),
                            unknown=panes.get("unknown")),
         },

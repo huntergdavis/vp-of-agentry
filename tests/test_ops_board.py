@@ -172,7 +172,7 @@ class OpsBoardTests(unittest.TestCase):
                       "lease_expires_at": None, "blocked_by": [], "eligible": True,
                       "claimable": True, "attempts": 0})
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 1, "oldest_age_s": 7200, "complete": True},
+        self.assertEqual({"count": 1, "oldest_age_s": 7200, "ages_unknown": 0, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
         self.assertEqual(1, board["brief"]["tasks"]["leader_held"])
         self.assertEqual(7200, board["brief"]["tasks"]["leader_held_oldest_age_s"])
@@ -189,7 +189,7 @@ class OpsBoardTests(unittest.TestCase):
                       "claimable": False, "attempts": 0})
         with patch.dict(os.environ, {"DUNKINGSHEEP_VP_PANE": "%15"}):
             board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 2, "oldest_age_s": 7200, "complete": True},
+        self.assertEqual({"count": 2, "oldest_age_s": 7200, "ages_unknown": 0, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
         self.assertEqual(2, board["brief"]["tasks"]["leader_held"])
 
@@ -204,7 +204,7 @@ class OpsBoardTests(unittest.TestCase):
              "lease_expires_at": None, "blocked_by": [], "eligible": False,
              "claimable": False, "attempts": 0})
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 1, "oldest_age_s": 7200, "complete": True},
+        self.assertEqual({"count": 1, "oldest_age_s": 7200, "ages_unknown": 0, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
 
     def test_leader_held_is_zero_with_none_ages_when_nothing_is_unowned(self):
@@ -212,7 +212,7 @@ class OpsBoardTests(unittest.TestCase):
         tasks = client.responses["task_list"]["tasks"]
         tasks[1]["assignees"] = ["a-reviewer"]
         board = ops_board.build(client, self.conn, now=NOW)
-        self.assertEqual({"count": 0, "oldest_age_s": None, "complete": True},
+        self.assertEqual({"count": 0, "oldest_age_s": None, "ages_unknown": 0, "complete": True},
                          board["reference"]["tasks"]["leader_held"])
 
     def test_leader_held_unknown_created_at_stays_unknown_not_zero(self):
@@ -234,6 +234,44 @@ class OpsBoardTests(unittest.TestCase):
                   if row["id"] == "t21"][0]
         self.assertIsNone(no_age["age_s"])
 
+    def test_leader_fallback_matches_the_product_default_when_env_is_absent(self):
+        # t118 F2: with DUNKINGSHEEP_VP_PANE absent, the VP must resolve the
+        # leader exactly like the corrected DS66 counterpart - via the product
+        # default - so a task assigned to that default pane is counted, not a
+        # definite zero.
+        import dunk_pm
+        client = sample_client()
+        tasks = client.responses["task_list"]["tasks"]
+        tasks.append({"id": "t22", "title": "Default leader", "status": "open",
+                      "priority": "medium", "scope": "global",
+                      "assignees": [dunk_pm.DEFAULT_VP_PANE],
+                      "created_at": NOW.timestamp() - 500,
+                      "updated_at": NOW.timestamp(), "lease_expires_at": None,
+                      "blocked_by": [], "eligible": False, "claimable": False,
+                      "attempts": 0})
+        env = {k: v for k, v in os.environ.items() if k != "DUNKINGSHEEP_VP_PANE"}
+        with patch.dict(os.environ, env, clear=True):
+            board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual({"count": 2, "oldest_age_s": 7200, "ages_unknown": 0,
+                          "complete": True},
+                         board["reference"]["tasks"]["leader_held"])
+
+    def test_leader_held_all_unknown_ages_reports_none_oldest_with_coverage(self):
+        # t118 F1 coverage side: when every held timestamp is unknown the
+        # count stands but the oldest must be None, with the coverage count
+        # exposed so the UI can label it rather than printing oldest 0m.
+        client = sample_client()
+        tasks = client.responses["task_list"]["tasks"]
+        tasks.append({"id": "t23", "title": "No timestamp", "status": "open",
+                      "priority": "high", "scope": "global", "assignees": [],
+                      "created_at": None, "updated_at": NOW.timestamp(),
+                      "lease_expires_at": None, "blocked_by": [], "eligible": True,
+                      "claimable": True, "attempts": 0})
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual({"count": 2, "oldest_age_s": 7200, "ages_unknown": 1,
+                          "complete": True},
+                         board["reference"]["tasks"]["leader_held"])
+
     def test_truncated_task_list_reports_leader_held_unavailable_not_zero(self):
         # t408 F3: a full page means the reference list is truncated, so the
         # leader aggregate must be unavailable (complete=False), not a
@@ -245,7 +283,7 @@ class OpsBoardTests(unittest.TestCase):
         client.responses["task_list"]["tasks"] = base + filler
         board = ops_board.build(client, self.conn, now=NOW)
         self.assertEqual(board["reference"]["tasks"]["leader_held"],
-                         {"count": None, "oldest_age_s": None, "complete": False})
+                         {"count": None, "oldest_age_s": None, "ages_unknown": None, "complete": False})
         self.assertIsNone(board["brief"]["tasks"]["leader_held"])
         self.assertIsNone(board["brief"]["tasks"]["leader_held_oldest_age_s"])
 
