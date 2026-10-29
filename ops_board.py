@@ -125,10 +125,14 @@ def _task_board(client, now: datetime) -> dict:
         for assignee in task["assignees"]:
             load[assignee] = load.get(assignee, 0) + 1
     # Owner #1708: unowned means leader-owned. Active global tasks with no
-    # assignee are the leader's carried work, so count them and age the oldest.
+    # assignee are the leader's carried work (t407 F1), and so is a task
+    # explicitly assigned to the leader pane; the worker lanes' assigned
+    # tasks are not.
+    leader_pane = os.environ.get("DUNKINGSHEEP_VP_PANE", "")
     held = [row for row in items
-            if not row["assignees"] and row["status"] in ACTIVE_STATUSES
-            and row["scope"] == "global"]
+            if row["status"] in ACTIVE_STATUSES and row["scope"] == "global"
+            and (not row["assignees"]
+                 or (leader_pane and leader_pane in row["assignees"]))]
     leader_held = {"count": len(held),
                    "oldest_age_s": max((row["age_s"] or 0) for row in held)
                                   if held else None}

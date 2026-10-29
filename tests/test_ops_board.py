@@ -6,6 +6,7 @@ unavailable instead of becoming a zero, and the board refreshes on a timer
 without any model in the loop.
 """
 
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -175,6 +176,36 @@ class OpsBoardTests(unittest.TestCase):
                          board["reference"]["tasks"]["leader_held"])
         self.assertEqual(1, board["brief"]["tasks"]["leader_held"])
         self.assertEqual(7200, board["brief"]["tasks"]["leader_held_oldest_age_s"])
+
+    def test_leader_held_counts_explicit_leader_assignment_with_the_unowned(self):
+        # t407 F1 alignment: a task explicitly assigned to the leader pane is
+        # the leader's carried work too, not just unowned global rows.
+        client = sample_client()
+        tasks = client.responses["task_list"]["tasks"]
+        tasks.append({"id": "t19", "title": "Leader's own", "status": "open",
+                      "priority": "high", "scope": "global", "assignees": ["%15"],
+                      "created_at": NOW.timestamp() - 100, "updated_at": NOW.timestamp(),
+                      "lease_expires_at": None, "blocked_by": [], "eligible": False,
+                      "claimable": False, "attempts": 0})
+        with patch.dict(os.environ, {"DUNKINGSHEEP_VP_PANE": "%15"}):
+            board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual({"count": 2, "oldest_age_s": 7200},
+                         board["reference"]["tasks"]["leader_held"])
+        self.assertEqual(2, board["brief"]["tasks"]["leader_held"])
+
+    def test_leader_held_with_no_env_counts_only_unowned(self):
+        # Without DUNKINGSHEEP_VP_PANE the explicit-assignment branch is off;
+        # only unowned global actives count. Boring fallback, no invented pane.
+        client = sample_client()
+        client.responses["task_list"]["tasks"].append(
+            {"id": "t19", "title": "Leader's own", "status": "open",
+             "priority": "high", "scope": "global", "assignees": ["%15"],
+             "created_at": NOW.timestamp() - 100, "updated_at": NOW.timestamp(),
+             "lease_expires_at": None, "blocked_by": [], "eligible": False,
+             "claimable": False, "attempts": 0})
+        board = ops_board.build(client, self.conn, now=NOW)
+        self.assertEqual({"count": 1, "oldest_age_s": 7200},
+                         board["reference"]["tasks"]["leader_held"])
 
     def test_leader_held_is_zero_with_none_ages_when_nothing_is_unowned(self):
         client = sample_client()
