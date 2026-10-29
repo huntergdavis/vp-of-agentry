@@ -18,12 +18,13 @@ each with a negative control):
 
   covered   no-descendant-overflow  (scrollWidth > clientWidth on any element)
             no-page-scrollbar       (documentElement scrollWidth > clientWidth)
+            target-size             (WCAG 2.5.8: every interactive control >= 24x24 CSS px)
             dialog-closed           (capture only with no role=dialog in the DOM)
             no-writes               (no non-GET request reached the app)
             renders                 (the app shell mounted before any rule is judged)
 
-  not yet   per-width nav rules, clipped-control, target size >= 24x24, Tab walk,
-            text 200%, PAINT verification, contrast thresholds.
+  not yet   per-width nav rules, clipped-control, Tab walk, text 200%, PAINT
+            verification, contrast thresholds.
             They are deliberately absent rather than silently skipped: `not_covered`
             in the JSON names them, so a reader cannot mistake this run for the full
             matrix.
@@ -68,11 +69,15 @@ WIDTHS = (
 
 NOT_COVERED = [
     "per-width nav rules (five links / Boards+inline status / second row) - not implemented here",
-    "clipped-control and target >= 24x24 - not implemented here",
+    "clipped-control - not implemented here",
     "Tab walk at 480/320 and the text-200% check - not implemented here",
     "PAINT verification of visible controls (pixel evidence, not geometry) - not implemented here",
     "contrast thresholds; live deployed desk; real browser zoom or physical devices",
 ]
+
+# WCAG 2.5.8 (AA) minimum target size. Named as one constant so a future pass that
+# keeps the same number cannot drift from the rule it is enforcing.
+MIN_TARGET_PX = 24
 
 # Every read the desk makes on first paint. A route not listed here 404s and is reported,
 # so a feature PR that adds a request must add it here in the SAME PR (harness rule).
@@ -114,6 +119,29 @@ OVERFLOW_JS = """
           pageScrollWidth: Math.ceil(root.scrollWidth),
           pageClientWidth: Math.ceil(root.clientWidth),
           docScrollWidth: Math.ceil(document.body.scrollWidth),
+          // WCAG 2.5.8 target size, measured on the CONTROL'S OWN box. The first version
+          // of this rule took max(own, parent) to model a padded hit area - and that made
+          // the rule unable to fail on the negative control (a 10x10 button inside <main>
+          // inherited main's box and passed). Own box only, so the rule can fail.
+          // Exemption, per WCAG: a link inline in a sentence ("inline" exception).
+          smallTargets: (() => {
+            const sel = 'a[href], button, input, select, textarea, summary, [role="button"], ' +
+                        '[role="link"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])';
+            const out = [];
+            for (const el of document.querySelectorAll(sel)) {
+              const s = getComputedStyle(el);
+              if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') continue;
+              const r = el.getBoundingClientRect();
+              if (r.width === 0 && r.height === 0) continue;          // not rendered
+              if (el.tagName === 'A' && s.display === 'inline') continue;   // WCAG inline exception
+              const w = r.width, h = r.height;
+              if (Math.round(w) < 24 || Math.round(h) < 24) {
+                out.push({selector: cssPath(el), tag: el.tagName.toLowerCase(),
+                          width: Math.round(w), height: Math.round(h)});
+              }
+            }
+            return out.slice(0, 40);
+          })(),
           dialogOpen: !!document.querySelector('[role="dialog"], dialog[open]'),
           // The desk's root is `.dash-root`; older builds used `.shell`. Both count as
           // mounted, and a login screen is reported as its own failure, not as "no app".
@@ -198,7 +226,7 @@ def run(argv=None):
               "emulation": "viewport size + deviceScaleFactor only; NOT browser zoom",
               "widths": [w[0] for w in widths], "themes": themes,
               "rules": ["renders", "no-descendant-overflow", "no-page-scrollbar",
-                        "dialog-closed", "no-writes"],
+                        "target-size", "dialog-closed", "no-writes"],
               "not_covered": NOT_COVERED, "results": [], "failures": []}
 
     with sync_playwright() as pw:
@@ -271,6 +299,15 @@ def run(argv=None):
                     if data["pageScrollWidth"] > data["pageClientWidth"] + 1:
                         fail("no-page-scrollbar", "documentElement.scrollWidth <= clientWidth",
                              str(data["pageClientWidth"]), str(data["pageScrollWidth"]))
+                    if data["smallTargets"]:
+                        first = data["smallTargets"][0]
+                        fail("target-size",
+                             "every interactive control is at least %dx%d CSS px (WCAG 2.5.8)"
+                             % (MIN_TARGET_PX, MIN_TARGET_PX),
+                             "0 controls under the floor",
+                             "%d under it, first: %s (%dx%d)" % (
+                                 len(data["smallTargets"]), first["selector"],
+                                 first["width"], first["height"]))
                     if data["dialogOpen"]:
                         fail("dialog-closed", "no role=dialog / dialog[open] at capture time",
                              "no dialog", "a dialog was open")
@@ -279,7 +316,7 @@ def run(argv=None):
                              "0 non-GET requests",
                              json.dumps(writes[:3]))
                     for rule in ("renders", "no-descendant-overflow", "no-page-scrollbar",
-                                 "dialog-closed", "no-writes"):
+                                 "target-size", "dialog-closed", "no-writes"):
                         case["rules"].setdefault(rule, True)
                     case["route_misses"] = sorted(set(route_misses))
                     case["page_errors"] = page_errors[:5]
@@ -302,7 +339,7 @@ def run(argv=None):
                       "by_rule": report["summary"]["by_rule"]}))
     if args.self_check:
         # The negative control is the point: a rule that cannot fail is not evidence.
-        covered = ("no-descendant-overflow", "no-page-scrollbar")
+        covered = ("no-descendant-overflow", "no-page-scrollbar", "target-size")
         tripped = {f["rule"] for f in report["failures"]}
         missing = [r for r in covered if r not in tripped]
         print(json.dumps({"self_check": "pass" if not missing else "FAIL",
@@ -312,8 +349,10 @@ def run(argv=None):
 
 
 BROKEN_FIXTURE = """<!doctype html><html><head><meta charset="utf-8"><title>broken</title>
-<style>html,body{margin:0} .wide{width:2000px;height:40px;background:#333}</style></head>
+<style>html,body{margin:0} .wide{width:2000px;height:40px;background:#333}
+.tiny{width:10px;height:10px;border:0;padding:0;background:#555}</style></head>
 <body><main><h1>negative control</h1><div class="wide">this element is 2000px wide on a narrow viewport</div>
+<button class="tiny" aria-label="too small"></button>
 </main></body></html>"""
 
 
