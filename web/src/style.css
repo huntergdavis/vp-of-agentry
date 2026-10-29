@@ -205,6 +205,13 @@ h1,h2,p { margin-top: 0; }
 .settings-modal { background: var(--topbar-surface); width: min(420px,92vw); border-radius: var(--radius-13px); box-shadow: var(--settings-modal-shadow); padding: 24px; max-height: 80vh; overflow: auto; }
 .settings-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
 .settings-head h2 { font-size: 20px; margin: 4px 0 0; }
+/* Enlarged Appearance text must wrap before it pushes Close out of the dialog. */
+.settings-modal[aria-label="Appearance"] .settings-head h2 {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.settings-modal[aria-label="Appearance"] .settings-head .icon-button { flex: none; }
 .settings-modal label { display: block; font-size: 11px; color: var(--settings-modal-ink); font-weight: 800; margin: 0 0 13px; }
 .settings-modal input { display: block; width: 100%; border: 1px solid var(--login-card-border); border-radius: var(--radius); padding: 10px; margin-top: 6px; outline: 0; }
 .settings-modal input:focus { border-color: var(--editor-border-2); }
