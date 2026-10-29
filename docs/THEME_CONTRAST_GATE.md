@@ -72,6 +72,10 @@ expiring with t192. These are temporary BASELINE-FAIL records, not passing
 contrast or final rendered waiver acceptance. Reasons, decisions, colors and
 floors are preserved from design triage; source paths are repository-relative.
 
+The new-theme rows (Nostromo 38 = 17 fixes + 21 waivers, 2001 42 = 21 fixes +
+21 waivers) were deferred with t203 and are now REMOVED, not re-waived; see the
+t203 section below. 99 Default/CRT entries remain.
+
 The CLI loads that baseline by default. Use --baseline FILE for a reviewed
 replacement or --no-baseline for the raw report. Entries have this schema:
 
@@ -107,6 +111,77 @@ Final independent review remains required.
 
 Exit 0 means no unexcepted FAIL; 1 means contrast failure; 2 means invalid
 input/parser failure. JSON enumerates all unused combinations as well.
+
+## t203 new-theme remediation
+
+Measured on this branch: the widened gate on main 0ccc348 reports Nostromo 38
+and 2001 42 referenced FAIL rows, exactly the 80 deferred t203 entries. Both
+themes declared only 84 and 86 component tokens, so 238-240 tokens were
+resolved from the shared `:root` block instead of their own palette. That
+inheritance, not the palettes, produced the failures: Nostromo (dark) resolved
+light chrome surfaces such as `--topbar-surface:#fff` under cream ink, and 2001
+(light) resolved `--ink:#202126` onto inherited dark panels.
+
+The repair adds one remediation block per theme that aliases the component
+tokens to that theme's own semantic tokens, following the pattern already used
+by the shipped themes (surfaces to `--surface`/`--surface-raised`, borders to
+`--border`/`--border-strong`, inks to `--ink`/`--muted`, status inks to
+`--success`/`--warning`). The only value changes are to tokens whose floor
+cannot be met by a palette border: Nostromo `--game-type-border-3` uses the
+theme's `--teal` on its green panel, and 2001 draws `--game-type-border-3` and
+`--ops-mission-head-border` in `--surface` because `--border` measures under 3:1
+on those two tints. No new colors are introduced and no consumer CSS is edited.
+
+Nostromo carries a declared black scanline overlay at alpha 0.12 over the whole
+page, so its repaired borders are also checked with the two-part overlay bound
+in tools/theme_overlay_bounds.py (static colour, then the overlay-darkened
+endpoints and the independent continuous phase lower bound). The lowest repaired
+border is 3.046:1 (floor 3.0) and the lowest repaired text pair is 6.22:1 (floor
+4.5) under that bound. 2001 declares `--overlay:none`, so its rows are static
+only. This is the analytical two-part bound, not rendered pixel or phase
+sampling; the reviewed gate itself remains the static pair model.
+
+The 42 scoped waivers were re-reviewed rather than renewed: every one of them is
+reachable by a theme-palette border that meets its floor, so all 80 entries leave
+the baseline. Losing the waivers is a visible design change (decorative
+separators in the two themes are now stronger), so the design owner reviews this
+branch; no rendered, live-theme or full-accessibility claim is made here.
+
+Reproduced commands and results: `python3 tools/theme_contrast.py --no-baseline`
+before: Nostromo 38 FAIL, 2001 42 FAIL. After: Nostromo 0 FAIL, 2001 0 FAIL, and
+no other theme changed (Default 49, CRT 50 before and after). With the default
+baseline the CLI exits 0 and its only BASELINE-FAIL rows are the 99 Default/CRT
+entries.
+
+## Default strong-border baseline retirement
+
+The Default queue-control palette at `0f871ae92539266f27a04b8ef853c35c9faa02e3`
+raises `--border-strong` from `#45475a` to `#6c7086` on `--surface-raised`
+(`#1e1e2e`): 1.797905294:1 becomes 3.358061911:1 against the 3:1 floor.
+VP i32556 permits retiring exactly two Default fix entries:
+`border-strong/surface-raised` and its alias `dash-border-2/surface-raised`.
+The other 97 entries retain their values, decisions, floors and t192 expiry.
+All 42 waiver entries remain. The two queue-help rows that also pass under
+this palette remain in the baseline pending their separate disposition.
+
+The original input hash still identifies the 99-row Default/CRT triage. Its
+current range covers the 97 retained entries; `baseline_retirements` records
+the two removed keys and the palette source head. This is not new waiver
+authority or completion of t192.
+
+Focused independent execution on the palette head reproduced 54/54 Default
+queue checks and 6/6 Theme-select checks at 1440x900 and 390x844, Chromium
+153.0.8010.12, DPR1. Shared-control geometry/text checks and unchanged CRT
+captures supplement the static token comparison. This covers selected computed
+colors and states, not every shared-token consumer or full accessibility.
+
+The baseline-retirement negative control uses the original colors from
+`b77b46f63b0f941f541622531018ad4b6ec2c1b3` with the new baseline. It must
+produce two unexcepted FAIL rows at precisely the removed keys, plus 97
+BASELINE-FAIL rows. The candidate colors with the new baseline must produce
+zero unexcepted FAIL rows and 95 BASELINE-FAIL rows: the other two repaired
+queue-help entries still exist but no longer match failing rows. The control
+proves the removed exceptions cannot hide the original border failures.
 
 ## Limits
 

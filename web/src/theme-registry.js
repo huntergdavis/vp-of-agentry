@@ -26,3 +26,22 @@ export function buildThemeRegistry(manifests, styles) {
   return themes.sort((a, b) => Number(b.id === 'default') - Number(a.id === 'default') ||
     a.order - b.order || compare(a.name, b.name) || compare(a.id, b.id));
 }
+
+// Group labels in their declared order; labels not pinned here sort alphabetically after.
+export const THEME_GROUP_ORDER = ['Standard', 'Classic sci-fi', 'Other'];
+
+export function groupThemes(themes, pinnedOrder = THEME_GROUP_ORDER) {
+  const buckets = new Map();
+  for (const theme of themes) {
+    const label = theme.group || 'Other';
+    if (!buckets.has(label)) buckets.set(label, []);
+    buckets.get(label).push(theme);
+  }
+  const rank = label => {
+    const at = pinnedOrder.indexOf(label);
+    return at === -1 ? pinnedOrder.length : at;
+  };
+  const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  return [...buckets.keys()].sort((a, b) => rank(a) - rank(b) || compare(a, b))
+    .map(label => ({ label, options: buckets.get(label) }));
+}
