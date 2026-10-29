@@ -258,22 +258,54 @@ def _manifest(folder: Path, follow_dir_symlinks=True):
     return digest, entries, problems
 
 
-def reproduces_block(entries):
-    """Say whether the advertised commands actually reproduce the recorded digests.
+def _hazards(path):
+    """Why a name may defeat an advertised command (empty list = it does not)."""
+    found = []
+    if any(ch.isspace() for ch in path):
+        found.append("whitespace")
+    if "'" in path or '"' in path:
+        found.append("quote")
+    if "\\" in path:
+        found.append("backslash")
+    if any(ord(ch) < 32 for ch in path):
+        found.append("control-character")
+    return found
 
-    A command is part of the receipt. If a supported filename makes it hash a different
-    file set, that has to be stated on the artifact - not discovered by a reader who
-    compares release identity with the command we told them to run.
-    """
-    spaced = [path for path, _ in entries if any(ch.isspace() for ch in path)]
+
+def reproduces_block(entries):
+    """Compatibility claims DERIVED from the names, not asserted.
+
+    Reviewer %31 (t465 P2) broke the previous version with two supported names:
+    `it's.js` makes the legacy pipeline fail on xargs' unmatched quote even with no
+    whitespace, and a name containing a newline makes sha256sum ESCAPE its OUTPUT line,
+    so the NUL-safe pipeline's digest no longer equals our raw-path payload even though
+    it exits 0. Both flags were unconditional claims; both are now computed.
+    The complete logical hash is unchanged: if a name defeats a command, the command is
+    declared non-reproducing, never the hash."""
+    legacy_risk, nul_risk = [], []
+    for path, _ in entries:
+        hazards = _hazards(path)
+        if hazards:
+            legacy_risk.append((path, hazards))
+        if any(h in ("backslash", "control-character") for h in hazards):
+            nul_risk.append((path, hazards))
+
+    def _reason(risks):
+        return None if not risks else ("%d name(s) defeat this command: %s"
+                                       % (len(risks), "; ".join(
+                                           "%s (%s)" % (p, ",".join(h))
+                                           for p, h in risks[:3])))
+
     return {"nul_safe_command": BUILD_PIPELINE,
-            "nul_safe_reproduces": True,
             "legacy_command": LEGACY_RECIPE,
-            "legacy_recipe_reproduces": not spaced,
-            "legacy_reason": None if not spaced else
-            ("%d path(s) contain whitespace (%s); the legacy pipeline splits them and "
-             "would hash a smaller file set" % (len(spaced), ", ".join(spaced[:3]))),
-            "payload": "sorted '<hex>  ./path' lines, sha256 of the joined text"}
+            "supported_names_contract": "flags hold for names with no whitespace, no quote, "
+                                        "no backslash and no control character; anything else "
+                                        "is reported as a hazard on the command it defeats",
+            "nul_safe_reproduces": not nul_risk,
+            "nul_safe_reason": _reason(nul_risk),
+            "legacy_recipe_reproduces": not legacy_risk,
+            "legacy_reason": _reason(legacy_risk),
+            "payload": "sorted '<hex>  ./path' lines with RAW paths, sha256 of the joined text"}
 
 
 def snapshot_build(dist: Path):
