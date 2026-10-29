@@ -219,6 +219,7 @@ h1,h2,p { margin-top: 0; }
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
+  background: var(--bg);
 }
 #root:has(> .update-banner + .dash-standalone) > .update-banner {
   position: static;
