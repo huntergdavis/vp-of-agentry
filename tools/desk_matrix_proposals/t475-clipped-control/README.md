@@ -12,7 +12,7 @@ Measured outcome — **expected vs actual**
 | variant | expectation | actual rule outcome |
 |---|---|---|
 | `visible` (positive) | pass | **passed**, no failures — the positive is not vacuous |
-| `clipped` (control inside a 20px `overflow:hidden` box) | should be flagged: most of the control is not painted | **passed** — no rule fires |
+| `clipped` (control inside a 20px `overflow:hidden` box; 20 of its 32px are visible, so 62.5% visible / **37.5% clipped**) | should be flagged: part of the control is never painted | **passed** — no rule fires |
 | `hitcloaked` (control fully in the box, sibling overlay covers it, `elementFromPoint` at its centre returns a DIV) | should be flagged: a user cannot click it | **passed** — no rule fires |
 
 **GAP REPRODUCED.** Both negatives pass today, and each existing rule is honest about why: `no-descendant-overflow` compares `scrollWidth > clientWidth` (horizontal only, and a clipped child does not widen the parent), `target-size` measures `getBoundingClientRect()`, which reports the **unclipped** 120x32 box, and `renders`/`dialog-closed`/`no-writes` are unrelated. So this is not a rule lying — it is a case no rule covers.
