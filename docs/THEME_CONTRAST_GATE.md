@@ -153,6 +153,36 @@ no other theme changed (Default 49, CRT 50 before and after). With the default
 baseline the CLI exits 0 and its only BASELINE-FAIL rows are the 99 Default/CRT
 entries.
 
+## Default strong-border baseline retirement
+
+The Default queue-control palette at `0f871ae92539266f27a04b8ef853c35c9faa02e3`
+raises `--border-strong` from `#45475a` to `#6c7086` on `--surface-raised`
+(`#1e1e2e`): 1.797905294:1 becomes 3.358061911:1 against the 3:1 floor.
+VP i32556 permits retiring exactly two Default fix entries:
+`border-strong/surface-raised` and its alias `dash-border-2/surface-raised`.
+The other 97 entries retain their values, decisions, floors and t192 expiry.
+All 42 waiver entries remain. The two queue-help rows that also pass under
+this palette remain in the baseline pending their separate disposition.
+
+The original input hash still identifies the 99-row Default/CRT triage. Its
+current range covers the 97 retained entries; `baseline_retirements` records
+the two removed keys and the palette source head. This is not new waiver
+authority or completion of t192.
+
+Focused independent execution on the palette head reproduced 54/54 Default
+queue checks and 6/6 Theme-select checks at 1440x900 and 390x844, Chromium
+153.0.8010.12, DPR1. Shared-control geometry/text checks and unchanged CRT
+captures supplement the static token comparison. This covers selected computed
+colors and states, not every shared-token consumer or full accessibility.
+
+The baseline-retirement negative control uses the original colors from
+`b77b46f63b0f941f541622531018ad4b6ec2c1b3` with the new baseline. It must
+produce two unexcepted FAIL rows at precisely the removed keys, plus 97
+BASELINE-FAIL rows. The candidate colors with the new baseline must produce
+zero unexcepted FAIL rows and 95 BASELINE-FAIL rows: the other two repaired
+queue-help entries still exist but no longer match failing rows. The control
+proves the removed exceptions cannot hide the original border failures.
+
 ## Limits
 
 This is static pair coverage, not whole-page accessibility certification.
